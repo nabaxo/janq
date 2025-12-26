@@ -90,18 +90,28 @@ if (target) {
     var heightPct = %d / 100.0;
 	var duration = %d;
 	var easingType = "%s";
-    var shouldShow = %t; // passed from Go
+    var shouldShow = %t;
 
-    // Screen Calculation
+    // Current State Detection
+    var isVisible = !target.minimized && (target.frameGeometry.y + target.frameGeometry.height > 0);
+
     var area = null;
-    if (workspace.activeScreen && workspace.activeScreen.geometry) {
-        area = workspace.activeScreen.geometry;
+
+    // Determine AreaContext for logic
+    if (isVisible && !target.minimized) {
+        // STAY: Use target's current screen area
+        area = workspace.clientArea(KWin.PlacementArea, target);
     } else {
-        var screenId = workspace.activeScreen;
-        area = workspace.clientArea(KWin.PlacementArea, screenId, target);
+        // SUMMON: Use active/mouse screen
+        if (workspace.activeScreen && workspace.activeScreen.geometry) {
+            area = workspace.activeScreen.geometry;
+        } else {
+            var screenId = workspace.activeScreen;
+            area = workspace.clientArea(KWin.PlacementArea, screenId, target);
+        }
     }
 
-    // Target Geometry (Active Screen for Showing)
+    // Target Geometry
     var finalWidth = area.width * widthPct;
     var finalHeight = area.height * heightPct;
     var finalX = area.x + (area.width - finalWidth) / 2;
@@ -116,16 +126,27 @@ if (target) {
 
     if (shouldShow) {
         // SHOWING
-        target.minimized = false;
+
+        // Ensure visible
+        if (target.minimized) {
+            target.minimized = false;
+        }
+
         if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
         else workspace.activeClient = target;
 
         // Animation Start Point: Current Y
         var startY = target.frameGeometry.y;
 
-        // If way off (first run), snap to just above
-        if (startY > finalY + finalHeight || startY < finalY - finalHeight * 2) {
+        // If it was fully hidden/minimized, snap to start position
+        if (!isVisible) {
              startY = finalY - finalHeight;
+             target.frameGeometry = {
+                x: finalX,
+                y: startY,
+                width: finalWidth,
+                height: finalHeight
+             };
         }
 
         // Setup timer
@@ -162,21 +183,16 @@ if (target) {
         }
 
     } else {
-        // HIDING: Stay on CURRENT display
+        // HIDING
 
-        // Use current geometry for X/W/H to stay on same monitor
-        var currentGeo = target.frameGeometry; // Read fresh
+        var currentGeo = target.frameGeometry;
         var startY = currentGeo.y;
         var startX = currentGeo.x;
         var startW = currentGeo.width;
         var startH = currentGeo.height;
 
-        var endY = startY - startH;
-
-        // Ideally we want to go exactly to "Top of Current Screen" - Height.
-        // But (startY - startH) is safe enough relative move if we are fully visible.
-        // If we were interrupted (halfway), startY is halfway. endY = startS - startH means we go up by full height.
-        // This effectively hides it.
+        // Goal: Move up until completely off screen, then minimize.
+        var endY = area.y - startH;
 
         if (duration > 0) {
             var startTime = new Date().getTime();
@@ -193,22 +209,26 @@ if (target) {
                 var currentY = startY + diff * ease;
 
                 target.frameGeometry = {
-                    x: startX,      // FIX: Use startX (current monitor), not finalX (active mouse monitor)
+                    x: startX,
                     y: currentY,
-                    width: startW,  // FIX: Use startW
-                    height: startH  // FIX: Use startH
+                    width: startW,
+                    height: startH
                 };
 
                 if (progress >= 1.0) {
                     timer.stop();
-                    // target.minimized = true; // Optional: Minimize after hide?
+                    // PROPER HIDE: Minimize at end of animation
+                    target.minimized = true;
                 }
             });
             timer.start();
         } else {
              target.frameGeometry = { x: startX, y: endY, width: startW, height: startH };
+             target.minimized = true;
         }
     }
+} else {
+    // No target window found!
 }
 `
 
