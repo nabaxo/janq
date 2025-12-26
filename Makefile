@@ -11,4 +11,7 @@ clean:
 	rm -f $(BINARY_NAME)
 
 run: build
-	./$(BINARY_NAME)
+	./vibullshit
+
+daemon: build
+	./vibullshit --daemon

@@ -44,19 +44,28 @@ hide_easing = "ease-in"
 
 ## Usage
 
-### 1. Start the Daemon / Toggle Visibility
-Run the program directly:
-```bash
-./vibullshit
-```
-- **First Run**:
-  - Starts as a background daemon.
-  - **Auto-checks** if `wezquake` is running.
-  - If missing, **auto-starts** the terminal using `start_command` from config.
-  - Minimizes the window to tray.
-- **Subsequent Runs**: It instantly toggles the terminal window.
+1.  **Start the Daemon**:
+    Run the program with the `--daemon` flag to start the background service and tray icon.
+    ```bash
+    ./vibullshit --daemon
+    ```
 
-Add this command to your **KDE Autostart** setttings.
+    This will:
+    -   Start the tray icon.
+    -   Grab your terminal window (defined by `window_class`), set it to floating/always-on-top, and hide it off-screen.
+    -   Listen for D-Bus signals.
+
+2.  **Toggle the Terminal**:
+    Run the program *without* arguments to toggle the visibility of the terminal.
+    ```bash
+    ./vibullshit
+    ```
+    Bind this command to a global shortcut in KDE System Settings (e.g., Meta+Grave).
+
+3.  **Tray Icon**:
+    -   **Left-Click**: Toggle terminal visibility.
+    -   **Middle-Click**: Quit the daemon.
+    (Note: Right-click menu is currently not implemented).
 
 ### 2. Global Shortcut Setup
 1. Open **KDE System Settings**.

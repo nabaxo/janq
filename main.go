@@ -44,8 +44,6 @@ var clients = workspace.windowList ? workspace.windowList() : workspace.clientLi
 var target = null;
 var windowClass = "%s";
 
-print("Vibullshit: Script started for class " + windowClass);
-
 for (var i = 0; i < clients.length; i++) {
     var c = clients[i];
     var match = false;
@@ -55,7 +53,6 @@ for (var i = 0; i < clients.length; i++) {
 
     if (match) {
         target = c;
-        print("Vibullshit: Found target window: " + c.caption);
         break;
     }
 }
@@ -81,8 +78,6 @@ if (target) {
 	var showEasing = "%s";
 	var hideEasing = "%s";
 
-    print("Vibullshit: Toggle target state check...");
-
     // Get screen geometry
     var area = null;
     if (workspace.activeScreen && workspace.activeScreen.geometry) {
@@ -99,15 +94,10 @@ if (target) {
     var finalY = area.y;
 
     // Detect state based on vertical position
-    // If top of window is above the screen (allowing for some margin), it's hidden
     var isHidden = (target.frameGeometry.y + target.frameGeometry.height/2) < area.y;
-
-    print("Vibullshit: Screen Y=" + area.y + " Window Y=" + target.frameGeometry.y + " Hidden? " + isHidden);
 
     if (isHidden) {
         // SHOW
-        print("Vibullshit: Showing window...");
-
         target.minimized = false;
         target.keepAbove = true;
         target.onAllDesktops = true;
@@ -118,10 +108,7 @@ if (target) {
 
         if (showDuration > 0) {
             var startY = target.frameGeometry.y;
-            // Ensure we start at least from -height if it was way off
-            if (startY > finalY) startY = finalY - finalHeight; // Should verify logic
-
-            // Actually, best "Hidden" start pos is: finalY - finalHeight
+            if (startY > finalY) startY = finalY - finalHeight;
             startY = finalY - finalHeight;
 
             target.frameGeometry = {
@@ -174,8 +161,6 @@ if (target) {
 
     } else {
         // HIDE
-        print("Vibullshit: Hiding window...");
-
         if (hideDuration > 0) {
             var startY = target.frameGeometry.y;
             var endY = finalY - finalHeight; // Move up off-screen
@@ -214,7 +199,7 @@ if (target) {
         }
     }
 } else {
-    print("Vibullshit: No target window found!");
+    // No target window found!
 }
 `
 
@@ -318,7 +303,6 @@ func isNumeric(s string) bool {
 }
 
 func toggleQuake(config *Config) {
-	fmt.Println("toggleQuake() called. Connecting to session bus...")
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		log.Printf("Failed to connect to session bus: %v", err)
@@ -354,14 +338,12 @@ func toggleQuake(config *Config) {
 	tmpFile.Close()
 
 	var scriptID int32
-	fmt.Println("Loading KWin script...")
 	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), "quake_toggle").Store(&scriptID)
 	if err != nil {
 		log.Printf("Failed to load KWin script: %v", err)
 		return
 	}
 
-	fmt.Printf("Running KWin script (ID: %d)...\n", scriptID)
 	scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
 	scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
 	err = scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
@@ -373,10 +355,8 @@ func toggleQuake(config *Config) {
 	waitMs := config.ShowDuration + config.HideDuration + 100 // Safe upper bound
 	time.Sleep(time.Duration(waitMs) * time.Millisecond)
 
-	fmt.Println("Stopping KWin script...")
 	scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
 	obj.Call("org.kde.kwin.Scripting.unloadScript", 0, "quake_toggle").Store()
-	fmt.Println("toggleQuake() finished.")
 }
 
 func ensureGrabbed(config *Config) {
@@ -420,20 +400,6 @@ if (target) {
     var displayIndex = %d;
     var widthPct = %d / 100.0;
     var heightPct = %d / 100.0;
-
-    target.keepAbove = true;
-    target.onAllDesktops = true;
-    target.noBorder = true;
-    target.minimized = true; // Start hidden
-
-    var screenId = 0;
-    if (displayMode === "follow-mouse") {
-        screenId = workspace.activeScreen;
-    } else if (displayMode === "specific") {
-        screenId = displayIndex;
-    } else {
-        screenId = workspace.activeScreen;
-    }
 
     // Plasma 6 likely
     var area = workspace.activeScreen.geometry;
@@ -493,46 +459,25 @@ if (target) {
 }
 
 func main() {
-	flag.Parse() // Keep flag parsing for help/usage, though we don't use --daemon anymore
+	daemonMode := flag.Bool("daemon", false, "Run in daemon mode with tray icon")
+	flag.Parse()
 
 	config := loadConfig()
 
-	// Connect to session bus
-	conn, err := dbus.ConnectSessionBus()
-	if err != nil {
-		log.Fatalf("Failed to connect to session bus: %v", err)
-	}
-
-	// Try to become the primary owner of the D-Bus service
-	reply, err := conn.RequestName("com.nabaxo.vibullshit", dbus.NameFlagDoNotQueue)
-	if err != nil {
-		log.Fatalf("Failed to request D-Bus name: %v", err)
-	}
-
-	fmt.Printf("D-Bus RequestName reply: %v\n", reply)
-
-	if reply == dbus.RequestNameReplyPrimaryOwner {
-		// We are the first instance -> Run as Daemon
-		fmt.Println("Instance became D-Bus PRIMARY OWNER. Starting Daemon...")
-
-		// Run daemon logic (tray, service, grab)
-		// Note: runDaemon handles its own connection and exports.
-		// Ideally pass existing connection, but for now we can close this one or reuse it.
-		// Given runDaemon creates a new connection, let's close this check-connection and call runDaemon.
-		conn.Close()
+	if *daemonMode {
 		runDaemon(&config)
-	} else if reply == dbus.RequestNameReplyExists {
-		// Another instance owns the name -> Toggle it
-		fmt.Println("Instance Detected EXISTING Daemon. Sending Toggle signal...")
-		obj := conn.Object("com.nabaxo.vibullshit", "/com/nabaxo/vibullshit")
-		err = obj.Call("com.nabaxo.vibullshit.Toggle", 0).Store()
-		if err != nil {
-			log.Printf("Failed to toggle remote daemon: %v", err)
-		} else {
-			fmt.Println("Toggle signal sent successfully.")
-		}
 	} else {
-		log.Fatalf("Unexpected D-Bus name request reply: %v", reply)
+		// Try to connect to an existing daemon and send a toggle signal
+		conn, err := dbus.ConnectSessionBus()
+		if err == nil {
+			obj := conn.Object("com.nabaxo.vibullshit", "/com/nabaxo/vibullshit")
+			err = obj.Call("com.nabaxo.vibullshit.Toggle", 0).Store()
+			if err == nil {
+				return // Successfully toggled existing daemon
+			}
+		}
+		// Fallback to local toggle if no daemon is running or connection failed
+		toggleQuake(&config)
 	}
 }
 
@@ -541,6 +486,7 @@ func runDaemon(config *Config) {
 	if err != nil {
 		log.Fatalf("Failed to connect to session bus: %v", err)
 	}
+	defer conn.Close()
 
 	name := fmt.Sprintf("org.kde.StatusNotifierItem-vibullshit-%d", os.Getpid())
 	reply, err := conn.RequestName(name, dbus.NameFlagReplaceExisting)
@@ -550,20 +496,15 @@ func runDaemon(config *Config) {
 
 	// Auto-start terminal if needed
 	isRunning := checkProcessRunning(config.WindowClass)
-	fmt.Printf("Process '%s' running? %v\n", config.WindowClass, isRunning)
-
 	if config.StartCommand != "" && !isRunning {
-		fmt.Printf("Auto-Starting terminal: %s\n", config.StartCommand)
 		cmd := exec.Command("sh", "-c", config.StartCommand)
 		if err := cmd.Start(); err != nil {
 			log.Printf("Failed to start terminal: %v", err)
 		}
 
 		// Wait for window to appear (retry loop)
-		fmt.Println("Waiting for window to appear...")
 		for i := 0; i < 20; i++ {
 			if checkProcessRunning(config.WindowClass) {
-				fmt.Println("Window appeared!")
 				time.Sleep(500 * time.Millisecond) // Give it a moment to map the window
 				break
 			}
