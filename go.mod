@@ -1,4 +1,4 @@
-module vibullshit
+module gouake
 
 go 1.25.5
 

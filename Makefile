@@ -1,4 +1,5 @@
 BINARY_NAME=vibullshit
+BINARY_NAME=gouake
 
 .PHONY: all build clean run
 
@@ -11,7 +12,7 @@ clean:
 	rm -f $(BINARY_NAME)
 
 run: build
-	./vibullshit
+	./gouake
 
 daemon: build
-	./vibullshit --daemon
+	./gouake --daemon

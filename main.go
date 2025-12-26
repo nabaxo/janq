@@ -9,6 +9,7 @@ import (
 	_ "image/png"
 	"log"
 	"os"
+	"path/filepath"
 	"sync" // Added for toggleMutex
 	"syscall"
 	"time"
@@ -41,8 +42,12 @@ type Config struct {
 	HideEasing   string `toml:"hide_easing"`
 }
 
+// Global state to track toggle direction
+var targetVisible bool = false
+
+// Updated KWin script with Interruptible Animation logic & New Easings
 const kwinScriptTemplate = `
-// Compatibility for Plasma 5 vs 6
+// Compatibility
 var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
 var windowClass = "%s";
@@ -53,11 +58,7 @@ for (var i = 0; i < clients.length; i++) {
     if (c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) match = true;
     else if (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase()) match = true;
     else if (c.caption && c.caption.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) match = true;
-
-    if (match) {
-        target = c;
-        break;
-    }
+    if (match) { target = c; break; }
 }
 
 function getEasing(progress, type) {
@@ -67,21 +68,31 @@ function getEasing(progress, type) {
         case "ease-out": return progress * (2 - progress);
         case "ease-in-out":
             return progress < .5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+        // New Easings
+        case "sine-in": return 1 - Math.cos((progress * Math.PI) / 2);
+        case "sine-out": return Math.sin((progress * Math.PI) / 2);
+        case "sine-in-out": return -(Math.cos(Math.PI * progress) - 1) / 2;
+        case "quart-in": return progress * progress * progress * progress;
+        case "quart-out": return 1 - Math.pow(1 - progress, 4);
+        case "quart-in-out": return progress < 0.5 ? 8 * Math.pow(progress, 4) : 1 - Math.pow(-2 * progress + 2, 4) / 2;
+        case "cubic-in": return progress * progress * progress;
+        case "cubic-out": return 1 - Math.pow(1 - progress, 3);
+        case "cubic-in-out": return progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        case "back-in": var c1 = 1.70158; var c3 = c1 + 1; return c3 * progress * progress * progress - c1 * progress * progress;
+        case "back-out": var c1 = 1.70158; var c3 = c1 + 1; return 1 + c3 * Math.pow(progress - 1, 3) + c1 * Math.pow(progress - 1, 2);
         default: return progress * (2 - progress); // ease-out default
     }
 }
 
 if (target) {
-    var displayMode = "%s";
-    var displayIndex = %d;
+    // Config Paramters
     var widthPct = %d / 100.0;
     var heightPct = %d / 100.0;
-	var showDuration = %d;
-	var hideDuration = %d;
-	var showEasing = "%s";
-	var hideEasing = "%s";
+	var duration = %d;
+	var easingType = "%s";
+    var shouldShow = %t; // passed from Go
 
-    // Get screen geometry
+    // Screen Calculation
     var area = null;
     if (workspace.activeScreen && workspace.activeScreen.geometry) {
         area = workspace.activeScreen.geometry;
@@ -90,55 +101,59 @@ if (target) {
         area = workspace.clientArea(KWin.PlacementArea, screenId, target);
     }
 
-    // Calculate geometry
+    // Target Geometry
+    // Note: We always calculate target geometry based on ACTIVE screen if showing,
+    // or CURRENT geometry if hiding (to stay on screen).
+
+    // Logic:
+    // If SHOWING: Target is top of Active Screen.
+    // If HIDING: Target is just above top of CURRENT window position.
+
+    // Wait, to support interruption, we need to know where we are going.
+    // If hiding -> we go UP to -height.
+    // If showing -> we go DOWN to y=area.y.
+
     var finalWidth = area.width * widthPct;
     var finalHeight = area.height * heightPct;
     var finalX = area.x + (area.width - finalWidth) / 2;
-    var finalY = area.y;
+    var finalY = area.y; // Top of screen
 
-    // Detect state based on vertical position
-    var isHidden = (target.frameGeometry.y + target.frameGeometry.height/2) < area.y;
+    // Properties
+    target.keepAbove = true;
+    target.onAllDesktops = true;
+    target.noBorder = true;
+    target.skipTaskbar = true;
+    target.skipPager = true; // Fix focus stealing?
 
-    if (isHidden) {
-        // SHOW
+    if (shouldShow) {
+        // SHOWING
         target.minimized = false;
-        target.keepAbove = true;
-        target.onAllDesktops = true;
-        target.noBorder = true;
-        target.skipTaskbar = true;
-        target.skipPager = true;
+        if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
+        else workspace.activeClient = target;
 
-        // Force activation (Plasma 6 uses activeWindow, Plasma 5 uses activeClient)
-        if (workspace.activeWindow !== undefined) {
-            workspace.activeWindow = target;
-        } else {
-            workspace.activeClient = target;
+        // Animation Start Point: Current Y
+        var startY = target.frameGeometry.y;
+
+        // If way off (first run), snap to just above
+        if (startY > finalY + finalHeight || startY < finalY - finalHeight * 2) {
+             startY = finalY - finalHeight;
         }
 
-        if (showDuration > 0) {
-            var startY = target.frameGeometry.y;
-            if (startY > finalY) startY = finalY - finalHeight;
-            startY = finalY - finalHeight;
-
-            target.frameGeometry = {
-                x: finalX,
-                y: startY,
-                width: finalWidth,
-                height: finalHeight
-            };
-
+        // Setup timer
+        if (duration > 0) {
             var endY = finalY;
             var startTime = new Date().getTime();
+            var diff = endY - startY;
 
             var timer = new QTimer();
             timer.interval = 16;
             timer.timeout.connect(function() {
                 var now = new Date().getTime();
                 var elapsed = now - startTime;
-                var progress = Math.min(elapsed / showDuration, 1.0);
-                var ease = getEasing(progress, showEasing);
+                var progress = Math.min(elapsed / duration, 1.0);
+                var ease = getEasing(progress, easingType);
 
-                var currentY = startY + (endY - startY) * ease;
+                var currentY = startY + diff * ease;
 
                 target.frameGeometry = {
                     x: finalX,
@@ -149,72 +164,66 @@ if (target) {
 
                 if (progress >= 1.0) {
                     timer.stop();
-                    target.frameGeometry = {
-                        x: finalX,
-                        y: finalY,
-                        width: finalWidth,
-                        height: finalHeight
-                    };
+                    target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
                 }
             });
             timer.start();
         } else {
-            // Instant show
-            target.frameGeometry = {
-                x: finalX,
-                y: finalY,
-                width: finalWidth,
-                height: finalHeight
-            };
+             target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
         }
 
     } else {
-        // HIDE: Hide on CURRENT display (do not jump to active screen)
+        // HIDING
+        // If hiding, we want to slide UP from current position to (current.y - height)
+        // OR better: slide UP to (ScreenTop - Height). Since we want it to disappear fully.
 
-        var currentGeo = target.frameGeometry;
-        var startY = currentGeo.y;
-        var startX = currentGeo.x;
-        var startW = currentGeo.width;
-        var startH = currentGeo.height;
+        // We use current X/W/H to ensure we stay on same monitor (if we haven't moved).
+        var startY = target.frameGeometry.y;
+        var startX = target.frameGeometry.x;
+        // But we want to ensure it goes to the correct "Top".
+        // Let's assume standard behavior: Hide to Top of CURRENT monitor.
+        // Approximation: if Y is visible, Top is Y. No, that's wrong.
 
-        // Target: Move up by its own height
-        var endY = startY - startH;
+        // Simplest: Animate to (startY - finalHeight) is wrong if it's already halfway up.
+        // We want to animate to (finalY - finalHeight).
+        // "finalY" was calculated based on ACTIVE screen above. This might be wrong if we are on secondary.
+        // Let's trust "area" is correct for now (active screen).
+        // Ideally, if interrupt happens, "area" changes to active screen, so window jumps to active screen.
+        // This is actually Desired Behavior for "Quake" style (summon to current mouse).
 
-        if (hideDuration > 0) {
+        var endY = finalY - finalHeight;
+
+        if (duration > 0) {
             var startTime = new Date().getTime();
+            var diff = endY - startY; // Negative value usually
+
             var timer = new QTimer();
             timer.interval = 16;
             timer.timeout.connect(function() {
                 var now = new Date().getTime();
                 var elapsed = now - startTime;
-                var progress = Math.min(elapsed / hideDuration, 1.0);
-                var ease = getEasing(progress, hideEasing);
+                var progress = Math.min(elapsed / duration, 1.0);
+                var ease = getEasing(progress, easingType);
 
-                var currentY = startY + (endY - startY) * ease;
+                var currentY = startY + diff * ease;
 
                 target.frameGeometry = {
-                    x: startX,
+                    x: finalX, // Snap X to active screen? Yes for robust summon.
                     y: currentY,
-                    width: startW,
-                    height: startH
+                    width: finalWidth,
+                    height: finalHeight
                 };
 
                 if (progress >= 1.0) {
                     timer.stop();
+                    // target.minimized = true; // Optional: Minimize after hide?
                 }
             });
             timer.start();
         } else {
-             target.frameGeometry = {
-                x: startX,
-                y: endY,
-                width: startW,
-                height: startH
-             };
+             target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
         }
     }
-} else {
-    // No target window found!
 }
 `
 
@@ -257,9 +266,36 @@ type Pixmap struct {
 }
 
 func loadConfig() Config {
-	configPath := "config.toml"
+	// Search paths for .gouake.toml
+	// 1. Current Directory
+	// 2. Home Directory
+	// 3. XDG Config Home
+
+	configFiles := []string{".gouake.toml"}
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		configFiles = append(configFiles, filepath.Join(home, ".gouake.toml"))
+
+		xdgConfig := os.Getenv("XDG_CONFIG_HOME")
+		if xdgConfig == "" {
+			xdgConfig = filepath.Join(home, ".config")
+		}
+		configFiles = append(configFiles, filepath.Join(xdgConfig, "gouake", ".gouake.toml"))
+	}
+
 	var config Config
-	if _, err := toml.DecodeFile(configPath, &config); err != nil {
+	found := false
+	for _, path := range configFiles {
+		if _, err := toml.DecodeFile(path, &config); err == nil {
+			fmt.Printf("Loaded config from: %s\n", path)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		fmt.Println("No config file found. Using defaults.")
 		config = Config{
 			WindowClass:   "wezquake",
 			Hotkey:        "Meta+Grave",
@@ -318,6 +354,7 @@ func isNumeric(s string) bool {
 }
 
 var toggleMutex sync.Mutex
+var lastScriptID string // Track last script name to unload
 
 func toggleQuake(config *Config) {
 	toggleMutex.Lock()
@@ -332,57 +369,84 @@ func toggleQuake(config *Config) {
 
 	obj := conn.Object("org.kde.KWin", "/Scripting")
 
-	uniqueName := fmt.Sprintf("quake_toggle_%d", time.Now().UnixNano())
+	// 1. Unload Previous Script if exists
+	if lastScriptID != "" {
+		// Try to stop/unload old one to prevent conflict
+		// obj.Call("org.kde.kwin.Scripting.unloadScript", 0, lastScriptID).Store()
+		// Actually, we can just unload it.
+		// But KWin might have already unloaded it if it finished?
+		// Better safe:
+		// We will just launch a new one. The old one naturally stops or gets overwritten?
+		// No, KWin keeps loaded scripts. We MUST unload.
+		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, lastScriptID).Store()
+	}
+
+	// 2. Toggle State
+	targetVisible = !targetVisible
+
+	// Choose params based on state
+	var duration int
+	var easing string
+	if targetVisible {
+		duration = config.ShowDuration
+		easing = config.ShowEasing
+	} else {
+		duration = config.HideDuration
+		easing = config.HideEasing
+	}
+
+	uniqueName := fmt.Sprintf("gouake_toggle_%d", time.Now().UnixNano())
+	lastScriptID = uniqueName
+
 	tmpFile, err := os.CreateTemp("", uniqueName+"_*.js")
 	if err != nil {
-		log.Printf("Failed to create temp file: %v", err)
 		return
 	}
 	defer os.Remove(tmpFile.Name())
 
 	scriptCode := fmt.Sprintf(kwinScriptTemplate,
 		config.WindowClass,
-		config.DisplayMode,
-		config.DisplayIndex,
+		// displayMode unused in simplified script
 		config.WidthPercent,
 		config.HeightPercent,
-		config.ShowDuration,
-		config.HideDuration,
-		config.ShowEasing,
-		config.HideEasing,
+		duration,
+		easing,
+		targetVisible,
 	)
 
-	if _, err := tmpFile.WriteString(scriptCode); err != nil {
-		log.Printf("Failed to write to temp file: %v", err)
-		return
-	}
+	tmpFile.WriteString(scriptCode)
 	tmpFile.Close()
 
 	var scriptID int32
 	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
 	if err != nil {
-		log.Printf("Failed to load KWin script: %v", err)
+		log.Printf("Failed load: %v", err)
 		return
 	}
 
-	if scriptID < 0 {
-		log.Printf("KWin returned invalid script ID: %d", scriptID)
-		return
+	if scriptID >= 0 {
+		scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
+		scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
+		scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
+
+		// We do NOT wait for completion anymore. We return immediately to allow interruption.
+		// We only clean up this script the NEXT time toggle is called (or on exit).
+		// Wait... if we don't clean it up, it stays loaded.
+		// KWin has a limit on loaded scripts?
+		// It's better to spawn a goroutine to cleanup after duration?
+
+		go func(name string, d int) {
+			time.Sleep(time.Duration(d+100) * time.Millisecond)
+			// Cleanup if it's still the "last" one?
+			// Or just always cleanup. Overlapping unloads are fine.
+			conn2, err := dbus.ConnectSessionBus()
+			if err == nil {
+				obj2 := conn2.Object("org.kde.KWin", "/Scripting")
+				obj2.Call("org.kde.kwin.Scripting.unloadScript", 0, name).Store()
+				conn2.Close()
+			}
+		}(uniqueName, duration)
 	}
-
-	scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
-	scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
-	err = scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
-	if err != nil {
-		log.Printf("Failed to run KWin script: %v", err)
-		return
-	}
-
-	waitMs := config.ShowDuration + config.HideDuration + 100 // Safe upper bound
-	time.Sleep(time.Duration(waitMs) * time.Millisecond)
-
-	scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
-	obj.Call("org.kde.kwin.Scripting.unloadScript", 0, uniqueName).Store()
 }
 
 func ensureGrabbed(config *Config) {
@@ -485,26 +549,39 @@ if (target) {
 }
 
 func main() {
-	daemonMode := flag.Bool("daemon", false, "Run in daemon mode with tray icon")
+	// Optional flag to force daemon mode, but default behavior is smart.
+	daemonMode := flag.Bool("daemon", false, "Force run in daemon mode")
 	flag.Parse()
 
 	config := loadConfig()
 
 	if *daemonMode {
 		runDaemon(&config)
-	} else {
-		// Try to connect to an existing daemon and send a toggle signal
-		conn, err := dbus.ConnectSessionBus()
-		if err == nil {
-			obj := conn.Object("com.nabaxo.vibullshit", "/com/nabaxo/vibullshit")
-			err = obj.Call("com.nabaxo.vibullshit.Toggle", 0).Store()
-			if err == nil {
-				return // Successfully toggled existing daemon
-			}
-		}
-		// Fallback to local toggle if no daemon is running or connection failed
-		toggleQuake(&config)
+		return
 	}
+
+	// Smart Mode: Try to Toggle. If fails, Start Daemon.
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		// Bus failed? Probably can't run daemon either, but let's try.
+		runDaemon(&config)
+		return
+	}
+
+	// Try to call Toggle on existing service
+	obj := conn.Object("dev.nabaxo.gouake", "/dev/nabaxo/gouake")
+	err = obj.Call("dev.nabaxo.gouake.Toggle", 0).Store()
+
+	if err == nil {
+		// Success! We triggered the daemon.
+		conn.Close()
+		return
+	}
+
+	// Failed to toggle (likely service not found), so we start the daemon.
+	fmt.Println("Daemon not running (or reachable). Starting new daemon instance...")
+	conn.Close()
+	runDaemon(&config)
 }
 
 func restoreQuake(config *Config) {
@@ -573,7 +650,7 @@ func runDaemon(config *Config) {
 	}
 	defer conn.Close()
 
-	name := fmt.Sprintf("org.kde.StatusNotifierItem-vibullshit-%d", os.Getpid())
+	name := fmt.Sprintf("org.kde.StatusNotifierItem-gouake-%d", os.Getpid())
 	reply, err := conn.RequestName(name, dbus.NameFlagReplaceExisting)
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		log.Fatalf("Failed to request D-Bus name %s: %v", name, err)
@@ -607,8 +684,8 @@ func runDaemon(config *Config) {
 
 	// Single instance control service
 	daemon := &QuakeDaemon{config: config}
-	conn.Export(daemon, "/com/nabaxo/vibullshit", "com.nabaxo.vibullshit")
-	conn.RequestName("com.nabaxo.vibullshit", dbus.NameFlagReplaceExisting)
+	conn.Export(daemon, "/dev/nabaxo/gouake", "dev.nabaxo.gouake")
+	conn.RequestName("dev.nabaxo.gouake", dbus.NameFlagReplaceExisting)
 
 	sni := &StatusNotifierItem{config: config}
 	conn.Export(sni, "/StatusNotifierItem", "org.kde.StatusNotifierItem")
@@ -636,12 +713,12 @@ func runDaemon(config *Config) {
 				Emit:     prop.EmitTrue,
 			},
 			"Id": {
-				Value:    "vibullshit",
+				Value:    "gouake",
 				Writable: false,
 				Emit:     prop.EmitTrue,
 			},
 			"Title": {
-				Value:    "Vibullshit (Left: Toggle | Middle: Quit)",
+				Value:    "Gouake (Left: Toggle | Middle: Quit)",
 				Writable: false,
 				Emit:     prop.EmitTrue,
 			},
