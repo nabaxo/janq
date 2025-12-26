@@ -1,0 +1,12 @@
+# Binaries
+/vibullshit
+/quake_toggle
+
+# Dependencies
+/vendor/
+
+# OS files
+.DS_Store
+
+# Temporary files for KWin JS scripts (if any remain)
+quake_toggle_*.js
