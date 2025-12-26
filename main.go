@@ -41,8 +41,16 @@ var target = null;
 var windowClass = "%s";
 
 for (var i = 0; i < clients.length; i++) {
-    if (clients[i].resourceClass == windowClass || clients[i].resourceName == windowClass) {
-        target = clients[i];
+    var c = clients[i];
+    // Check resourceClass, resourceName, and caption for loose match
+    var match = false;
+    if (c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) match = true;
+    else if (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase()) match = true;
+    else if (c.caption && c.caption.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) match = true;
+
+    if (match) {
+        target = c;
+        print("Vibullshit: Found target window: " + c.caption);
         break;
     }
 }
@@ -244,6 +252,7 @@ func isNumeric(s string) bool {
 }
 
 func toggleQuake(config *Config) {
+	fmt.Println("toggleQuake() called. Connecting to session bus...")
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		log.Printf("Failed to connect to session bus: %v", err)
@@ -277,12 +286,14 @@ func toggleQuake(config *Config) {
 	tmpFile.Close()
 
 	var scriptID int32
+	fmt.Println("Loading KWin script...")
 	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), "quake_toggle").Store(&scriptID)
 	if err != nil {
 		log.Printf("Failed to load KWin script: %v", err)
 		return
 	}
 
+	fmt.Printf("Running KWin script (ID: %d)...\n", scriptID)
 	scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
 	scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
 	err = scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
@@ -297,8 +308,10 @@ func toggleQuake(config *Config) {
 	}
 	time.Sleep(time.Duration(waitMs) * time.Millisecond)
 
+	fmt.Println("Stopping KWin script...")
 	scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
 	obj.Call("org.kde.kwin.Scripting.unloadScript", 0, "quake_toggle").Store()
+	fmt.Println("toggleQuake() finished.")
 }
 
 func ensureGrabbed(config *Config) {
@@ -325,8 +338,14 @@ var target = null;
 var windowClass = "%s";
 
 for (var i = 0; i < clients.length; i++) {
-    if (clients[i].resourceClass == windowClass || clients[i].resourceName == windowClass) {
-        target = clients[i];
+    var c = clients[i];
+    var match = false;
+    if (c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) match = true;
+    else if (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase()) match = true;
+    else if (c.caption && c.caption.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) match = true;
+
+    if (match) {
+        target = c;
         break;
     }
 }
