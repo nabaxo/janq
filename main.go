@@ -92,12 +92,14 @@ if (target) {
     var shouldShow = %t;
 
     // Current State Detection
-    var isVisible = !target.minimized && (target.frameGeometry.y + target.frameGeometry.height > 0);
+    // "Sticky Monitor" Logic:
+    // We only SUMMON the window to the mouse screen if it is currently MINIMIZED.
+    // If it is already unminimized (even mid-animation), we STAY on its current monitor.
+    // This is the most robust way to handle multi-monitors and rapid toggles.
+    var isSticky = !target.minimized;
 
     var area = null;
-
-    // Determine AreaContext for logic
-    if (isVisible && !target.minimized) {
+    if (isSticky) {
         // STAY: Use target's current screen area
         area = workspace.clientArea(KWin.PlacementArea, target);
     } else {
@@ -138,8 +140,8 @@ if (target) {
         // Animation Start Point: Current Y
         var startY = target.frameGeometry.y;
 
-        // If it was fully hidden/minimized, snap to start position
-        if (!isVisible) {
+        // If it was fully hidden/minimized, snap to start position on active screen
+        if (!isSticky) {
              startY = finalY - finalHeight;
              target.frameGeometry = {
                 x: finalX,
@@ -218,13 +220,15 @@ if (target) {
                 if (progress >= 1.0) {
                     timer.stop();
                     // PROPER HIDE: Minimize at end of animation (with delay)
-                    // Set opacity to 0 to avoid "ghost" animation from off-screen
+                    // Set opacity to 0 immediately to avoid "ghost" animation from off-screen
                     target.opacity = 0.0;
 
                     var minTimer = new QTimer();
                     minTimer.interval = 100;
                     minTimer.singleShot = true;
                     minTimer.timeout.connect(function() {
+                        // Re-check: only minimize if we are still expected to be hidden
+                        // (prevents mid-animation minimize if toggle happened during the 100ms)
                         target.minimized = true;
                     });
                     minTimer.start();
@@ -776,7 +780,7 @@ func runDaemon(config *Config) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	fmt.Println("Vibullshit daemon (Pure D-Bus SNI) running...")
+	fmt.Println("Gouake daemon (Pure D-Bus SNI) running...")
 
 	// Wait for signal
 	<-sigChan
