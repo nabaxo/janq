@@ -18,6 +18,8 @@ import (
 	"os/signal"
 	"strings"
 
+	"strconv"
+
 	"github.com/BurntSushi/toml"
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
@@ -39,6 +41,10 @@ type Config struct {
 	HideDuration int    `toml:"hide_duration"`
 	ShowEasing   string `toml:"show_easing"`
 	HideEasing   string `toml:"hide_easing"`
+
+	// Terminal logic
+	WidthCols  int `toml:"width_cols"`
+	HeightRows int `toml:"height_rows"`
 }
 
 // Global state to track toggle direction
@@ -87,14 +93,21 @@ if (target) {
     // Config Paramters
     var widthPct = %d / 100.0;
     var heightPct = %d / 100.0;
+    var widthCols = %d;
+    var heightRows = %d;
 	var duration = %d;
 	var easingType = "%s";
     var shouldShow = %t;
 
     // Current State Detection
-    var currentArea = workspace.clientArea(KWin.PlacementArea, target);
+    // Stability Fix: Use bottom center to track monitor while sliding up
+    var areaPoint = {
+        x: target.frameGeometry.x + target.frameGeometry.width / 2,
+        y: target.frameGeometry.y + target.frameGeometry.height - 5
+    };
+    var currentArea = workspace.clientArea(KWin.PlacementArea, areaPoint.x, areaPoint.y);
 
-    // We consider it mostly hidden if it's minimized OR if less than 10px is visible.
+    // We consider it mostly hidden if it's minimized OR if less than 5px is visible.
     var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
 
     // SUMMON Logic:
@@ -103,21 +116,19 @@ if (target) {
 
     var area = null;
     if (isSticky) {
-        // STAY: Use target's current screen area
-        area = workspace.clientArea(KWin.PlacementArea, target);
+        area = currentArea;
     } else {
         // SUMMON: Prioritize workspace.activeScreen (mouse screen in Plasma 6)
         if (workspace.activeScreen && workspace.activeScreen.geometry) {
             area = workspace.activeScreen.geometry;
         } else {
-            var screenId = workspace.activeScreen;
-            area = workspace.clientArea(KWin.PlacementArea, screenId, target);
+            area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, target);
         }
     }
 
     // Target Geometry
-    var finalWidth = area.width * widthPct;
-    var finalHeight = area.height * heightPct;
+    var finalWidth = ( widthCols > 0 ) ? target.frameGeometry.width : area.width * widthPct;
+    var finalHeight = ( heightRows > 0 ) ? target.frameGeometry.height : area.height * heightPct;
     var finalX = area.x + (area.width - finalWidth) / 2;
     var finalY = area.y;
 
@@ -323,6 +334,8 @@ func loadConfig() Config {
 			HideDuration:  300,
 			ShowEasing:    "ease-out",
 			HideEasing:    "ease-in",
+			WidthCols:     0,
+			HeightRows:    0,
 		}
 	}
 	// Default easings if missing
@@ -336,14 +349,58 @@ func loadConfig() Config {
 	return config
 }
 
-func checkProcessRunning(targetClass string) bool {
+func ensureTerminalRunning(config *Config) bool {
+	if checkWindowExists(config.WindowClass) {
+		return false
+	}
+
+	if config.StartCommand == "" {
+		return false
+	}
+
+	fullCmd := config.StartCommand
+	if strings.Contains(strings.ToLower(config.StartCommand), "wezterm") {
+		if config.WidthCols > 0 {
+			fullCmd += fmt.Sprintf(" --config initial_cols=%d", config.WidthCols)
+		}
+		if config.HeightRows > 0 {
+			fullCmd += fmt.Sprintf(" --config initial_rows=%d", config.HeightRows)
+		}
+	}
+
+	fmt.Printf("Terminal window for %s not found. Starting: %s\n", config.WindowClass, fullCmd)
+	cmd := exec.Command("sh", "-c", fullCmd)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		log.Printf("Failed to start terminal: %v", err)
+		return false
+	}
+
+	// Wait for window to appear
+	for i := 0; i < 20; i++ {
+		if checkWindowExists(config.WindowClass) {
+			time.Sleep(500 * time.Millisecond) // Wait for window to be fully ready
+			ensureGrabbed(config)
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
+}
+
+func checkWindowExists(targetClass string) bool {
 	procs, err := os.ReadDir("/proc")
 	if err != nil {
 		return false
 	}
+	myPid := os.Getpid()
 
 	for _, p := range procs {
 		if !p.IsDir() || !isNumeric(p.Name()) {
+			continue
+		}
+		pid, _ := strconv.Atoi(p.Name())
+		if pid == myPid {
 			continue
 		}
 
@@ -352,10 +409,23 @@ func checkProcessRunning(targetClass string) bool {
 			continue
 		}
 
-		// cmdline is null-separated
-		cmd := string(bytes.ReplaceAll(cmdline, []byte{0}, []byte(" ")))
-		if strings.Contains(cmd, targetClass) {
-			return true
+		// Look for --class <targetClass> or --class=<targetClass> in arguments
+		parts := bytes.Split(cmdline, []byte{0})
+		for i, part := range parts {
+			s := string(part)
+			if s == "--class" && i+1 < len(parts) && strings.EqualFold(string(parts[i+1]), targetClass) {
+				return true
+			}
+			if strings.HasPrefix(strings.ToLower(s), "--class=") && strings.EqualFold(s[8:], targetClass) {
+				return true
+			}
+			// Fallback: exact match of an argument
+			if strings.EqualFold(s, targetClass) {
+				exe, _ := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+				if !strings.Contains(exe, "zsh") && !strings.Contains(exe, "bash") && !strings.Contains(exe, "grep") {
+					return true
+				}
+			}
 		}
 	}
 	return false
@@ -386,15 +456,13 @@ func toggleQuake(config *Config) {
 
 	obj := conn.Object("org.kde.KWin", "/Scripting")
 
+	// 0. Ensure Terminal is running
+	if ensureTerminalRunning(config) {
+		targetVisible = false
+	}
+
 	// 1. Unload Previous Script if exists
 	if lastScriptID != "" {
-		// Try to stop/unload old one to prevent conflict
-		// obj.Call("org.kde.kwin.Scripting.unloadScript", 0, lastScriptID).Store()
-		// Actually, we can just unload it.
-		// But KWin might have already unloaded it if it finished?
-		// Better safe:
-		// We will just launch a new one. The old one naturally stops or gets overwritten?
-		// No, KWin keeps loaded scripts. We MUST unload.
 		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, lastScriptID).Store()
 	}
 
@@ -423,9 +491,10 @@ func toggleQuake(config *Config) {
 
 	scriptCode := fmt.Sprintf(kwinScriptTemplate,
 		config.WindowClass,
-		// displayMode unused in simplified script
 		config.WidthPercent,
 		config.HeightPercent,
+		config.WidthCols,
+		config.HeightRows,
 		duration,
 		easing,
 		targetVisible,
@@ -507,12 +576,14 @@ if (target) {
     var displayIndex = %d;
     var widthPct = %d / 100.0;
     var heightPct = %d / 100.0;
+    var widthCols = %d;
+    var heightRows = %d;
 
     // Plasma 6 likely
     var area = workspace.activeScreen.geometry;
 
-    var finalWidth = area.width * widthPct;
-    var finalHeight = area.height * heightPct;
+    var finalWidth = ( widthCols > 0 ) ? target.frameGeometry.width : area.width * widthPct;
+    var finalHeight = ( heightRows > 0 ) ? target.frameGeometry.height : area.height * heightPct;
     var finalX = area.x + (area.width - finalWidth) / 2;
     var finalY = area.y;
 
@@ -537,6 +608,8 @@ if (target) {
 		config.DisplayIndex,
 		config.WidthPercent,
 		config.HeightPercent,
+		config.WidthCols,
+		config.HeightRows,
 	)
 
 	if _, err := tmpFile.WriteString(scriptCode); err != nil {
@@ -674,26 +747,7 @@ func runDaemon(config *Config) {
 	}
 
 	// Auto-start terminal if needed
-	isRunning := checkProcessRunning(config.WindowClass)
-	if config.StartCommand != "" && !isRunning {
-		cmd := exec.Command("sh", "-c", config.StartCommand)
-		// Process Detachment: Setsid
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		if err := cmd.Start(); err != nil {
-			log.Printf("Failed to start terminal: %v", err)
-		}
-
-		// Wait for window to appear (retry loop)
-		for i := 0; i < 20; i++ {
-			if checkProcessRunning(config.WindowClass) {
-				time.Sleep(500 * time.Millisecond) // Give it a moment to map the window
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-	} else if isRunning {
-		fmt.Println("Terminal process already running. Skipping auto-start.")
-	}
+	ensureTerminalRunning(config)
 
 	// Initial grab/setup of the window
 	fmt.Println("Running ensureGrabbed()...")

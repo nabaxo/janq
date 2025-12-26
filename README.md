@@ -1,4 +1,4 @@
-# vibullshit - Quake-Style Terminal Manager for KDE Wayland
+# Gouake - Quake-Style Terminal Manager for KDE Wayland
 
 A standalone Go tool to manage a terminal window (like WezTerm) as a quake-style dropdown terminal on KDE Plasma Wayland.
 
@@ -18,10 +18,14 @@ A standalone Go tool to manage a terminal window (like WezTerm) as a quake-style
 - **Pure Go**: No CGO, no GTK, no heavy dependencies.
 - **Wayland/KDE Native**: Uses D-Bus and KWin scripting for smooth window manipulation.
 - **Smart Start**: Running `gouake` starts the daemon or toggles the window automatically.
-- **Interruptible Animations**: Toggle mid-animation to instantly reverse the window.
-- **Advanced Easing**: Support for `sine`, `quart`, `cubic`, and `back` curves.
-- **Coordinate Robustness**: Intelligent multi-monitor and follow-mouse support.
-- **Proper Hiding**: Windows are physically moved off-screen and minimized to avoid artifacts.
+- **Interruptible Animations**: Toggle mid-air and witness instant reversal.
+- **Stable Multi-Monitor Support**: Uses bottom-edge detection to prevent "see-sawing" between displays.
+- **Terminal Dimensions (Rows/Cols)**: Set specific size for terminal-heavy workflows.
+- **Auto-Respawn**: Automatically restarts the terminal if closed while the daemon is running.
+- **Hot-Reloading**: Config changes are applied instantly in real-time.
+- **Follow-Mouse**: Smartly summons to the monitor where your mouse is.
+- **Improved Easing**: Support for 15+ curves (sine, quart, cubic, back).
+- **Proper Hiding**: Opacity masking to prevent ghosting.
 
 ## Installation
 
