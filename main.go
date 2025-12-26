@@ -95,8 +95,8 @@ if (target) {
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
 
     // Geometric "Is Hidden" check:
-    // Window is hidden if it is minimized OR its bottom edge is above the screen top + 5px buffer.
-    var isActuallyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
+    // Increased buffer to 10px to be safer against slight offsets or frame lags.
+    var isActuallyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 10);
 
     // "Sticky Monitor" Logic:
     // We only SUMMON the window to the mouse screen if it is geometrically HIDDEN.
@@ -105,9 +105,10 @@ if (target) {
 
     var area = null;
     if (isSticky) {
+        // STAY on current monitor
         area = currentArea;
     } else {
-        // SUMMON: Use active/mouse screen
+        // SUMMON to mouse monitor
         if (workspace.activeScreen && workspace.activeScreen.geometry) {
             area = workspace.activeScreen.geometry;
         } else {
@@ -220,9 +221,17 @@ if (target) {
 
                 if (progress >= 1.0) {
                     timer.stop();
-                    // PROPER HIDE: Minimize immediately now that ghosting is fixed by opacity
+                    // PROPER HIDE: Minimize with a small delay to avoid ghosting
+                    // Opacity 0 makes it invisible immediately
                     target.opacity = 0.0;
-                    target.minimized = true;
+
+                    var minTimer = new QTimer();
+                    minTimer.interval = 32; // Small 32ms delay (2 frames) for KWin state sync
+                    minTimer.singleShot = true;
+                    minTimer.timeout.connect(function() {
+                        target.minimized = true;
+                    });
+                    minTimer.start();
                 }
             });
             timer.start();
