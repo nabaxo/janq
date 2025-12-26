@@ -12,6 +12,3 @@ clean:
 
 run: build
 	./$(BINARY_NAME)
-
-daemon: build
-	./$(BINARY_NAME) --daemon

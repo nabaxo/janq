@@ -42,34 +42,25 @@ animation_type = "slide"
 
 ## Usage
 
-### 1. Start the Daemon
-To have the tray icon and enable remote toggling (required for global shortcuts), start the program in daemon mode:
+### 1. Start the Daemon / Toggle Visibility
+Run the program directly:
 ```bash
-./vibullshit --daemon
+./vibullshit
 ```
-You can add this to your KDE Autostart settings.
+- **First Run**: It starts as a background daemon (tray icon appears).
+- **Subsequent Runs**: It instantly toggles the terminal window.
 
-### 2. Prepare your Terminal
-Start your terminal with the specified class:
-```bash
-wezterm start --class wezquake
-```
+Add this command to your **KDE Autostart** setttings.
 
-### 3. Toggle Visibility
-- **Via Tray Icon**:
-    - **Left-Click**: Toggle Terminal.
-    - **Middle-Click**: Quit Daemon.
-    - *(Note: Right-click menu is not supported in pure D-Bus mode).*
-- **Via Command Line**: Run `./vibullshit` (it will communicate with the running daemon).
-- **Via Global Shortcut**: Map a key to `./vibullshit` in KDE Settings.
-
-## Global Shortcut Setup
-
+### 2. Global Shortcut Setup
 1. Open **KDE System Settings**.
 2. Go to **Shortcuts** -> **Commands**.
-3. Add a new command (e.g., "Toggle Quake").
-- Set Command to `/path/to/vibullshit`.
-- Assign a shortcut key (e.g., `Meta+Grave`, which is the Meta key plus the key right below Escape).
+3. Add a new command: `/path/to/vibullshit` (absolute path recommended).
+4. Assign `Meta+Grave` (or your preferred key).
+
+### 3. Mouse Interaction
+- **Tray Icon Left-Click**: Toggle Terminal.
+- **Tray Icon Middle-Click**: Quit Daemon.
 
 ## License
 

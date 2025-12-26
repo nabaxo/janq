@@ -362,23 +362,42 @@ if (target) {
 }
 
 func main() {
-	daemonMode := flag.Bool("daemon", false, "Run in daemon mode with tray icon")
-	flag.Parse()
+	flag.Parse() // Keep flag parsing for help/usage, though we don't use --daemon anymore
 
 	config := loadConfig()
 
-	if *daemonMode {
+	// Connect to session bus
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		log.Fatalf("Failed to connect to session bus: %v", err)
+	}
+
+	// Try to become the primary owner of the D-Bus service
+	reply, err := conn.RequestName("com.nabaxo.vibullshit", dbus.NameFlagDoNotQueue)
+	if err != nil {
+		log.Fatalf("Failed to request D-Bus name: %v", err)
+	}
+
+	if reply == dbus.RequestNameReplyPrimaryOwner {
+		// We are the first instance -> Run as Daemon
+		fmt.Println("Starting Vibullshit daemon...")
+
+		// Run daemon logic (tray, service, grab)
+		// Note: runDaemon handles its own connection and exports.
+		// Ideally pass existing connection, but for now we can close this one or reuse it.
+		// Given runDaemon creates a new connection, let's close this check-connection and call runDaemon.
+		conn.Close()
 		runDaemon(&config)
-	} else {
-		conn, err := dbus.ConnectSessionBus()
-		if err == nil {
-			obj := conn.Object("com.nabaxo.vibullshit", "/com/nabaxo/vibullshit")
-			err = obj.Call("com.nabaxo.vibullshit.Toggle", 0).Store()
-			if err == nil {
-				return
-			}
+	} else if reply == dbus.RequestNameReplyExists {
+		// Another instance owns the name -> Toggle it
+		// fmt.Println("Daemon already running. Toggling...")
+		obj := conn.Object("com.nabaxo.vibullshit", "/com/nabaxo/vibullshit")
+		err = obj.Call("com.nabaxo.vibullshit.Toggle", 0).Store()
+		if err != nil {
+			log.Printf("Failed to toggle remote daemon: %v", err)
 		}
-		toggleQuake(&config)
+	} else {
+		log.Fatalf("Unexpected D-Bus name request reply: %v", reply)
 	}
 }
 
