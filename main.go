@@ -360,11 +360,25 @@ func ensureTerminalRunning(config *Config) bool {
 
 	fullCmd := config.StartCommand
 	if strings.Contains(strings.ToLower(config.StartCommand), "wezterm") {
+		var flags string
 		if config.WidthCols > 0 {
-			fullCmd += fmt.Sprintf(" --config initial_cols=%d", config.WidthCols)
+			flags += fmt.Sprintf(" --config initial_cols=%d", config.WidthCols)
 		}
 		if config.HeightRows > 0 {
-			fullCmd += fmt.Sprintf(" --config initial_rows=%d", config.HeightRows)
+			flags += fmt.Sprintf(" --config initial_rows=%d", config.HeightRows)
+		}
+
+		if flags != "" {
+			// Find the first occurrence of "wezterm" and insert right after it.
+			// This handles "wezterm start", "/usr/bin/wezterm start", etc.
+			idx := strings.Index(strings.ToLower(fullCmd), "wezterm")
+			if idx != -1 {
+				endOfExe := idx + len("wezterm")
+				fullCmd = fullCmd[:endOfExe] + flags + fullCmd[endOfExe:]
+			} else {
+				// Fallback
+				fullCmd += flags
+			}
 		}
 	}
 
