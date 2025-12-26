@@ -9,6 +9,7 @@ import (
 	_ "image/png"
 	"log"
 	"os"
+	"sync" // Added for toggleMutex
 	"time"
 
 	"io/ioutil"
@@ -308,7 +309,12 @@ func isNumeric(s string) bool {
 	return true
 }
 
+var toggleMutex sync.Mutex
+
 func toggleQuake(config *Config) {
+	toggleMutex.Lock()
+	defer toggleMutex.Unlock()
+
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		log.Printf("Failed to connect to session bus: %v", err)
@@ -318,7 +324,8 @@ func toggleQuake(config *Config) {
 
 	obj := conn.Object("org.kde.KWin", "/Scripting")
 
-	tmpFile, err := os.CreateTemp("", "quake_toggle_*.js")
+	uniqueName := fmt.Sprintf("quake_toggle_%d", time.Now().UnixNano())
+	tmpFile, err := os.CreateTemp("", uniqueName+"_*.js")
 	if err != nil {
 		log.Printf("Failed to create temp file: %v", err)
 		return
@@ -344,9 +351,14 @@ func toggleQuake(config *Config) {
 	tmpFile.Close()
 
 	var scriptID int32
-	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), "quake_toggle").Store(&scriptID)
+	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
 	if err != nil {
 		log.Printf("Failed to load KWin script: %v", err)
+		return
+	}
+
+	if scriptID < 0 {
+		log.Printf("KWin returned invalid script ID: %d", scriptID)
 		return
 	}
 
@@ -362,7 +374,7 @@ func toggleQuake(config *Config) {
 	time.Sleep(time.Duration(waitMs) * time.Millisecond)
 
 	scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
-	obj.Call("org.kde.kwin.Scripting.unloadScript", 0, "quake_toggle").Store()
+	obj.Call("org.kde.kwin.Scripting.unloadScript", 0, uniqueName).Store()
 }
 
 func ensureGrabbed(config *Config) {
