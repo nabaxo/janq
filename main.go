@@ -33,9 +33,11 @@ type Config struct {
 	HeightPercent     int    `toml:"height_percent"`
 	AnimationDuration int    `toml:"animation_duration"`
 	AnimationType     string `toml:"animation_type"`
+	AnimationEasing   string `toml:"animation_easing"`
 }
 
 const kwinScriptTemplate = `
+// Compatibility for Plasma 5 vs 6
 var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
 var windowClass = "%s";
@@ -44,7 +46,6 @@ print("Vibullshit: Script started for class " + windowClass);
 
 for (var i = 0; i < clients.length; i++) {
     var c = clients[i];
-    // Check resourceClass, resourceName, and caption for loose match
     var match = false;
     if (c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) match = true;
     else if (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase()) match = true;
@@ -57,6 +58,17 @@ for (var i = 0; i < clients.length; i++) {
     }
 }
 
+function getEasing(progress, type) {
+    switch (type) {
+        case "linear": return progress;
+        case "ease-in": return progress * progress;
+        case "ease-out": return progress * (2 - progress);
+        case "ease-in-out":
+            return progress < .5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+        default: return progress * (2 - progress); // ease-out default
+    }
+}
+
 if (target) {
     var displayMode = "%s";
     var displayIndex = %d;
@@ -64,77 +76,105 @@ if (target) {
     var heightPct = %d / 100.0;
     var animDuration = %d;
     var animType = "%s";
+    var easingType = "%s";
+
+    print("Vibullshit: Toggle target state: minimized=" + target.minimized);
+
+    // Get screen geometry safely for Plasma 5/6
+    var area = null;
+    if (workspace.activeScreen && workspace.activeScreen.geometry) {
+        // Plasma 6 likely
+        area = workspace.activeScreen.geometry;
+    } else {
+        // Plasma 5 fallback
+        var screenId = workspace.activeScreen;
+        area = workspace.clientArea(KWin.PlacementArea, screenId, target);
+    }
+
+    // Calculate geometry
+    var finalWidth = area.width * widthPct;
+    var finalHeight = area.height * heightPct;
+    var finalX = area.x + (area.width - finalWidth) / 2;
+    var finalY = area.y;
+
+    print("Vibullshit: Screen Area: " + area.x + "," + area.y + " " + area.width + "x" + area.height);
+    print("Vibullshit: Final Geometry: " + finalX + "," + finalY + " " + finalWidth + "x" + finalHeight);
 
     if (target.minimized) {
+        // SHOW
+        print("Vibullshit: Showing window...");
+
+        // Prepare for animation
         target.minimized = false;
         target.keepAbove = true;
         target.onAllDesktops = true;
         target.noBorder = true;
+        target.skipTaskbar = true; // Optional: keeps it out of taskbar
+        target.skipPager = true;
+
+        // Force activation
         workspace.activeClient = target;
 
-        var screenId = 0;
-        if (displayMode === "follow-mouse") {
-            screenId = workspace.activeScreen;
-        } else if (displayMode === "specific") {
-            screenId = displayIndex;
-        } else {
-            screenId = workspace.activeScreen;
-        }
-
-        var area = workspace.clientArea(KWin.PlacementArea, screenId, target);
-        var finalWidth = area.width * widthPct;
-        var finalHeight = area.height * heightPct;
-        var finalX = area.x + (area.width - finalWidth) / 2;
-        var finalY = area.y;
-
         if (animType === "slide" && animDuration > 0) {
-            target.geometry = {
+            // Start position (above screen)
+            var startY = finalY - finalHeight;
+            var endY = finalY;
+
+            target.frameGeometry = {
                 x: finalX,
-                y: finalY - finalHeight,
+                y: startY,
                 width: finalWidth,
                 height: finalHeight
             };
 
-            var startY = finalY - finalHeight;
-            var endY = finalY;
             var startTime = new Date().getTime();
-
             var timer = new QTimer();
             timer.interval = 16;
             timer.timeout.connect(function() {
                 var now = new Date().getTime();
                 var elapsed = now - startTime;
                 var progress = Math.min(elapsed / animDuration, 1.0);
-                var ease = progress * (2 - progress);
+                var ease = getEasing(progress, easingType);
 
-                target.geometry = {
+                var currentY = startY + (endY - startY) * ease;
+
+                target.frameGeometry = {
                     x: finalX,
-                    y: startY + (endY - startY) * ease,
+                    y: currentY,
                     width: finalWidth,
                     height: finalHeight
                 };
 
                 if (progress >= 1.0) {
                     timer.stop();
+                    // Ensure final position is exact
+                    target.frameGeometry = {
+                        x: finalX,
+                        y: finalY,
+                        width: finalWidth,
+                        height: finalHeight
+                    };
                 }
             });
             timer.start();
         } else {
-            target.geometry = {
+            // Instant show
+            target.frameGeometry = {
                 x: finalX,
                 y: finalY,
                 width: finalWidth,
                 height: finalHeight
             };
         }
+
     } else {
+        // HIDE
+        print("Vibullshit: Hiding window...");
+
         if (animType === "slide" && animDuration > 0) {
-            var startY = target.geometry.y;
-            var endY = startY - target.geometry.height;
+            var startY = target.frameGeometry.y;
+            var endY = finalY - finalHeight; // Slide up off screen
             var startTime = new Date().getTime();
-            var finalX = target.geometry.x;
-            var finalW = target.geometry.width;
-            var finalH = target.geometry.height;
 
             var timer = new QTimer();
             timer.interval = 16;
@@ -142,13 +182,15 @@ if (target) {
                 var now = new Date().getTime();
                 var elapsed = now - startTime;
                 var progress = Math.min(elapsed / animDuration, 1.0);
-                var ease = progress * progress;
+                var ease = getEasing(progress, easingType); // Use same easing for out
 
-                target.geometry = {
+                var currentY = startY + (endY - startY) * ease;
+
+                target.frameGeometry = {
                     x: finalX,
-                    y: startY + (endY - startY) * ease,
-                    width: finalW,
-                    height: finalH
+                    y: currentY,
+                    width: finalWidth,
+                    height: finalHeight
                 };
 
                 if (progress >= 1.0) {
@@ -158,9 +200,11 @@ if (target) {
             });
             timer.start();
         } else {
-            target.minimized = true;
+             target.minimized = true;
         }
     }
+} else {
+    print("Vibullshit: No target window found!");
 }
 `
 
@@ -214,7 +258,12 @@ func loadConfig() Config {
 			HeightPercent:     40,
 			AnimationDuration: 300,
 			AnimationType:     "slide",
+			AnimationEasing:   "ease-out",
 		}
+	}
+	// Default easing if missing
+	if config.AnimationEasing == "" {
+		config.AnimationEasing = "ease-out"
 	}
 	return config
 }
@@ -279,6 +328,7 @@ func toggleQuake(config *Config) {
 		config.HeightPercent,
 		config.AnimationDuration,
 		config.AnimationType,
+		config.AnimationEasing,
 	)
 
 	if _, err := tmpFile.WriteString(scriptCode); err != nil {
