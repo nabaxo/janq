@@ -126,10 +126,11 @@ if (target) {
     if (shouldShow) {
         // SHOWING
 
-        // Ensure visible
+        // Ensure visible and opaque
         if (target.minimized) {
             target.minimized = false;
         }
+        target.opacity = 1.0;
 
         if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
         else workspace.activeClient = target;
@@ -216,13 +217,23 @@ if (target) {
 
                 if (progress >= 1.0) {
                     timer.stop();
-                    // PROPER HIDE: Minimize at end of animation
-                    target.minimized = true;
+                    // PROPER HIDE: Minimize at end of animation (with delay)
+                    // Set opacity to 0 to avoid "ghost" animation from off-screen
+                    target.opacity = 0.0;
+
+                    var minTimer = new QTimer();
+                    minTimer.interval = 100;
+                    minTimer.singleShot = true;
+                    minTimer.timeout.connect(function() {
+                        target.minimized = true;
+                    });
+                    minTimer.start();
                 }
             });
             timer.start();
         } else {
              target.frameGeometry = { x: startX, y: endY, width: startW, height: startH };
+             target.opacity = 0.0;
              target.minimized = true;
         }
     }
