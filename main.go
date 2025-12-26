@@ -68,18 +68,18 @@ function getEasing(progress, type) {
         case "ease-out": return progress * (2 - progress);
         case "ease-in-out":
             return progress < .5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-        // New Easings
-        case "sine-in": return 1 - Math.cos((progress * Math.PI) / 2);
-        case "sine-out": return Math.sin((progress * Math.PI) / 2);
-        case "sine-in-out": return -(Math.cos(Math.PI * progress) - 1) / 2;
-        case "quart-in": return progress * progress * progress * progress;
-        case "quart-out": return 1 - Math.pow(1 - progress, 4);
-        case "quart-in-out": return progress < 0.5 ? 8 * Math.pow(progress, 4) : 1 - Math.pow(-2 * progress + 2, 4) / 2;
-        case "cubic-in": return progress * progress * progress;
-        case "cubic-out": return 1 - Math.pow(1 - progress, 3);
-        case "cubic-in-out": return progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-        case "back-in": var c1 = 1.70158; var c3 = c1 + 1; return c3 * progress * progress * progress - c1 * progress * progress;
-        case "back-out": var c1 = 1.70158; var c3 = c1 + 1; return 1 + c3 * Math.pow(progress - 1, 3) + c1 * Math.pow(progress - 1, 2);
+        // New Easings (and aliases)
+        case "sine-in": case "ease-in-sine": return 1 - Math.cos((progress * Math.PI) / 2);
+        case "sine-out": case "ease-out-sine": return Math.sin((progress * Math.PI) / 2);
+        case "sine-in-out": case "ease-in-out-sine": return -(Math.cos(Math.PI * progress) - 1) / 2;
+        case "quart-in": case "ease-in-quart": return progress * progress * progress * progress;
+        case "quart-out": case "ease-out-quart": return 1 - Math.pow(1 - progress, 4);
+        case "quart-in-out": case "ease-in-out-quart": return progress < 0.5 ? 8 * Math.pow(progress, 4) : 1 - Math.pow(-2 * progress + 2, 4) / 2;
+        case "cubic-in": case "ease-in-cubic": return progress * progress * progress;
+        case "cubic-out": case "ease-out-cubic": return 1 - Math.pow(1 - progress, 3);
+        case "cubic-in-out": case "ease-in-out-cubic": return progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        case "back-in": case "ease-in-back": var c1 = 1.70158; var c3 = c1 + 1; return c3 * progress * progress * progress - c1 * progress * progress;
+        case "back-out": case "ease-out-back": var c1 = 1.70158; var c3 = c1 + 1; return 1 + c3 * Math.pow(progress - 1, 3) + c1 * Math.pow(progress - 1, 2);
         default: return progress * (2 - progress); // ease-out default
     }
 }
@@ -101,29 +101,18 @@ if (target) {
         area = workspace.clientArea(KWin.PlacementArea, screenId, target);
     }
 
-    // Target Geometry
-    // Note: We always calculate target geometry based on ACTIVE screen if showing,
-    // or CURRENT geometry if hiding (to stay on screen).
-
-    // Logic:
-    // If SHOWING: Target is top of Active Screen.
-    // If HIDING: Target is just above top of CURRENT window position.
-
-    // Wait, to support interruption, we need to know where we are going.
-    // If hiding -> we go UP to -height.
-    // If showing -> we go DOWN to y=area.y.
-
+    // Target Geometry (Active Screen for Showing)
     var finalWidth = area.width * widthPct;
     var finalHeight = area.height * heightPct;
     var finalX = area.x + (area.width - finalWidth) / 2;
-    var finalY = area.y; // Top of screen
+    var finalY = area.y;
 
     // Properties
     target.keepAbove = true;
     target.onAllDesktops = true;
     target.noBorder = true;
     target.skipTaskbar = true;
-    target.skipPager = true; // Fix focus stealing?
+    target.skipPager = true;
 
     if (shouldShow) {
         // SHOWING
@@ -173,29 +162,25 @@ if (target) {
         }
 
     } else {
-        // HIDING
-        // If hiding, we want to slide UP from current position to (current.y - height)
-        // OR better: slide UP to (ScreenTop - Height). Since we want it to disappear fully.
+        // HIDING: Stay on CURRENT display
 
-        // We use current X/W/H to ensure we stay on same monitor (if we haven't moved).
-        var startY = target.frameGeometry.y;
-        var startX = target.frameGeometry.x;
-        // But we want to ensure it goes to the correct "Top".
-        // Let's assume standard behavior: Hide to Top of CURRENT monitor.
-        // Approximation: if Y is visible, Top is Y. No, that's wrong.
+        // Use current geometry for X/W/H to stay on same monitor
+        var currentGeo = target.frameGeometry; // Read fresh
+        var startY = currentGeo.y;
+        var startX = currentGeo.x;
+        var startW = currentGeo.width;
+        var startH = currentGeo.height;
 
-        // Simplest: Animate to (startY - finalHeight) is wrong if it's already halfway up.
-        // We want to animate to (finalY - finalHeight).
-        // "finalY" was calculated based on ACTIVE screen above. This might be wrong if we are on secondary.
-        // Let's trust "area" is correct for now (active screen).
-        // Ideally, if interrupt happens, "area" changes to active screen, so window jumps to active screen.
-        // This is actually Desired Behavior for "Quake" style (summon to current mouse).
+        var endY = startY - startH;
 
-        var endY = finalY - finalHeight;
+        // Ideally we want to go exactly to "Top of Current Screen" - Height.
+        // But (startY - startH) is safe enough relative move if we are fully visible.
+        // If we were interrupted (halfway), startY is halfway. endY = startS - startH means we go up by full height.
+        // This effectively hides it.
 
         if (duration > 0) {
             var startTime = new Date().getTime();
-            var diff = endY - startY; // Negative value usually
+            var diff = endY - startY;
 
             var timer = new QTimer();
             timer.interval = 16;
@@ -208,10 +193,10 @@ if (target) {
                 var currentY = startY + diff * ease;
 
                 target.frameGeometry = {
-                    x: finalX, // Snap X to active screen? Yes for robust summon.
+                    x: startX,      // FIX: Use startX (current monitor), not finalX (active mouse monitor)
                     y: currentY,
-                    width: finalWidth,
-                    height: finalHeight
+                    width: startW,  // FIX: Use startW
+                    height: startH  // FIX: Use startH
                 };
 
                 if (progress >= 1.0) {
@@ -221,7 +206,7 @@ if (target) {
             });
             timer.start();
         } else {
-             target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
+             target.frameGeometry = { x: startX, y: endY, width: startW, height: startH };
         }
     }
 }

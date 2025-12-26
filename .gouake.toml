@@ -14,5 +14,5 @@ height_percent = 40         # Height as percentage of screen height
 
 show_duration = 300
 hide_duration = 300
-show_easing = "ease-out"
-hide_easing = "ease-in"
+show_easing = "ease-out-cubic"
+hide_easing = "ease-in-quart"

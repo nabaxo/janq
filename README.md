@@ -14,63 +14,50 @@ A standalone Go tool to manage a terminal window (like WezTerm) as a quake-style
 - KDE Plasma (Wayland session)
 - `wezterm` (or any terminal you specify in config)
 - Go (if building from source)
+-   **Pure Go**: No CGO, no GTK, no heavy dependencies.
+-   **Wayland/KDE Native**: Uses D-Bus and KWin scripting for smooth, secure window manipulation.
+-   **Smart Start**: Running `gouake` automatically starts the daemon if not running, or toggles the window if it is.
+-   **Interruptible Animations**: Toggle mid-animation to instantly reverse the window.
+-   **Configurable**: Simple `.gouake.toml` configuration (searches CWD, Home, and `~/.config/gouake/`).
+-   **Off-Screen Hiding**: Hides windows physically off-screen to avoid state issues.
 
 ## Installation
 
 1. Clone the repository:
    ```bash
    git clone <repo-url>
-   cd vibullshit
+   cd gouake
    ```
 2. Build the binary:
    ```bash
    make
    ```
 
-## Configuration
-
-Edit `config.toml` to suit your needs:
-
-```toml
-window_class = "wezquake"
-display_mode = "follow-mouse"
-width_percent = 100
-height_percent = 40
-show_duration = 300       # Show animation duration in ms
-hide_duration = 300       # Hide animation duration in ms
-show_easing = "ease-out"  # "linear", "ease-in", "ease-out", "ease-in-out"
-hide_easing = "ease-in"
-```
-
 ## Usage
 
-1.  **Start the Daemon**:
-    Run the program with the `--daemon` flag to start the background service and tray icon.
+1.  **Toggle/Start**:
+    Simply run the binary. It handles everything.
     ```bash
-    ./vibullshit --daemon
+    ./gouake
     ```
+    Bind this to your global shortcut (e.g., Meta+Grave).
 
-    This will:
-    -   Start the tray icon.
-    -   Grab your terminal window (defined by `window_class`), set it to floating/always-on-top, and hide it off-screen.
-    -   Listen for D-Bus signals.
-
-2.  **Toggle the Terminal**:
-    Run the program *without* arguments to toggle the visibility of the terminal.
-    ```bash
-    ./vibullshit
+2.  **Configuration**:
+    Create `.gouake.toml` in your home directory or `~/.config/gouake/`.
+    ```toml
+    window_class = "wezquake"
+    show_duration = 300
+    show_easing = "sine-out"
     ```
-    Bind this command to a global shortcut in KDE System Settings (e.g., Meta+Grave).
 
 3.  **Tray Icon**:
-    -   **Left-Click**: Toggle terminal visibility.
-    -   **Middle-Click**: Quit the daemon.
-    (Note: Right-click menu is currently not implemented).
+    -   **Left-Click**: Toggle.
+    -   **Middle-Click**: Quit.
 
 ### 2. Global Shortcut Setup
 1. Open **KDE System Settings**.
 2. Go to **Shortcuts** -> **Commands**.
-3. Add a new command: `/path/to/vibullshit` (absolute path recommended).
+3. Add a new command: `/path/to/gouake` (absolute path recommended).
 4. Assign `Meta+Grave` (or your preferred key).
 
 ### 3. Mouse Interaction
