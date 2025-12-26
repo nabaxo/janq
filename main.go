@@ -36,9 +36,11 @@ type Config struct {
 }
 
 const kwinScriptTemplate = `
-var clients = workspace.clientList();
+var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
 var windowClass = "%s";
+
+print("Vibullshit: Script started for class " + windowClass);
 
 for (var i = 0; i < clients.length; i++) {
     var c = clients[i];
@@ -333,7 +335,7 @@ func ensureGrabbed(config *Config) {
 
 	// Init script to find window, set properties, and force minimize
 	const initScriptTemplate = `
-var clients = workspace.clientList();
+var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
 var windowClass = "%s";
 
