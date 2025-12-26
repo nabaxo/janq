@@ -42,19 +42,31 @@ animation_type = "slide"
 
 ## Usage
 
-1. Start your terminal with the specified class:
-   ```bash
-   wezterm start --class wezquake
-   ```
-2. Run `vibullshit` to toggle visibility.
+### 1. Start the Daemon
+To have the tray icon and enable remote toggling (required for global shortcuts), start the program in daemon mode:
+```bash
+./vibullshit --daemon
+```
+You can add this to your KDE Autostart settings.
 
-### Global Shortcut Setup
+### 2. Prepare your Terminal
+Start your terminal with the specified class:
+```bash
+wezterm start --class wezquake
+```
+
+### 3. Toggle Visibility
+- **Via Tray Icon**: Right-click the icon and select "Toggle Terminal".
+- **Via Command Line**: Run `./vibullshit` (it will communicate with the running daemon).
+- **Via Global Shortcut**: Map a key to `./vibullshit` in KDE Settings.
+
+## Global Shortcut Setup
 
 1. Open **KDE System Settings**.
 2. Go to **Shortcuts** -> **Commands**.
 3. Add a new command (e.g., "Toggle Quake").
-4. Set Command to `/path/to/vibullshit`.
-5. Assign a shortcut key (e.g., `Alt+Space`).
+- Set Command to `/path/to/vibullshit`.
+- Assign a shortcut key (e.g., `Meta+Grave`, which is the Meta key plus the key right below Escape).
 
 ## License
 

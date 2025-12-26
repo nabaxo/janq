@@ -1,7 +1,7 @@
 # Quake Terminal Configuration
 
 window_class = "wezquake"
-hotkey = "Alt+Space"
+hotkey = "Meta+Grave"
 
 # Display settings:
 # display_mode: "follow-mouse", "specific", or "active"
