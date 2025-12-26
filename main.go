@@ -321,6 +321,7 @@ func loadConfig() Config {
 		fmt.Println("No config file found. Using defaults.")
 		config = Config{
 			WindowClass:   "wezquake",
+			StartCommand:  "wezterm-gui start",
 			Hotkey:        "Meta+Grave",
 			DisplayMode:   "follow-mouse",
 			WidthPercent:  40,
