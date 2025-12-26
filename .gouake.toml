@@ -14,5 +14,11 @@ height_percent = 40         # Height as percentage of screen height
 
 show_duration = 300
 hide_duration = 300
+# Easing functions:
+# linear, ease-in, ease-out, ease-in-out
+# sine-in, sine-out, sine-in-out (or ease-in-sine, etc.)
+# quart-in, quart-out, quart-in-out
+# cubic-in, cubic-out, cubic-in-out
+# back-in, back-out
 show_easing = "ease-out-cubic"
 hide_easing = "ease-in-quart"

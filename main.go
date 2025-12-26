@@ -98,22 +98,21 @@ if (target) {
     // Increased buffer to 10px to be safer against slight offsets or frame lags.
     var isActuallyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 10);
 
-    // "Sticky Monitor" Logic:
-    // We only SUMMON the window to the mouse screen if it is geometrically HIDDEN.
-    // Otherwise, we STAY on the current monitor to allow for smooth instant reversal/interruption.
+    // SUMMON Logic:
+    // If hidden, we summon to the screen where the mouse/active interaction is.
+    // Otherwise, we stay on the current monitor for smooth reversal.
     var isSticky = !isActuallyHidden;
 
     var area = null;
     if (isSticky) {
-        // STAY on current monitor
         area = currentArea;
     } else {
-        // SUMMON to mouse monitor
+        // SUMMON: Prioritize workspace.activeScreen (mouse screen in Plasma 6)
         if (workspace.activeScreen && workspace.activeScreen.geometry) {
             area = workspace.activeScreen.geometry;
         } else {
-            var screenId = workspace.activeScreen;
-            area = workspace.clientArea(KWin.PlacementArea, screenId, target);
+            // Fallback for Plasma 5 or other contexts
+            area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, target);
         }
     }
 
@@ -226,7 +225,7 @@ if (target) {
                     target.opacity = 0.0;
 
                     var minTimer = new QTimer();
-                    minTimer.interval = 32; // Small 32ms delay (2 frames) for KWin state sync
+                    minTimer.interval = 10; // 10ms delay as requested
                     minTimer.singleShot = true;
                     minTimer.timeout.connect(function() {
                         target.minimized = true;

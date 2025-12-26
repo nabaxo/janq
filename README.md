@@ -14,12 +14,14 @@ A standalone Go tool to manage a terminal window (like WezTerm) as a quake-style
 - KDE Plasma (Wayland session)
 - `wezterm` (or any terminal you specify in config)
 - Go (if building from source)
--   **Pure Go**: No CGO, no GTK, no heavy dependencies.
--   **Wayland/KDE Native**: Uses D-Bus and KWin scripting for smooth, secure window manipulation.
--   **Smart Start**: Running `gouake` automatically starts the daemon if not running, or toggles the window if it is.
--   **Interruptible Animations**: Toggle mid-animation to instantly reverse the window.
--   **Configurable**: Simple `.gouake.toml` configuration (searches CWD, Home, and `~/.config/gouake/`).
--   **Off-Screen Hiding**: Hides windows physically off-screen to avoid state issues.
+- **Gouake (Refactored)**: Prettier, faster, and more robust than the original.
+- **Pure Go**: No CGO, no GTK, no heavy dependencies.
+- **Wayland/KDE Native**: Uses D-Bus and KWin scripting for smooth window manipulation.
+- **Smart Start**: Running `gouake` starts the daemon or toggles the window automatically.
+- **Interruptible Animations**: Toggle mid-animation to instantly reverse the window.
+- **Advanced Easing**: Support for `sine`, `quart`, `cubic`, and `back` curves.
+- **Coordinate Robustness**: Intelligent multi-monitor and follow-mouse support.
+- **Proper Hiding**: Windows are physically moved off-screen and minimized to avoid artifacts.
 
 ## Installation
 
