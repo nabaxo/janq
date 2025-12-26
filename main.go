@@ -302,7 +302,10 @@ func runDaemon(config *Config) {
 	conn.Export(sni, "/StatusNotifierItem", "org.kde.StatusNotifierItem")
 
 	// Decode icon for Pixmap
-	img, _, _ := image.Decode(bytes.NewReader(iconData))
+	img, _, err := image.Decode(bytes.NewReader(iconData))
+	if err != nil {
+		log.Fatalf("Failed to decode icon: %v", err)
+	}
 	bounds := img.Bounds()
 	data := make([]byte, 0, bounds.Dx()*bounds.Dy()*4)
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
