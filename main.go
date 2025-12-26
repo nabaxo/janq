@@ -94,8 +94,8 @@ if (target) {
     // Current State Detection
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
 
-    // We consider it mostly hidden if it's minimized OR if less than 50%% is visible.
-    var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + (target.frameGeometry.height / 2));
+    // We consider it mostly hidden if it's minimized OR if less than 10px is visible.
+    var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 10);
 
     // SUMMON Logic:
     // If we are toggling to SHOW, we only stick if we are already "mostly visible".
