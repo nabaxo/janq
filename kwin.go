@@ -63,6 +63,7 @@ if (target) {
 	var duration = %d;
 	var easingType = "%s";
     var shouldShow = %t;
+    var keepAbove = %t;
 
     // Current State Detection
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
@@ -94,7 +95,7 @@ if (target) {
     var finalY = area.y;
 
     // Properties
-    target.keepAbove = true;
+    target.keepAbove = keepAbove;
     target.onAllDesktops = true;
     target.noBorder = true;
     target.skipTaskbar = true;
@@ -241,6 +242,7 @@ if (target) {
     var heightPct = %d / 100.0;
     var widthCols = %d;
     var heightRows = %d;
+    var keepAbove = %t;
 
     // Plasma 6 likely
     var area = workspace.activeScreen.geometry;
@@ -250,7 +252,7 @@ if (target) {
     var finalX = area.x + (area.width - finalWidth) / 2;
     var finalY = area.y;
 
-    target.keepAbove = true;
+    target.keepAbove = keepAbove;
     target.onAllDesktops = true;
     target.noBorder = true;
     target.skipTaskbar = true;
@@ -354,6 +356,7 @@ func toggleQuake(config *Config) {
 		duration,
 		easing,
 		targetVisible,
+		config.KeepAbove,
 	)
 
 	tmpFile.WriteString(scriptCode)
@@ -408,6 +411,7 @@ func ensureGrabbed(config *Config) {
 		config.HeightPercent,
 		config.WidthCols,
 		config.HeightRows,
+		config.KeepAbove,
 	)
 
 	if _, err := tmpFile.WriteString(scriptCode); err != nil {

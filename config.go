@@ -25,6 +25,7 @@ type Config struct {
 	// Terminal logic
 	WidthCols  int `toml:"width_cols"`
 	HeightRows int `toml:"height_rows"`
+	KeepAbove  bool `toml:"keep_above"`
 }
 
 func findConfigFile() string {
@@ -71,6 +72,7 @@ func loadConfig() Config {
 			HideEasing:    "ease-in",
 			WidthCols:     120,
 			HeightRows:    40,
+			KeepAbove:     true,
 		}
 	}
 	// Default easings if missing

@@ -3,6 +3,7 @@
 window_class = "wezquake"
 start_command = "wezterm start --class wezquake"
 hotkey = "Meta+Grave"
+keep_above = false
 
 # Display settings:
 # display_mode: "follow-mouse", "specific", or "active"
