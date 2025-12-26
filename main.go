@@ -369,12 +369,18 @@ func ensureTerminalRunning(config *Config) bool {
 		}
 
 		if flags != "" {
-			// Find the first occurrence of "wezterm" and insert right after it.
-			// This handles "wezterm start", "/usr/bin/wezterm start", etc.
+			// Find the first occurrence of "wezterm".
 			idx := strings.Index(strings.ToLower(fullCmd), "wezterm")
 			if idx != -1 {
-				endOfExe := idx + len("wezterm")
-				fullCmd = fullCmd[:endOfExe] + flags + fullCmd[endOfExe:]
+				// Find the first space AFTER wezterm to avoid splitting "wezterm-gui" or paths
+				firstSpace := strings.Index(fullCmd[idx:], " ")
+				if firstSpace != -1 {
+					insertIdx := idx + firstSpace
+					fullCmd = fullCmd[:insertIdx] + flags + fullCmd[insertIdx:]
+				} else {
+					// No space found, just append
+					fullCmd += flags
+				}
 			} else {
 				// Fallback
 				fullCmd += flags
@@ -382,7 +388,7 @@ func ensureTerminalRunning(config *Config) bool {
 		}
 	}
 
-	fmt.Printf("Terminal window for %s not found. Starting: %s\n", config.WindowClass, fullCmd)
+	fmt.Printf("Starting terminal with command: %s\n", fullCmd)
 	cmd := exec.Command("sh", "-c", fullCmd)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
