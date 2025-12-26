@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"io/ioutil"
 	"os/exec"
 	"os/signal"
 	"strings"
@@ -325,7 +324,7 @@ func loadConfig() Config {
 }
 
 func checkProcessRunning(targetClass string) bool {
-	procs, err := ioutil.ReadDir("/proc")
+	procs, err := os.ReadDir("/proc")
 	if err != nil {
 		return false
 	}
@@ -335,7 +334,7 @@ func checkProcessRunning(targetClass string) bool {
 			continue
 		}
 
-		cmdline, err := ioutil.ReadFile(fmt.Sprintf("/proc/%s/cmdline", p.Name()))
+		cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%s/cmdline", p.Name()))
 		if err != nil {
 			continue
 		}
