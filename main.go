@@ -11,6 +11,10 @@ import (
 	"os"
 	"time"
 
+	"io/ioutil"
+	"os/exec"
+	"strings"
+
 	"github.com/BurntSushi/toml"
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
@@ -21,6 +25,7 @@ var iconData []byte
 
 type Config struct {
 	WindowClass       string `toml:"window_class"`
+	StartCommand      string `toml:"start_command"`
 	Hotkey            string `toml:"hotkey"`
 	DisplayMode       string `toml:"display_mode"`
 	DisplayIndex      int    `toml:"display_index"`
@@ -202,6 +207,40 @@ func loadConfig() Config {
 		}
 	}
 	return config
+}
+
+func checkProcessRunning(targetClass string) bool {
+	procs, err := ioutil.ReadDir("/proc")
+	if err != nil {
+		return false
+	}
+
+	for _, p := range procs {
+		if !p.IsDir() || !isNumeric(p.Name()) {
+			continue
+		}
+
+		cmdline, err := ioutil.ReadFile(fmt.Sprintf("/proc/%s/cmdline", p.Name()))
+		if err != nil {
+			continue
+		}
+
+		// cmdline is null-separated
+		cmd := string(bytes.ReplaceAll(cmdline, []byte{0}, []byte(" ")))
+		if strings.Contains(cmd, targetClass) {
+			return true
+		}
+	}
+	return false
+}
+
+func isNumeric(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func toggleQuake(config *Config) {
@@ -411,6 +450,24 @@ func runDaemon(config *Config) {
 	reply, err := conn.RequestName(name, dbus.NameFlagReplaceExisting)
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		log.Fatalf("Failed to request D-Bus name %s: %v", name, err)
+	}
+
+	// Auto-start terminal if needed
+	if config.StartCommand != "" && !checkProcessRunning(config.WindowClass) {
+		fmt.Printf("Starting terminal: %s\n", config.StartCommand)
+		cmd := exec.Command("sh", "-c", config.StartCommand)
+		if err := cmd.Start(); err != nil {
+			log.Printf("Failed to start terminal: %v", err)
+		}
+
+		// Wait for window to appear (retry loop)
+		for i := 0; i < 20; i++ {
+			if checkProcessRunning(config.WindowClass) {
+				time.Sleep(500 * time.Millisecond) // Give it a moment to map the window
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 	}
 
 	// Initial grab/setup of the window

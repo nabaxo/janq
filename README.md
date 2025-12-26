@@ -47,7 +47,11 @@ Run the program directly:
 ```bash
 ./vibullshit
 ```
-- **First Run**: It starts as a background daemon (tray icon appears).
+- **First Run**:
+  - Starts as a background daemon.
+  - **Auto-checks** if `wezquake` is running.
+  - If missing, **auto-starts** the terminal using `start_command` from config.
+  - Minimizes the window to tray.
 - **Subsequent Runs**: It instantly toggles the terminal window.
 
 Add this command to your **KDE Autostart** setttings.

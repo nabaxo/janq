@@ -1,6 +1,7 @@
 # Quake Terminal Configuration
 
 window_class = "wezquake"
+start_command = "wezterm start --class wezquake"
 hotkey = "Meta+Grave"
 
 # Display settings:
