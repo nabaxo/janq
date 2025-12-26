@@ -278,6 +278,8 @@ func (s *StatusNotifierItem) Scroll(delta int32, orientation string) *dbus.Error
 
 func (s *StatusNotifierItem) SecondaryActivate(x, y int32) *dbus.Error {
 	// Middle-click acts as Quit
+	fmt.Println("Quit requested via tray icon...")
+	restoreQuake(s.config)
 	os.Exit(0)
 	return nil
 }
@@ -740,6 +742,7 @@ if (target) {
 }
 `
 	obj := conn.Object("org.kde.KWin", "/Scripting")
+	uniqueName := fmt.Sprintf("gouake_restore_%d", time.Now().UnixNano())
 	scriptCode := fmt.Sprintf(restoreScript, config.WindowClass)
 
 	tmpFile, err := os.CreateTemp("", "quake_restore_*.js")
@@ -751,14 +754,14 @@ if (target) {
 	tmpFile.Close()
 
 	var scriptID int32
-	obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), "quake_restore").Store(&scriptID)
-	if scriptID > 0 {
+	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
+	if err == nil && scriptID > 0 {
 		scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
 		scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
 		scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond) // Give it more time to execute
 		scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
-		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, "quake_restore").Store()
+		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, uniqueName).Store()
 	}
 }
 
