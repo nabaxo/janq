@@ -357,6 +357,10 @@ func ensureTerminalRunning(config *Config) bool {
 	fullCmd := config.StartCommand
 	if strings.Contains(strings.ToLower(config.StartCommand), "wezterm") {
 		var flags string
+		// Inject --class if missing
+		if !strings.Contains(fullCmd, "--class") {
+			flags += fmt.Sprintf(" --class %s", config.WindowClass)
+		}
 		if config.WidthCols > 0 {
 			flags += fmt.Sprintf(" --config initial_cols=%d", config.WidthCols)
 		}
@@ -367,6 +371,8 @@ func ensureTerminalRunning(config *Config) bool {
 		if flags != "" {
 			idx := strings.Index(strings.ToLower(fullCmd), "wezterm")
 			if idx != -1 {
+				// WezTerm CLI: wezterm [FLAGS] [COMMAND]
+				// We inject flags immediately after 'wezterm' or 'wezterm-gui'
 				firstSpace := strings.Index(fullCmd[idx:], " ")
 				if firstSpace != -1 {
 					insertIdx := idx + firstSpace
@@ -378,6 +384,9 @@ func ensureTerminalRunning(config *Config) bool {
 				fullCmd += flags
 			}
 		}
+	} else if !strings.Contains(fullCmd, "--class") {
+		// Generic fallback for alacritty/kitty style flags
+		fullCmd += fmt.Sprintf(" --class %s", config.WindowClass)
 	}
 
 	fmt.Printf("Starting terminal: %s\n", fullCmd)
@@ -775,7 +784,8 @@ func runDaemon(config *Config, autoShow bool) {
 	conn.RequestName("dev.nabaxo.gouake", dbus.NameFlagReplaceExisting)
 
 	if autoShow {
-		fmt.Println("Auto-showing terminal on startup...")
+		fmt.Println("Waiting for terminal to settle before auto-show...")
+		time.Sleep(500 * time.Millisecond) // Give KWin time to register the new window
 		toggleQuake(config)
 	}
 
@@ -784,12 +794,16 @@ func runDaemon(config *Config, autoShow bool) {
 		for {
 			time.Sleep(2 * time.Second)
 			if !checkProcessRunning(config.WindowClass) {
-				fmt.Println("Terminal process closed. Respawning...")
+				fmt.Printf("Terminal process (%s) closed. Respawning...\n", config.WindowClass)
 				if ensureTerminalRunning(config) {
+					fmt.Println("Respawn successful. Showing terminal...")
 					// Reset visibility state so next toggle works correctly
 					toggleMutex.Lock()
 					targetVisible = false
 					toggleMutex.Unlock()
+
+					time.Sleep(500 * time.Millisecond) // Settle time
+					toggleQuake(config)                // Drop it down immediately as requested
 				}
 			}
 		}
