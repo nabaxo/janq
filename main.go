@@ -776,9 +776,24 @@ func runDaemon(config *Config, autoShow bool) {
 
 	if autoShow {
 		fmt.Println("Auto-showing terminal on startup...")
-		targetVisible = true
 		toggleQuake(config)
 	}
+
+	// Background Respawn Loop: Ensures terminal is always running
+	go func() {
+		for {
+			time.Sleep(2 * time.Second)
+			if !checkProcessRunning(config.WindowClass) {
+				fmt.Println("Terminal process closed. Respawning...")
+				if ensureTerminalRunning(config) {
+					// Reset visibility state so next toggle works correctly
+					toggleMutex.Lock()
+					targetVisible = false
+					toggleMutex.Unlock()
+				}
+			}
+		}
+	}()
 
 	sni := &StatusNotifierItem{config: config}
 	conn.Export(sni, "/StatusNotifierItem", "org.kde.StatusNotifierItem")
