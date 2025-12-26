@@ -417,9 +417,11 @@ func main() {
 		log.Fatalf("Failed to request D-Bus name: %v", err)
 	}
 
+	fmt.Printf("D-Bus RequestName reply: %v\n", reply)
+
 	if reply == dbus.RequestNameReplyPrimaryOwner {
 		// We are the first instance -> Run as Daemon
-		fmt.Println("Starting Vibullshit daemon...")
+		fmt.Println("Instance became D-Bus PRIMARY OWNER. Starting Daemon...")
 
 		// Run daemon logic (tray, service, grab)
 		// Note: runDaemon handles its own connection and exports.
@@ -429,11 +431,13 @@ func main() {
 		runDaemon(&config)
 	} else if reply == dbus.RequestNameReplyExists {
 		// Another instance owns the name -> Toggle it
-		// fmt.Println("Daemon already running. Toggling...")
+		fmt.Println("Instance Detected EXISTING Daemon. Sending Toggle signal...")
 		obj := conn.Object("com.nabaxo.vibullshit", "/com/nabaxo/vibullshit")
 		err = obj.Call("com.nabaxo.vibullshit.Toggle", 0).Store()
 		if err != nil {
 			log.Printf("Failed to toggle remote daemon: %v", err)
+		} else {
+			fmt.Println("Toggle signal sent successfully.")
 		}
 	} else {
 		log.Fatalf("Unexpected D-Bus name request reply: %v", reply)
@@ -453,24 +457,32 @@ func runDaemon(config *Config) {
 	}
 
 	// Auto-start terminal if needed
-	if config.StartCommand != "" && !checkProcessRunning(config.WindowClass) {
-		fmt.Printf("Starting terminal: %s\n", config.StartCommand)
+	isRunning := checkProcessRunning(config.WindowClass)
+	fmt.Printf("Process '%s' running? %v\n", config.WindowClass, isRunning)
+
+	if config.StartCommand != "" && !isRunning {
+		fmt.Printf("Auto-Starting terminal: %s\n", config.StartCommand)
 		cmd := exec.Command("sh", "-c", config.StartCommand)
 		if err := cmd.Start(); err != nil {
 			log.Printf("Failed to start terminal: %v", err)
 		}
 
 		// Wait for window to appear (retry loop)
+		fmt.Println("Waiting for window to appear...")
 		for i := 0; i < 20; i++ {
 			if checkProcessRunning(config.WindowClass) {
+				fmt.Println("Window appeared!")
 				time.Sleep(500 * time.Millisecond) // Give it a moment to map the window
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
+	} else if isRunning {
+		fmt.Println("Terminal process already running. Skipping auto-start.")
 	}
 
 	// Initial grab/setup of the window
+	fmt.Println("Running ensureGrabbed()...")
 	ensureGrabbed(config)
 
 	// Single instance control service
