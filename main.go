@@ -18,8 +18,6 @@ import (
 	"os/signal"
 	"strings"
 
-	"strconv"
-
 	"github.com/BurntSushi/toml"
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
@@ -100,12 +98,7 @@ if (target) {
     var shouldShow = %t;
 
     // Current State Detection
-    // Stability Fix: Use bottom center to track monitor while sliding up
-    var areaPoint = {
-        x: target.frameGeometry.x + target.frameGeometry.width / 2,
-        y: target.frameGeometry.y + target.frameGeometry.height - 5
-    };
-    var currentArea = workspace.clientArea(KWin.PlacementArea, areaPoint.x, areaPoint.y);
+    var currentArea = workspace.clientArea(KWin.PlacementArea, target);
 
     // We consider it mostly hidden if it's minimized OR if less than 5px is visible.
     var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
@@ -122,6 +115,7 @@ if (target) {
         if (workspace.activeScreen && workspace.activeScreen.geometry) {
             area = workspace.activeScreen.geometry;
         } else {
+            // Fallback: activeScreen might be an ID index
             area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, target);
         }
     }
@@ -350,7 +344,7 @@ func loadConfig() Config {
 }
 
 func ensureTerminalRunning(config *Config) bool {
-	if checkWindowExists(config.WindowClass) {
+	if checkWindowExistsKWin(config.WindowClass) {
 		return false
 	}
 
@@ -369,20 +363,16 @@ func ensureTerminalRunning(config *Config) bool {
 		}
 
 		if flags != "" {
-			// Find the first occurrence of "wezterm".
 			idx := strings.Index(strings.ToLower(fullCmd), "wezterm")
 			if idx != -1 {
-				// Find the first space AFTER wezterm to avoid splitting "wezterm-gui" or paths
 				firstSpace := strings.Index(fullCmd[idx:], " ")
 				if firstSpace != -1 {
 					insertIdx := idx + firstSpace
 					fullCmd = fullCmd[:insertIdx] + flags + fullCmd[insertIdx:]
 				} else {
-					// No space found, just append
 					fullCmd += flags
 				}
 			} else {
-				// Fallback
 				fullCmd += flags
 			}
 		}
@@ -396,10 +386,11 @@ func ensureTerminalRunning(config *Config) bool {
 		return false
 	}
 
-	// Wait for window to appear
-	for i := 0; i < 20; i++ {
-		if checkWindowExists(config.WindowClass) {
-			time.Sleep(500 * time.Millisecond) // Wait for window to be fully ready
+	// Wait for window to appear in KWin
+	for i := 0; i < 30; i++ {
+		if checkWindowExistsKWin(config.WindowClass) {
+			fmt.Println("Window detected in KWin.")
+			time.Sleep(200 * time.Millisecond) // Settle time for frameGeometry
 			ensureGrabbed(config)
 			return true
 		}
@@ -408,47 +399,66 @@ func ensureTerminalRunning(config *Config) bool {
 	return false
 }
 
-func checkWindowExists(targetClass string) bool {
-	procs, err := os.ReadDir("/proc")
+func checkWindowExistsKWin(targetClass string) bool {
+	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		return false
 	}
-	myPid := os.Getpid()
+	defer conn.Close()
 
-	for _, p := range procs {
-		if !p.IsDir() || !isNumeric(p.Name()) {
-			continue
-		}
-		pid, _ := strconv.Atoi(p.Name())
-		if pid == myPid {
-			continue
-		}
+	obj := conn.Object("org.kde.KWin", "/Scripting")
+	uniqueName := fmt.Sprintf("gouake_check_%d", time.Now().UnixNano())
 
-		cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%s/cmdline", p.Name()))
-		if err != nil {
-			continue
-		}
-
-		// Look for --class <targetClass> or --class=<targetClass> in arguments
-		parts := bytes.Split(cmdline, []byte{0})
-		for i, part := range parts {
-			s := string(part)
-			if s == "--class" && i+1 < len(parts) && strings.EqualFold(string(parts[i+1]), targetClass) {
-				return true
-			}
-			if strings.HasPrefix(strings.ToLower(s), "--class=") && strings.EqualFold(s[8:], targetClass) {
-				return true
-			}
-			// Fallback: exact match of an argument
-			if strings.EqualFold(s, targetClass) {
-				exe, _ := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
-				if !strings.Contains(exe, "zsh") && !strings.Contains(exe, "bash") && !strings.Contains(exe, "grep") {
-					return true
-				}
+	script := fmt.Sprintf(`
+		var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+		var found = false;
+		var search = "%s".toLowerCase();
+		for (var i = 0; i < clients.length; i++) {
+			var c = clients[i];
+			if ((c.resourceClass && c.resourceClass.toLowerCase() == search) ||
+			    (c.resourceName && c.resourceName.toLowerCase() == search)) {
+				found = true;
+				break;
 			}
 		}
+		print(found ? "GOUAKE_FOUND:TRUE" : "GOUAKE_FOUND:FALSE");
+	`, targetClass)
+
+	tmpFile, err := os.CreateTemp("", uniqueName+"_*.js")
+	if err != nil {
+		return false
 	}
-	return false
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString(script)
+	tmpFile.Close()
+
+	var scriptID int32
+	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
+	if err != nil {
+		return false
+	}
+
+	// Run script and then unload
+	scriptPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
+	scriptObj := conn.Object("org.kde.KWin", scriptPath)
+	scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
+
+	// Since we can't easily capture 'print' output directly via D-Bus call return,
+	// we'll use a slightly different approach: checkWindowExistsKWin will return true
+	// if the window exists *according to KWin*.
+	// But wait, the kwin script doesn't return values.
+	// Let's use a simpler process check as a FIRST pass, but for the "Is it ready?"
+	// we strictly want to know if KWin sees it.
+	// Actually, supportInformation check via qdbus is easier to parse here.
+
+	cmd := exec.Command("qdbus", "org.kde.KWin", "/KWin", "org.kde.KWin.supportInformation")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+
+	lowerTarget := strings.ToLower(targetClass)
+	return strings.Contains(strings.ToLower(string(out)), lowerTarget)
 }
 
 func isNumeric(s string) bool {
