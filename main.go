@@ -726,6 +726,7 @@ if (target) {
     target.keepAbove = false;
     target.onAllDesktops = false;
     target.noBorder = false;
+    target.opacity = 1.0;
 
     var geo = target.frameGeometry;
     var area = workspace.clientArea(KWin.PlacementArea, target);
