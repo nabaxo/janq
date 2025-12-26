@@ -100,25 +100,25 @@ if (target) {
 
     // Current State Detection
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
+    var mouseArea = workspace.activeScreen.geometry;
 
     // We consider it mostly hidden if it's minimized OR if less than 5px is visible.
     var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
 
+    // Is the window currently on a different screen than the mouse?
+    var isDifferentScreen = (currentArea.x != mouseArea.x || currentArea.y != mouseArea.y);
+
     // SUMMON Logic:
-    // If we are toggling to SHOW, we only stick if we are already "mostly visible".
-    var isSticky = shouldShow ? !isMostlyHidden : true;
+    // We only "Stick" if we are already visible AND on the correct (mouse) screen.
+    // Otherwise, we "Summon" to the new position.
+    var isSticky = (shouldShow && !isMostlyHidden && !isDifferentScreen) || (!shouldShow);
 
     var area = null;
     if (isSticky) {
         area = currentArea;
     } else {
-        // SUMMON: Prioritize workspace.activeScreen (mouse screen in Plasma 6)
-        if (workspace.activeScreen && workspace.activeScreen.geometry) {
-            area = workspace.activeScreen.geometry;
-        } else {
-            // Fallback: activeScreen might be an ID index
-            area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, target);
-        }
+        // SUMMON: Use workspace.activeScreen (mouse screen)
+        area = mouseArea;
     }
 
     // Target Geometry
@@ -323,14 +323,14 @@ func loadConfig() Config {
 			WindowClass:   "wezquake",
 			Hotkey:        "Meta+Grave",
 			DisplayMode:   "follow-mouse",
-			WidthPercent:  100,
+			WidthPercent:  40,
 			HeightPercent: 40,
 			ShowDuration:  300,
 			HideDuration:  300,
 			ShowEasing:    "ease-out",
 			HideEasing:    "ease-in",
-			WidthCols:     0,
-			HeightRows:    0,
+			WidthCols:     120,
+			HeightRows:    40,
 		}
 	}
 	// Default easings if missing
