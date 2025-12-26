@@ -662,7 +662,7 @@ func main() {
 	config := loadConfig()
 
 	if *daemonMode {
-		runDaemon(&config)
+		runDaemon(&config, false)
 		return
 	}
 
@@ -670,7 +670,7 @@ func main() {
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		// Bus failed? Probably can't run daemon either, but let's try.
-		runDaemon(&config)
+		runDaemon(&config, false)
 		return
 	}
 
@@ -687,7 +687,7 @@ func main() {
 	// Failed to toggle (likely service not found), so we start the daemon.
 	fmt.Println("Daemon not running (or reachable). Starting new daemon instance...")
 	conn.Close()
-	runDaemon(&config)
+	runDaemon(&config, true)
 }
 
 func restoreQuake(config *Config) {
@@ -749,7 +749,7 @@ if (target) {
 	}
 }
 
-func runDaemon(config *Config) {
+func runDaemon(config *Config, autoShow bool) {
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		log.Fatalf("Failed to connect to session bus: %v", err)
@@ -773,6 +773,12 @@ func runDaemon(config *Config) {
 	daemon := &QuakeDaemon{config: config}
 	conn.Export(daemon, "/dev/nabaxo/gouake", "dev.nabaxo.gouake")
 	conn.RequestName("dev.nabaxo.gouake", dbus.NameFlagReplaceExisting)
+
+	if autoShow {
+		fmt.Println("Auto-showing terminal on startup...")
+		targetVisible = true
+		toggleQuake(config)
+	}
 
 	sni := &StatusNotifierItem{config: config}
 	conn.Export(sni, "/StatusNotifierItem", "org.kde.StatusNotifierItem")
