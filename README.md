@@ -36,9 +36,10 @@ window_class = "wezquake"
 display_mode = "follow-mouse"
 width_percent = 100
 height_percent = 40
-animation_duration = 300       # Duration in ms (0 for instant)
-animation_type = "slide"       # "slide" or "none"
-animation_easing = "ease-out"  # "linear", "ease-in", "ease-out", "ease-in-out"
+show_duration = 300       # Show animation duration in ms
+hide_duration = 300       # Hide animation duration in ms
+show_easing = "ease-out"  # "linear", "ease-in", "ease-out", "ease-in-out"
+hide_easing = "ease-in"
 ```
 
 ## Usage

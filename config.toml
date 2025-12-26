@@ -9,9 +9,10 @@ hotkey = "Meta+Grave"
 display_mode = "follow-mouse"
 display_index = 0           # Only used if display_mode = "specific"
 
-width_percent = 60        # Width as percentage of screen width
+width_percent = 40        # Width as percentage of screen width
 height_percent = 40         # Height as percentage of screen height
 
-animation_duration = 300    # Animation duration in milliseconds (0 for instant)
-animation_type = "slide"    # "slide" or "none"
-animation_easing = "ease-out" # "linear", "ease-in", "ease-out", "ease-in-out"
+show_duration = 300
+hide_duration = 300
+show_easing = "ease-out"
+hide_easing = "ease-in"

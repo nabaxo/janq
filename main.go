@@ -24,16 +24,18 @@ import (
 var iconData []byte
 
 type Config struct {
-	WindowClass       string `toml:"window_class"`
-	StartCommand      string `toml:"start_command"`
-	Hotkey            string `toml:"hotkey"`
-	DisplayMode       string `toml:"display_mode"`
-	DisplayIndex      int    `toml:"display_index"`
-	WidthPercent      int    `toml:"width_percent"`
-	HeightPercent     int    `toml:"height_percent"`
-	AnimationDuration int    `toml:"animation_duration"`
-	AnimationType     string `toml:"animation_type"`
-	AnimationEasing   string `toml:"animation_easing"`
+	WindowClass   string `toml:"window_class"`
+	StartCommand  string `toml:"start_command"`
+	Hotkey        string `toml:"hotkey"`
+	DisplayMode   string `toml:"display_mode"`
+	DisplayIndex  int    `toml:"display_index"`
+	WidthPercent  int    `toml:"width_percent"`
+	HeightPercent int    `toml:"height_percent"`
+
+	ShowDuration int    `toml:"show_duration"`
+	HideDuration int    `toml:"hide_duration"`
+	ShowEasing   string `toml:"show_easing"`
+	HideEasing   string `toml:"hide_easing"`
 }
 
 const kwinScriptTemplate = `
@@ -74,19 +76,18 @@ if (target) {
     var displayIndex = %d;
     var widthPct = %d / 100.0;
     var heightPct = %d / 100.0;
-    var animDuration = %d;
-    var animType = "%s";
-    var easingType = "%s";
+	var showDuration = %d;
+	var hideDuration = %d;
+	var showEasing = "%s";
+	var hideEasing = "%s";
 
-    print("Vibullshit: Toggle target state: minimized=" + target.minimized);
+    print("Vibullshit: Toggle target state check...");
 
-    // Get screen geometry safely for Plasma 5/6
+    // Get screen geometry
     var area = null;
     if (workspace.activeScreen && workspace.activeScreen.geometry) {
-        // Plasma 6 likely
         area = workspace.activeScreen.geometry;
     } else {
-        // Plasma 5 fallback
         var screenId = workspace.activeScreen;
         area = workspace.clientArea(KWin.PlacementArea, screenId, target);
     }
@@ -97,28 +98,31 @@ if (target) {
     var finalX = area.x + (area.width - finalWidth) / 2;
     var finalY = area.y;
 
-    print("Vibullshit: Screen Area: " + area.x + "," + area.y + " " + area.width + "x" + area.height);
-    print("Vibullshit: Final Geometry: " + finalX + "," + finalY + " " + finalWidth + "x" + finalHeight);
+    // Detect state based on vertical position
+    // If top of window is above the screen (allowing for some margin), it's hidden
+    var isHidden = (target.frameGeometry.y + target.frameGeometry.height/2) < area.y;
 
-    if (target.minimized) {
+    print("Vibullshit: Screen Y=" + area.y + " Window Y=" + target.frameGeometry.y + " Hidden? " + isHidden);
+
+    if (isHidden) {
         // SHOW
         print("Vibullshit: Showing window...");
 
-        // Prepare for animation
         target.minimized = false;
         target.keepAbove = true;
         target.onAllDesktops = true;
         target.noBorder = true;
-        target.skipTaskbar = true; // Optional: keeps it out of taskbar
+        target.skipTaskbar = true;
         target.skipPager = true;
-
-        // Force activation
         workspace.activeClient = target;
 
-        if (animType === "slide" && animDuration > 0) {
-            // Start position (above screen)
-            var startY = finalY - finalHeight;
-            var endY = finalY;
+        if (showDuration > 0) {
+            var startY = target.frameGeometry.y;
+            // Ensure we start at least from -height if it was way off
+            if (startY > finalY) startY = finalY - finalHeight; // Should verify logic
+
+            // Actually, best "Hidden" start pos is: finalY - finalHeight
+            startY = finalY - finalHeight;
 
             target.frameGeometry = {
                 x: finalX,
@@ -127,14 +131,16 @@ if (target) {
                 height: finalHeight
             };
 
+            var endY = finalY;
             var startTime = new Date().getTime();
+
             var timer = new QTimer();
             timer.interval = 16;
             timer.timeout.connect(function() {
                 var now = new Date().getTime();
                 var elapsed = now - startTime;
-                var progress = Math.min(elapsed / animDuration, 1.0);
-                var ease = getEasing(progress, easingType);
+                var progress = Math.min(elapsed / showDuration, 1.0);
+                var ease = getEasing(progress, showEasing);
 
                 var currentY = startY + (endY - startY) * ease;
 
@@ -147,7 +153,6 @@ if (target) {
 
                 if (progress >= 1.0) {
                     timer.stop();
-                    // Ensure final position is exact
                     target.frameGeometry = {
                         x: finalX,
                         y: finalY,
@@ -171,9 +176,9 @@ if (target) {
         // HIDE
         print("Vibullshit: Hiding window...");
 
-        if (animType === "slide" && animDuration > 0) {
+        if (hideDuration > 0) {
             var startY = target.frameGeometry.y;
-            var endY = finalY - finalHeight; // Slide up off screen
+            var endY = finalY - finalHeight; // Move up off-screen
             var startTime = new Date().getTime();
 
             var timer = new QTimer();
@@ -181,8 +186,8 @@ if (target) {
             timer.timeout.connect(function() {
                 var now = new Date().getTime();
                 var elapsed = now - startTime;
-                var progress = Math.min(elapsed / animDuration, 1.0);
-                var ease = getEasing(progress, easingType); // Use same easing for out
+                var progress = Math.min(elapsed / hideDuration, 1.0);
+                var ease = getEasing(progress, hideEasing);
 
                 var currentY = startY + (endY - startY) * ease;
 
@@ -195,12 +200,17 @@ if (target) {
 
                 if (progress >= 1.0) {
                     timer.stop();
-                    target.minimized = true;
+                    // target.minimized = true; // NO minimize! Just stay off-screen.
                 }
             });
             timer.start();
         } else {
-             target.minimized = true;
+             target.frameGeometry = {
+                x: finalX,
+                y: finalY - finalHeight,
+                width: finalWidth,
+                height: finalHeight
+             };
         }
     }
 } else {
@@ -251,20 +261,25 @@ func loadConfig() Config {
 	var config Config
 	if _, err := toml.DecodeFile(configPath, &config); err != nil {
 		config = Config{
-			WindowClass:       "wezquake",
-			Hotkey:            "Meta+Grave",
-			DisplayMode:       "follow-mouse",
-			WidthPercent:      100,
-			HeightPercent:     40,
-			AnimationDuration: 300,
-			AnimationType:     "slide",
-			AnimationEasing:   "ease-out",
+			WindowClass:   "wezquake",
+			Hotkey:        "Meta+Grave",
+			DisplayMode:   "follow-mouse",
+			WidthPercent:  100,
+			HeightPercent: 40,
+			ShowDuration:  300,
+			HideDuration:  300,
+			ShowEasing:    "ease-out",
+			HideEasing:    "ease-in",
 		}
 	}
-	// Default easing if missing
-	if config.AnimationEasing == "" {
-		config.AnimationEasing = "ease-out"
+	// Default easings if missing
+	if config.ShowEasing == "" {
+		config.ShowEasing = "ease-out"
 	}
+	if config.HideEasing == "" {
+		config.HideEasing = "ease-in"
+	}
+	// Fallback/Defaults for durations if 0 (optional, arguably 0 is valid for instant)
 	return config
 }
 
@@ -326,9 +341,10 @@ func toggleQuake(config *Config) {
 		config.DisplayIndex,
 		config.WidthPercent,
 		config.HeightPercent,
-		config.AnimationDuration,
-		config.AnimationType,
-		config.AnimationEasing,
+		config.ShowDuration,
+		config.HideDuration,
+		config.ShowEasing,
+		config.HideEasing,
 	)
 
 	if _, err := tmpFile.WriteString(scriptCode); err != nil {
@@ -354,10 +370,7 @@ func toggleQuake(config *Config) {
 		return
 	}
 
-	waitMs := config.AnimationDuration + 100
-	if config.AnimationType == "none" {
-		waitMs = 100
-	}
+	waitMs := config.ShowDuration + config.HideDuration + 100 // Safe upper bound
 	time.Sleep(time.Duration(waitMs) * time.Millisecond)
 
 	fmt.Println("Stopping KWin script...")
@@ -422,15 +435,23 @@ if (target) {
         screenId = workspace.activeScreen;
     }
 
-    var area = workspace.clientArea(KWin.PlacementArea, screenId, target);
+    // Plasma 6 likely
+    var area = workspace.activeScreen.geometry;
+
     var finalWidth = area.width * widthPct;
     var finalHeight = area.height * heightPct;
     var finalX = area.x + (area.width - finalWidth) / 2;
     var finalY = area.y;
 
-    target.geometry = {
+    target.keepAbove = true;
+    target.onAllDesktops = true;
+    target.noBorder = true;
+    target.skipTaskbar = true;
+
+    // Force off-screen
+    target.frameGeometry = {
         x: finalX,
-        y: finalY,
+        y: finalY - finalHeight,
         width: finalWidth,
         height: finalHeight
     };
