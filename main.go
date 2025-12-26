@@ -104,7 +104,13 @@ if (target) {
         target.noBorder = true;
         target.skipTaskbar = true;
         target.skipPager = true;
-        workspace.activeClient = target;
+
+        // Force activation (Plasma 6 uses activeWindow, Plasma 5 uses activeClient)
+        if (workspace.activeWindow !== undefined) {
+            workspace.activeWindow = target;
+        } else {
+            workspace.activeClient = target;
+        }
 
         if (showDuration > 0) {
             var startY = target.frameGeometry.y;
