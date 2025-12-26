@@ -15,8 +15,8 @@ height_percent = 40         # Height as percentage of screen height
 # Optional: Set dimensions as terminal rows and columns instead of percentage.
 # If these are non-zero, they take precedence over percentages.
 # (Gouake will automatically pass these to WezTerm via --config initial_cols/rows)
-width_cols = 120
-height_rows = 40
+# width_cols = 120
+# height_rows = 40
 
 show_duration = 300
 hide_duration = 300

@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync" // Added for toggleMutex
 	"syscall"
 	"time"
@@ -344,7 +345,8 @@ func loadConfig() Config {
 }
 
 func ensureTerminalRunning(config *Config) bool {
-	if checkWindowExistsKWin(config.WindowClass) {
+	// 1. Precise process + class check
+	if checkProcessRunning(config.WindowClass) {
 		return false
 	}
 
@@ -378,7 +380,7 @@ func ensureTerminalRunning(config *Config) bool {
 		}
 	}
 
-	fmt.Printf("Starting terminal with command: %s\n", fullCmd)
+	fmt.Printf("Starting terminal: %s\n", fullCmd)
 	cmd := exec.Command("sh", "-c", fullCmd)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -386,79 +388,63 @@ func ensureTerminalRunning(config *Config) bool {
 		return false
 	}
 
-	// Wait for window to appear in KWin
-	for i := 0; i < 30; i++ {
-		if checkWindowExistsKWin(config.WindowClass) {
-			fmt.Println("Window detected in KWin.")
-			time.Sleep(200 * time.Millisecond) // Settle time for frameGeometry
+	// Wait for process to appear
+	for i := 0; i < 20; i++ {
+		if checkProcessRunning(config.WindowClass) {
+			fmt.Println("Terminal process detected.")
+			time.Sleep(1 * time.Second) // Give it time to map the window
 			ensureGrabbed(config)
 			return true
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 	}
 	return false
 }
 
-func checkWindowExistsKWin(targetClass string) bool {
-	conn, err := dbus.ConnectSessionBus()
+func checkProcessRunning(targetClass string) bool {
+	procs, err := os.ReadDir("/proc")
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	myPid := os.Getpid()
 
-	obj := conn.Object("org.kde.KWin", "/Scripting")
-	uniqueName := fmt.Sprintf("gouake_check_%d", time.Now().UnixNano())
+	for _, p := range procs {
+		if !p.IsDir() || !isNumeric(p.Name()) {
+			continue
+		}
+		pid, _ := strconv.Atoi(p.Name())
+		if pid == myPid {
+			continue
+		}
 
-	script := fmt.Sprintf(`
-		var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-		var found = false;
-		var search = "%s".toLowerCase();
-		for (var i = 0; i < clients.length; i++) {
-			var c = clients[i];
-			if ((c.resourceClass && c.resourceClass.toLowerCase() == search) ||
-			    (c.resourceName && c.resourceName.toLowerCase() == search)) {
-				found = true;
-				break;
+		cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%s/cmdline", p.Name()))
+		if err != nil {
+			continue
+		}
+
+		// Parts are null-terminated
+		parts := bytes.Split(cmdline, []byte{0})
+		for i, part := range parts {
+			s := string(part)
+			// Match exact --class arg OR exact string match if it's not a shell/system proc
+			if s == "--class" && i+1 < len(parts) && strings.EqualFold(string(parts[i+1]), targetClass) {
+				return true
+			}
+			if strings.HasPrefix(strings.ToLower(s), "--class=") && strings.EqualFold(s[8:], targetClass) {
+				return true
 			}
 		}
-		print(found ? "GOUAKE_FOUND:TRUE" : "GOUAKE_FOUND:FALSE");
-	`, targetClass)
 
-	tmpFile, err := os.CreateTemp("", uniqueName+"_*.js")
-	if err != nil {
-		return false
+		// Broad match fallback (only if terminal-like)
+		fullCmd := string(bytes.Join(parts, []byte(" ")))
+		if strings.Contains(fullCmd, targetClass) {
+			exe, _ := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+			if strings.Contains(exe, "wezterm") || strings.Contains(exe, "alacritty") || strings.Contains(exe, "kitty") {
+				return true
+			}
+		}
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(script)
-	tmpFile.Close()
-
-	var scriptID int32
-	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
-	if err != nil {
-		return false
-	}
-
-	// Run script and then unload
-	scriptPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
-	scriptObj := conn.Object("org.kde.KWin", scriptPath)
-	scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
-
-	// Since we can't easily capture 'print' output directly via D-Bus call return,
-	// we'll use a slightly different approach: checkWindowExistsKWin will return true
-	// if the window exists *according to KWin*.
-	// But wait, the kwin script doesn't return values.
-	// Let's use a simpler process check as a FIRST pass, but for the "Is it ready?"
-	// we strictly want to know if KWin sees it.
-	// Actually, supportInformation check via qdbus is easier to parse here.
-
-	cmd := exec.Command("qdbus", "org.kde.KWin", "/KWin", "org.kde.KWin.supportInformation")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return false
-	}
-
-	lowerTarget := strings.ToLower(targetClass)
-	return strings.Contains(strings.ToLower(string(out)), lowerTarget)
+	return false
 }
 
 func isNumeric(s string) bool {
