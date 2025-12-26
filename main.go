@@ -92,16 +92,20 @@ if (target) {
     var shouldShow = %t;
 
     // Current State Detection
+    var currentArea = workspace.clientArea(KWin.PlacementArea, target);
+
+    // Geometric "Is Hidden" check:
+    // Window is hidden if it is minimized OR its bottom edge is above the screen top + 5px buffer.
+    var isActuallyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
+
     // "Sticky Monitor" Logic:
-    // We only SUMMON the window to the mouse screen if it is currently MINIMIZED.
-    // If it is already unminimized (even mid-animation), we STAY on its current monitor.
-    // This is the most robust way to handle multi-monitors and rapid toggles.
-    var isSticky = !target.minimized;
+    // We only SUMMON the window to the mouse screen if it is geometrically HIDDEN.
+    // Otherwise, we STAY on the current monitor to allow for smooth instant reversal/interruption.
+    var isSticky = !isActuallyHidden;
 
     var area = null;
     if (isSticky) {
-        // STAY: Use target's current screen area
-        area = workspace.clientArea(KWin.PlacementArea, target);
+        area = currentArea;
     } else {
         // SUMMON: Use active/mouse screen
         if (workspace.activeScreen && workspace.activeScreen.geometry) {
@@ -127,8 +131,6 @@ if (target) {
 
     if (shouldShow) {
         // SHOWING
-
-        // Ensure visible and opaque
         if (target.minimized) {
             target.minimized = false;
         }
@@ -137,10 +139,10 @@ if (target) {
         if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
         else workspace.activeClient = target;
 
-        // Animation Start Point: Current Y
+        // Animation Start Point
         var startY = target.frameGeometry.y;
 
-        // If it was fully hidden/minimized, snap to start position on active screen
+        // If we decided to SUMMON (was hidden), snap X and hidden-Y onto the NEW screen
         if (!isSticky) {
              startY = finalY - finalHeight;
              target.frameGeometry = {
@@ -186,14 +188,13 @@ if (target) {
 
     } else {
         // HIDING
-
         var currentGeo = target.frameGeometry;
         var startY = currentGeo.y;
         var startX = currentGeo.x;
         var startW = currentGeo.width;
         var startH = currentGeo.height;
 
-        // Goal: Move up until completely off screen, then minimize.
+        // Goal: Move up until completely off screen
         var endY = area.y - startH;
 
         if (duration > 0) {
@@ -219,19 +220,9 @@ if (target) {
 
                 if (progress >= 1.0) {
                     timer.stop();
-                    // PROPER HIDE: Minimize at end of animation (with delay)
-                    // Set opacity to 0 immediately to avoid "ghost" animation from off-screen
+                    // PROPER HIDE: Minimize immediately now that ghosting is fixed by opacity
                     target.opacity = 0.0;
-
-                    var minTimer = new QTimer();
-                    minTimer.interval = 100;
-                    minTimer.singleShot = true;
-                    minTimer.timeout.connect(function() {
-                        // Re-check: only minimize if we are still expected to be hidden
-                        // (prevents mid-animation minimize if toggle happened during the 100ms)
-                        target.minimized = true;
-                    });
-                    minTimer.start();
+                    target.minimized = true;
                 }
             });
             timer.start();
