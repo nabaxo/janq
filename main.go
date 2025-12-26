@@ -291,15 +291,15 @@ type Pixmap struct {
 }
 
 func findConfigFile() string {
-	configFiles := []string{".gouake.toml"}
+	configFiles := []string{".goake.toml"}
 	home, err := os.UserHomeDir()
 	if err == nil {
-		configFiles = append(configFiles, filepath.Join(home, ".gouake.toml"))
+		configFiles = append(configFiles, filepath.Join(home, ".goake.toml"))
 		xdgConfig := os.Getenv("XDG_CONFIG_HOME")
 		if xdgConfig == "" {
 			xdgConfig = filepath.Join(home, ".config")
 		}
-		configFiles = append(configFiles, filepath.Join(xdgConfig, "gouake", ".gouake.toml"))
+		configFiles = append(configFiles, filepath.Join(xdgConfig, "goake", ".goake.toml"))
 	}
 	for _, path := range configFiles {
 		if _, err := os.Stat(path); err == nil {
@@ -508,7 +508,7 @@ func toggleQuake(config *Config) {
 		easing = config.HideEasing
 	}
 
-	uniqueName := fmt.Sprintf("gouake_toggle_%d", time.Now().UnixNano())
+	uniqueName := fmt.Sprintf("goake_toggle_%d", time.Now().UnixNano())
 	lastScriptID = uniqueName
 
 	tmpFile, err := os.CreateTemp("", uniqueName+"_*.js")
@@ -687,8 +687,8 @@ func main() {
 	}
 
 	// Try to call Toggle on existing service
-	obj := conn.Object("dev.nabaxo.gouake", "/dev/nabaxo/gouake")
-	err = obj.Call("dev.nabaxo.gouake.Toggle", 0).Store()
+	obj := conn.Object("dev.nabaxo.goake", "/dev/nabaxo/goake")
+	err = obj.Call("dev.nabaxo.goake.Toggle", 0).Store()
 
 	if err == nil {
 		// Success! We triggered the daemon.
@@ -743,7 +743,7 @@ if (target) {
 }
 `
 	obj := conn.Object("org.kde.KWin", "/Scripting")
-	uniqueName := fmt.Sprintf("gouake_restore_%d", time.Now().UnixNano())
+	uniqueName := fmt.Sprintf("goake_restore_%d", time.Now().UnixNano())
 	scriptCode := fmt.Sprintf(restoreScript, config.WindowClass)
 
 	tmpFile, err := os.CreateTemp("", "quake_restore_*.js")
@@ -773,7 +773,7 @@ func runDaemon(config *Config, autoShow bool) {
 	}
 	defer conn.Close()
 
-	name := fmt.Sprintf("org.kde.StatusNotifierItem-gouake-%d", os.Getpid())
+	name := fmt.Sprintf("org.kde.StatusNotifierItem-goake-%d", os.Getpid())
 	reply, err := conn.RequestName(name, dbus.NameFlagReplaceExisting)
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		log.Fatalf("Failed to request D-Bus name %s: %v", name, err)
@@ -788,8 +788,8 @@ func runDaemon(config *Config, autoShow bool) {
 
 	// Single instance control service
 	daemon := &QuakeDaemon{config: config}
-	conn.Export(daemon, "/dev/nabaxo/gouake", "dev.nabaxo.gouake")
-	conn.RequestName("dev.nabaxo.gouake", dbus.NameFlagReplaceExisting)
+	conn.Export(daemon, "/dev/nabaxo/goake", "dev.nabaxo.goake")
+	conn.RequestName("dev.nabaxo.goake", dbus.NameFlagReplaceExisting)
 
 	if autoShow {
 		fmt.Println("Waiting for terminal to settle before auto-show...")
@@ -843,12 +843,12 @@ func runDaemon(config *Config, autoShow bool) {
 				Emit:     prop.EmitTrue,
 			},
 			"Id": {
-				Value:    "gouake",
+				Value:    "goake",
 				Writable: false,
 				Emit:     prop.EmitTrue,
 			},
 			"Title": {
-				Value:    "Gouake (Left: Toggle | Middle: Quit)",
+				Value:    "Goake (Left: Toggle | Middle: Quit)",
 				Writable: false,
 				Emit:     prop.EmitTrue,
 			},
@@ -891,7 +891,7 @@ func runDaemon(config *Config, autoShow bool) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	fmt.Println("Gouake daemon (Pure D-Bus SNI) running...")
+	fmt.Println("Goake daemon (Pure D-Bus SNI) running...")
 
 	// Config hot-reload watcher
 	go func() {

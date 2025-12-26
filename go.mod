@@ -1,4 +1,4 @@
-module gouake
+module goake
 
 go 1.25.5
 
