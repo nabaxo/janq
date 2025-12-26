@@ -95,7 +95,7 @@ if (target) {
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
 
     // We consider it mostly hidden if it's minimized OR if less than 10px is visible.
-    var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 10);
+    var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
 
     // SUMMON Logic:
     // If we are toggling to SHOW, we only stick if we are already "mostly visible".
@@ -103,14 +103,15 @@ if (target) {
 
     var area = null;
     if (isSticky) {
-        area = currentArea;
+        // STAY: Use target's current screen area
+        area = workspace.clientArea(KWin.PlacementArea, target);
     } else {
         // SUMMON: Prioritize workspace.activeScreen (mouse screen in Plasma 6)
         if (workspace.activeScreen && workspace.activeScreen.geometry) {
             area = workspace.activeScreen.geometry;
         } else {
-            // Fallback for Plasma 5 or other contexts
-            area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, target);
+            var screenId = workspace.activeScreen;
+            area = workspace.clientArea(KWin.PlacementArea, screenId, target);
         }
     }
 
@@ -222,13 +223,13 @@ if (target) {
                     // Opacity 0 makes it invisible immediately
                     target.opacity = 0.0;
 
-                    var minTimer = new QTimer();
-                    minTimer.interval = 10; // 10ms delay as requested
-                    minTimer.singleShot = true;
-                    minTimer.timeout.connect(function() {
-                        target.minimized = true;
-                    });
-                    minTimer.start();
+                    // var minTimer = new QTimer();
+                    // minTimer.interval = 32; // Small 32ms delay (2 frames) for KWin state sync
+                    // minTimer.singleShot = true;
+                    // minTimer.timeout.connect(function() {
+                    //     target.minimized = true;
+                    // });
+                    // minTimer.start();
                 }
             });
             timer.start();
