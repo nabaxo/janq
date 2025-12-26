@@ -720,19 +720,22 @@ for (var i = 0; i < clients.length; i++) {
     }
 }
 if (target) {
+    target.minimized = false;
+    target.keepAbove = false;
+    target.onAllDesktops = false;
+    target.noBorder = false;
+
     var geo = target.frameGeometry;
-    // Heuristic: If it looks hidden (y < some reasonable top bar value like 50)
-    if (geo.y < 0) {
-        target.minimized = false;
+    var area = workspace.clientArea(KWin.PlacementArea, target);
+
+    // If window is mostly hidden (offscreen), snap it back into the visible area
+    if (geo.y + geo.height <= area.y + 50) {
         target.frameGeometry = {
             x: geo.x,
-            y: geo.y + geo.height, // Restore downwards
+            y: area.y + 100, // Move to a visible top position
             width: geo.width,
             height: geo.height
         };
-        // Reset properties if needed
-        target.keepAbove = false;
-        target.onAllDesktops = false;
     }
 }
 `
