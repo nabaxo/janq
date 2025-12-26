@@ -10,10 +10,12 @@ import (
 	"log"
 	"os"
 	"sync" // Added for toggleMutex
+	"syscall"
 	"time"
 
 	"io/ioutil"
 	"os/exec"
+	"os/signal"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -167,12 +169,19 @@ if (target) {
         }
 
     } else {
-        // HIDE
-        if (hideDuration > 0) {
-            var startY = target.frameGeometry.y;
-            var endY = finalY - finalHeight; // Move up off-screen
-            var startTime = new Date().getTime();
+        // HIDE: Hide on CURRENT display (do not jump to active screen)
 
+        var currentGeo = target.frameGeometry;
+        var startY = currentGeo.y;
+        var startX = currentGeo.x;
+        var startW = currentGeo.width;
+        var startH = currentGeo.height;
+
+        // Target: Move up by its own height
+        var endY = startY - startH;
+
+        if (hideDuration > 0) {
+            var startTime = new Date().getTime();
             var timer = new QTimer();
             timer.interval = 16;
             timer.timeout.connect(function() {
@@ -184,24 +193,23 @@ if (target) {
                 var currentY = startY + (endY - startY) * ease;
 
                 target.frameGeometry = {
-                    x: finalX,
+                    x: startX,
                     y: currentY,
-                    width: finalWidth,
-                    height: finalHeight
+                    width: startW,
+                    height: startH
                 };
 
                 if (progress >= 1.0) {
                     timer.stop();
-                    // target.minimized = true; // NO minimize! Just stay off-screen.
                 }
             });
             timer.start();
         } else {
              target.frameGeometry = {
-                x: finalX,
-                y: finalY - finalHeight,
-                width: finalWidth,
-                height: finalHeight
+                x: startX,
+                y: endY,
+                width: startW,
+                height: startH
              };
         }
     }
@@ -499,6 +507,65 @@ func main() {
 	}
 }
 
+func restoreQuake(config *Config) {
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	const restoreScript = `
+var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+var target = null;
+var windowClass = "%s";
+for (var i = 0; i < clients.length; i++) {
+    var c = clients[i];
+    if ((c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) ||
+        (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase())) {
+        target = c;
+        break;
+    }
+}
+if (target) {
+    var geo = target.frameGeometry;
+    // Heuristic: If it looks hidden (y < some reasonable top bar value like 50)
+    if (geo.y < 0) {
+        target.minimized = false;
+        target.frameGeometry = {
+            x: geo.x,
+            y: geo.y + geo.height, // Restore downwards
+            width: geo.width,
+            height: geo.height
+        };
+        // Reset properties if needed
+        target.keepAbove = false;
+        target.onAllDesktops = false;
+    }
+}
+`
+	obj := conn.Object("org.kde.KWin", "/Scripting")
+	scriptCode := fmt.Sprintf(restoreScript, config.WindowClass)
+
+	tmpFile, err := os.CreateTemp("", "quake_restore_*.js")
+	if err != nil {
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString(scriptCode)
+	tmpFile.Close()
+
+	var scriptID int32
+	obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), "quake_restore").Store(&scriptID)
+	if scriptID > 0 {
+		scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
+		scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
+		scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
+		time.Sleep(200 * time.Millisecond)
+		scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
+		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, "quake_restore").Store()
+	}
+}
+
 func runDaemon(config *Config) {
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
@@ -516,6 +583,8 @@ func runDaemon(config *Config) {
 	isRunning := checkProcessRunning(config.WindowClass)
 	if config.StartCommand != "" && !isRunning {
 		cmd := exec.Command("sh", "-c", config.StartCommand)
+		// Process Detachment: Setsid
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		if err := cmd.Start(); err != nil {
 			log.Printf("Failed to start terminal: %v", err)
 		}
@@ -611,6 +680,18 @@ func runDaemon(config *Config) {
 		log.Printf("Warning: Failed to register with StatusNotifierWatcher: %v", err)
 	}
 
+	// Capture Signals for Graceful Shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
 	fmt.Println("Vibullshit daemon (Pure D-Bus SNI) running...")
-	select {}
+
+	// Wait for signal
+	<-sigChan
+
+	fmt.Println("\nShutting down...")
+
+	// Restore window on exit if needed
+	restoreQuake(config)
+	os.Exit(0)
 }
