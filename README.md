@@ -56,7 +56,10 @@ wezterm start --class wezquake
 ```
 
 ### 3. Toggle Visibility
-- **Via Tray Icon**: Right-click the icon and select "Toggle Terminal".
+- **Via Tray Icon**:
+    - **Left-Click**: Toggle Terminal.
+    - **Middle-Click**: Quit Daemon.
+    - *(Note: Right-click menu is not supported in pure D-Bus mode).*
 - **Via Command Line**: Run `./vibullshit` (it will communicate with the running daemon).
 - **Via Global Shortcut**: Map a key to `./vibullshit` in KDE Settings.
 
