@@ -94,14 +94,12 @@ if (target) {
     // Current State Detection
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
 
-    // Geometric "Is Hidden" check:
-    // Increased buffer to 10px to be safer against slight offsets or frame lags.
-    var isActuallyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 10);
+    // We consider it mostly hidden if it's minimized OR if less than 50%% is visible.
+    var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + (target.frameGeometry.height / 2));
 
     // SUMMON Logic:
-    // If hidden, we summon to the screen where the mouse/active interaction is.
-    // Otherwise, we stay on the current monitor for smooth reversal.
-    var isSticky = !isActuallyHidden;
+    // If we are toggling to SHOW, we only stick if we are already "mostly visible".
+    var isSticky = shouldShow ? !isMostlyHidden : true;
 
     var area = null;
     if (isSticky) {
@@ -283,36 +281,36 @@ type Pixmap struct {
 	Data   []byte
 }
 
-func loadConfig() Config {
-	// Search paths for .gouake.toml
-	// 1. Current Directory
-	// 2. Home Directory
-	// 3. XDG Config Home
-
+func findConfigFile() string {
 	configFiles := []string{".gouake.toml"}
-
 	home, err := os.UserHomeDir()
 	if err == nil {
 		configFiles = append(configFiles, filepath.Join(home, ".gouake.toml"))
-
 		xdgConfig := os.Getenv("XDG_CONFIG_HOME")
 		if xdgConfig == "" {
 			xdgConfig = filepath.Join(home, ".config")
 		}
 		configFiles = append(configFiles, filepath.Join(xdgConfig, "gouake", ".gouake.toml"))
 	}
-
-	var config Config
-	found := false
 	for _, path := range configFiles {
-		if _, err := toml.DecodeFile(path, &config); err == nil {
-			fmt.Printf("Loaded config from: %s\n", path)
-			found = true
-			break
+		if _, err := os.Stat(path); err == nil {
+			return path
 		}
 	}
+	return ""
+}
 
-	if !found {
+func loadConfig() Config {
+	path := findConfigFile()
+
+	var config Config
+	if path != "" {
+		if _, err := toml.DecodeFile(path, &config); err == nil {
+			fmt.Printf("Loaded config from: %s\n", path)
+		} else {
+			fmt.Printf("Error decoding config: %v\n", err)
+		}
+	} else {
 		fmt.Println("No config file found. Using defaults.")
 		config = Config{
 			WindowClass:   "wezquake",
@@ -780,6 +778,31 @@ func runDaemon(config *Config) {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	fmt.Println("Gouake daemon (Pure D-Bus SNI) running...")
+
+	// Config hot-reload watcher
+	go func() {
+		path := findConfigFile()
+		if path == "" {
+			return
+		}
+		lastStat, _ := os.Stat(path)
+		for {
+			time.Sleep(1 * time.Second)
+			stat, err := os.Stat(path)
+			if err != nil {
+				continue
+			}
+			if stat.ModTime().After(lastStat.ModTime()) {
+				fmt.Println("Config change detected, reloading...")
+				lastStat = stat
+				newConfig := loadConfig()
+				// Atomic-ish swap for basic fields
+				*config = newConfig
+				// Re-grab window to apply any geometry/class changes immediately
+				ensureGrabbed(config)
+			}
+		}
+	}()
 
 	// Wait for signal
 	<-sigChan
