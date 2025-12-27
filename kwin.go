@@ -65,28 +65,36 @@ if (target) {
     var shouldShow = %t;
     var keepAbove = %t;
 
-    // Current State Detection
+    // Get actual cursor position and find which screen it's on
+    var cursorPos = workspace.cursorPos;
+    var mouseArea = null;
+
+    // Find the screen containing the cursor
+    var screens = workspace.screens;
+    for (var i = 0; i < screens.length; i++) {
+        var geo = screens[i].geometry;
+        if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
+            cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
+            mouseArea = geo;
+            break;
+        }
+    }
+    // Fallback to activeScreen if cursor detection fails
+    if (!mouseArea) {
+        mouseArea = workspace.activeScreen.geometry;
+    }
+
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
-    var mouseArea = workspace.activeScreen.geometry;
 
     // We consider it mostly hidden if it's minimized OR if less than 5px is visible.
     var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
 
-    // Is the window currently on a different screen than the mouse?
-    var isDifferentScreen = (currentArea.x != mouseArea.x || currentArea.y != mouseArea.y);
+    // When SHOWING: always use mouse screen to prevent see-sawing between displays
+    // When HIDING: use the window's current screen so it hides upward from where it is
+    var area = shouldShow ? mouseArea : currentArea;
 
-    // SUMMON Logic:
-    // We only "Stick" if we are already visible AND on the correct (mouse) screen.
-    // Otherwise, we "Summon" to the new position.
-    var isSticky = (shouldShow && !isMostlyHidden && !isDifferentScreen) || (!shouldShow);
-
-    var area = null;
-    if (isSticky) {
-        area = currentArea;
-    } else {
-        // SUMMON: Use workspace.activeScreen (mouse screen)
-        area = mouseArea;
-    }
+    // Track if we need to reposition (showing on a different screen than current)
+    var needsReposition = shouldShow && (isMostlyHidden || currentArea.x != mouseArea.x || currentArea.y != mouseArea.y);
 
     // Target Geometry
     var finalWidth = ( widthCols > 0 ) ? target.frameGeometry.width : area.width * widthPct;
@@ -114,8 +122,8 @@ if (target) {
         // Animation Start Point
         var startY = target.frameGeometry.y;
 
-        // If we decided to SUMMON (was hidden), snap X and hidden-Y onto the NEW screen
-        if (!isSticky) {
+        // If we need to reposition (was hidden or on different screen), snap to new screen off-screen
+        if (needsReposition) {
               startY = finalY - finalHeight;
               target.frameGeometry = {
                  x: finalX,
