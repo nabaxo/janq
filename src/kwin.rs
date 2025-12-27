@@ -1,26 +1,26 @@
-package main
+use crate::config::Config;
+use std::fs;
+use tokio::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use zbus::{Connection, Result};
 
-import (
-	"fmt"
-	"log"
-	"os"
-	"sync"
-	"time"
+// Global state
+struct KWinState {
+    target_visible: bool,
+    last_script_id: String,
+}
 
-	"github.com/godbus/dbus/v5"
-)
+static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
+    target_visible: false,
+    last_script_id: String::new(),
+});
 
-// Global state to track toggle direction
-var targetVisible bool = false
-var toggleMutex sync.Mutex
-var lastScriptID string // Track last script name to unload
-
-// Updated KWin script with Interruptible Animation logic & New Easings
-const kwinScriptTemplate = `
+// Templates (Using placeholders to avoid format!/brace issues)
+const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 // Compatibility
 var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
-var windowClass = "%s";
+var windowClass = "__WINDOW_CLASS__";
 
 for (var i = 0; i < clients.length; i++) {
   var c = clients[i];
@@ -38,7 +38,7 @@ function getEasing(progress, type) {
     case "ease-out": return progress * (2 - progress);
     case "ease-in-out":
       return progress < .5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-    // New Easings (and aliases)
+    // New Easings
     case "sine-in": case "ease-in-sine": return 1 - Math.cos((progress * Math.PI) / 2);
     case "sine-out": case "ease-out-sine": return Math.sin((progress * Math.PI) / 2);
     case "sine-in-out": case "ease-in-out-sine": return -(Math.cos(Math.PI * progress) - 1) / 2;
@@ -68,23 +68,20 @@ function getEasing(progress, type) {
 }
 
 if (target) {
-  // Config Paramters
-  var widthPct = %d / 100.0;
-  var heightPct = %d / 100.0;
-  var widthCols = %d;
-  var heightRows = %d;
-  var duration = %d;
-  var easingType = "%s";
-  var shouldShow = %t;
-  var keepAbove = %t;
-  var animateOpacity = %t;
-  var opacityPoint = %f;
+  // Config Parameters
+  var widthPct = __WIDTH_PERCENT__ / 100.0;
+  var heightPct = __HEIGHT_PERCENT__ / 100.0;
+  var widthCols = __WIDTH_COLS__;
+  var heightRows = __HEIGHT_ROWS__;
+  var duration = __DURATION__;
+  var easingType = "__EASING__";
+  var shouldShow = __SHOULD_SHOW__;
+  var keepAbove = __KEEP_ABOVE__;
+  var animateOpacity = __ANIMATE_OPACITY__;
+  var opacityPoint = __OPACITY_POINT__;
 
-  // Get actual cursor position and find which screen it's on
   var cursorPos = workspace.cursorPos;
   var mouseArea = null;
-
-  // Find the screen containing the cursor
   var screens = workspace.screens;
   for (var i = 0; i < screens.length; i++) {
     var geo = screens[i].geometry;
@@ -94,30 +91,20 @@ if (target) {
       break;
     }
   }
-  // Fallback to activeScreen if cursor detection fails
   if (!mouseArea) {
     mouseArea = workspace.activeScreen.geometry;
   }
 
   var currentArea = workspace.clientArea(KWin.PlacementArea, target);
-
-  // We consider it mostly hidden if it's minimized OR if less than 5px is visible.
   var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
-
-  // When SHOWING: always use mouse screen to prevent see-sawing between displays
-  // When HIDING: use the window's current screen so it hides upward from where it is
   var area = shouldShow ? mouseArea : currentArea;
-
-  // Track if we need to reposition (showing on a different screen than current)
   var needsReposition = shouldShow && (isMostlyHidden || currentArea.x != mouseArea.x || currentArea.y != mouseArea.y);
 
-  // Target Geometry
   var finalWidth = ( widthCols > 0 ) ? target.frameGeometry.width : area.width * widthPct;
   var finalHeight = ( heightRows > 0 ) ? target.frameGeometry.height : area.height * heightPct;
   var finalX = area.x + (area.width - finalWidth) / 2;
   var finalY = area.y;
 
-  // Properties
   target.keepAbove = keepAbove;
   target.onAllDesktops = true;
   target.noBorder = true;
@@ -125,44 +112,25 @@ if (target) {
   target.skipPager = true;
 
   if (shouldShow) {
-    // SHOWING
-
-    // Animation Start Point
     var startY = target.frameGeometry.y;
     var startOpacity = animateOpacity ? 0.0 : 1.0;
 
-    // If we need to reposition (was hidden or on different screen), snap to new screen BEFORE unminimizing
     if (needsReposition) {
-      // Reposition while still invisible
       startY = finalY - finalHeight;
       target.opacity = 0.0;
-      target.frameGeometry = {
-        x: finalX,
-        y: startY,
-        width: finalWidth,
-        height: finalHeight
-      };
+      target.frameGeometry = { x: finalX, y: startY, width: finalWidth, height: finalHeight };
     }
 
-    // NOW unminimize after repositioning
-    if (target.minimized) {
-      target.minimized = false;
-    }
-
+    if (target.minimized) target.minimized = false;
     if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
     else workspace.activeClient = target;
 
-    // If not animating opacity, make visible immediately (after reposition is complete)
-    if (!animateOpacity) {
-      target.opacity = 1.0;
-    }
+    if (!animateOpacity) target.opacity = 1.0;
 
-    // Setup timer
     if (duration > 0) {
       var endY = finalY;
       var startTime = new Date().getTime();
       var diff = endY - startY;
-
       var timer = new QTimer();
       timer.interval = 16;
       timer.timeout.connect(function() {
@@ -170,22 +138,15 @@ if (target) {
         var elapsed = now - startTime;
         var progress = Math.min(elapsed / duration, 1.0);
         var ease = getEasing(progress, easingType);
-
         var currentY = startY + diff * ease;
 
         if (animateOpacity) {
-          // Opacity completes at opacityPoint of animation (faster fade-in)
           var opacityProgress = Math.min(progress / opacityPoint, 1.0);
           var currentOpacity = startOpacity + (1.0 - startOpacity) * opacityProgress;
           target.opacity = currentOpacity;
         }
 
-        target.frameGeometry = {
-          x: finalX,
-          y: currentY,
-          width: finalWidth,
-          height: finalHeight
-        };
+        target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
 
         if (progress >= 1.0) {
           timer.stop();
@@ -198,22 +159,17 @@ if (target) {
       target.opacity = 1.0;
       target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
     }
-
   } else {
-    // HIDING
     var currentGeo = target.frameGeometry;
     var startY = currentGeo.y;
     var startX = currentGeo.x;
     var startW = currentGeo.width;
     var startH = currentGeo.height;
-
-    // Goal: Move up until completely off screen
     var endY = area.y - startH;
 
     if (duration > 0) {
       var startTime = new Date().getTime();
       var diff = endY - startY;
-
       var timer = new QTimer();
       timer.interval = 16;
       timer.timeout.connect(function() {
@@ -221,29 +177,19 @@ if (target) {
         var elapsed = now - startTime;
         var progress = Math.min(elapsed / duration, 1.0);
         var ease = getEasing(progress, easingType);
-
         var currentY = startY + diff * ease;
 
         if (animateOpacity) {
-          // Opacity starts fading at opacityPoint of animation (delayed fade-out)
           var opacityProgress = Math.max((progress - opacityPoint) / (1.0 - opacityPoint), 0.0);
           var currentOpacity = 1.0 - opacityProgress;
           target.opacity = currentOpacity;
         }
 
-        target.frameGeometry = {
-          x: startX,
-          y: currentY,
-          width: startW,
-          height: startH
-        };
+        target.frameGeometry = { x: startX, y: currentY, width: startW, height: startH };
 
         if (progress >= 1.0) {
           timer.stop();
           target.opacity = 0.0;
-
-          // Reposition to hide above the MOUSE screen (not where it was shown)
-          // This ensures next show slides down from the correct display
           var hiddenX = mouseArea.x + (mouseArea.width - startW) / 2;
           var hiddenY = mouseArea.y - startH;
           target.frameGeometry = { x: hiddenX, y: hiddenY, width: startW, height: startH };
@@ -251,22 +197,19 @@ if (target) {
       });
       timer.start();
     } else {
-      // Instant hide - position above mouse screen
       var hiddenX = mouseArea.x + (mouseArea.width - startW) / 2;
       var hiddenY = mouseArea.y - startH;
       target.frameGeometry = { x: hiddenX, y: hiddenY, width: startW, height: startH };
       target.opacity = 0.0;
     }
   }
-} else {
-  // No target window found!
 }
-`
+"#;
 
-const initScriptTemplate = `
+const INIT_SCRIPT_TEMPLATE: &str = r#"
 var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
-var windowClass = "%s";
+var windowClass = "__WINDOW_CLASS__";
 
 for (var i = 0; i < clients.length; i++) {
   var c = clients[i];
@@ -274,25 +217,19 @@ for (var i = 0; i < clients.length; i++) {
   if (c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) match = true;
   else if (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase()) match = true;
   else if (c.caption && c.caption.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) match = true;
-
-  if (match) {
-    target = c;
-    break;
-  }
+  if (match) { target = c; break; }
 }
 
 if (target) {
-  var displayMode = "%s";
-  var displayIndex = %d;
-  var widthPct = %d / 100.0;
-  var heightPct = %d / 100.0;
-  var widthCols = %d;
-  var heightRows = %d;
-  var keepAbove = %t;
+  var displayMode = "__DISPLAY_MODE__";
+  var displayIndex = __DISPLAY_INDEX__;
+  var widthPct = __WIDTH_PERCENT__ / 100.0;
+  var heightPct = __HEIGHT_PERCENT__ / 100.0;
+  var widthCols = __WIDTH_COLS__;
+  var heightRows = __HEIGHT_ROWS__;
+  var keepAbove = __KEEP_ABOVE__;
 
-  // Plasma 6 likely
   var area = workspace.activeScreen.geometry;
-
   var finalWidth = ( widthCols > 0 ) ? target.frameGeometry.width : area.width * widthPct;
   var finalHeight = ( heightRows > 0 ) ? target.frameGeometry.height : area.height * heightPct;
   var finalX = area.x + (area.width - finalWidth) / 2;
@@ -302,21 +239,14 @@ if (target) {
   target.onAllDesktops = true;
   target.noBorder = true;
   target.skipTaskbar = true;
-
-  // Force off-screen
-  target.frameGeometry = {
-    x: finalX,
-    y: finalY - finalHeight,
-    width: finalWidth,
-    height: finalHeight
-  };
+  target.frameGeometry = { x: finalX, y: finalY - finalHeight, width: finalWidth, height: finalHeight };
 }
-`
+"#;
 
-const restoreScript = `
+const RESTORE_SCRIPT: &str = r#"
 var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
-var windowClass = "%s";
+var windowClass = "__WINDOW_CLASS__";
 for (var i = 0; i < clients.length; i++) {
   var c = clients[i];
   if ((c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) ||
@@ -331,193 +261,152 @@ if (target) {
   target.onAllDesktops = false;
   target.noBorder = false;
   target.opacity = 1.0;
-
   var geo = target.frameGeometry;
   var area = workspace.clientArea(KWin.PlacementArea, target);
-
-  // If window is mostly hidden (offscreen), snap it back into the visible area
   if (geo.y + geo.height <= area.y + 50) {
-    target.frameGeometry = {
-      x: geo.x,
-      y: area.y + 100, // Move to a visible top position
-      width: geo.width,
-      height: geo.height
-    };
+    target.frameGeometry = { x: geo.x, y: area.y + 100, width: geo.width, height: geo.height };
   }
 }
-`
+"#;
 
-func toggleQuake(config *Config) {
-	toggleMutex.Lock()
-	defer toggleMutex.Unlock()
+pub async fn toggle_quake(config: &Config) -> Result<()> {
+    // Acquire lock (ASYNC)
+    let mut state = STATE.lock().await;
 
-	conn, err := dbus.ConnectSessionBus()
-	if err != nil {
-		log.Printf("Failed to connect to session bus: %v", err)
-		return
-	}
-	defer conn.Close()
+    // 0. Ensure Terminal
+    if crate::terminal::ensure_terminal_running(config).await {
+        state.target_visible = false;
+    }
 
-	obj := conn.Object("org.kde.KWin", "/Scripting")
+    let conn = Connection::session().await?;
+    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
-	// 0. Ensure Terminal is running
-	if ensureTerminalRunning(config) {
-		targetVisible = false
-	}
+    // Unload previous
+    if !state.last_script_id.is_empty() {
+         let _ = proxy.call_method("unloadScript", &(state.last_script_id.as_str())).await;
+    }
 
-	// 1. Unload Previous Script if exists
-	if lastScriptID != "" {
-		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, lastScriptID).Store()
-	}
+    state.target_visible = !state.target_visible;
+    let visible = state.target_visible;
+    let keep_above = config.keep_above;
 
-	// 2. Toggle State
-	targetVisible = !targetVisible
+    // We hold the lock during D-Bus calls, which is fine for serialization
 
-	// Choose params based on state
-	var duration int
-	var easing string
-	var opacityPoint float64
-	if targetVisible {
-		duration = config.ShowDuration
-		easing = config.ShowEasing
-		opacityPoint = config.ShowOpacityPoint
-	} else {
-		duration = config.HideDuration
-		easing = config.HideEasing
-		opacityPoint = config.HideOpacityPoint
-	}
+    let duration = if visible { config.show_duration } else { config.hide_duration };
+    let easing = if visible { &config.show_easing } else { &config.hide_easing };
+    let opacity_point = if visible { config.show_opacity_point } else { config.hide_opacity_point };
 
-	uniqueName := fmt.Sprintf("goake_toggle_%d", time.Now().UnixNano())
-	lastScriptID = uniqueName
+    let script = TOGGLE_SCRIPT_TEMPLATE
+        .replace("__WINDOW_CLASS__", &config.window_class)
+        .replace("__WIDTH_PERCENT__", &config.width_percent.to_string())
+        .replace("__HEIGHT_PERCENT__", &config.height_percent.to_string())
+        .replace("__WIDTH_COLS__", &config.width_cols.to_string())
+        .replace("__HEIGHT_ROWS__", &config.height_rows.to_string())
+        .replace("__DURATION__", &duration.to_string())
+        .replace("__EASING__", easing)
+        .replace("__SHOULD_SHOW__", &visible.to_string())
+        .replace("__KEEP_ABOVE__", &keep_above.to_string())
+        .replace("__ANIMATE_OPACITY__", &config.animate_opacity.to_string())
+        .replace("__OPACITY_POINT__", &opacity_point.to_string());
 
-	tmpFile, err := os.CreateTemp("", uniqueName+"_*.js")
-	if err != nil {
-		return
-	}
-	defer os.Remove(tmpFile.Name())
+    let unique_name = format!("goake_toggle_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
 
-	scriptCode := fmt.Sprintf(kwinScriptTemplate,
-		config.WindowClass,
-		config.WidthPercent,
-		config.HeightPercent,
-		config.WidthCols,
-		config.HeightRows,
-		duration,
-		easing,
-		targetVisible,
-		config.KeepAbove,
-		config.AnimateOpacity,
-		opacityPoint,
-	)
+    state.last_script_id = unique_name.clone();
 
-	tmpFile.WriteString(scriptCode)
-	tmpFile.Close()
+    // Create temp file
+    let tmp_path = std::env::temp_dir().join(format!("{}.js", unique_name));
+    fs::write(&tmp_path, script).expect("Failed to write tmp script");
 
-	var scriptID int32
-	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
-	if err != nil {
-		log.Printf("Failed load: %v", err)
-		return
-	}
+    let tmp_path_str = tmp_path.to_string_lossy().to_string();
 
-	if scriptID >= 0 {
-		scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
-		scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
-		scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
+    let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name.as_str())).await?;
+    let script_id: i32 = reply.body().deserialize()?;
 
-		go func(name string, d int) {
-			time.Sleep(time.Duration(d+100) * time.Millisecond)
-			conn2, err := dbus.ConnectSessionBus()
-			if err == nil {
-				obj2 := conn2.Object("org.kde.KWin", "/Scripting")
-				obj2.Call("org.kde.kwin.Scripting.unloadScript", 0, name).Store()
-				conn2.Close()
-			}
-		}(uniqueName, duration)
-	}
+    if script_id >= 0 {
+        let script_obj_path = format!("/Scripting/Script{}", script_id);
+        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+        script_proxy.call_method("run", &()).await?;
+
+        // Spawn async task to unload later
+        let duration_ms = duration as u64;
+        let name_clone = unique_name.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(duration_ms + 100)).await;
+            if let Ok(conn2) = Connection::session().await {
+                 if let Ok(proxy2) = zbus::Proxy::new(&conn2, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await {
+                      let _ = proxy2.call_method("unloadScript", &(name_clone)).await;
+                 }
+            }
+            let _ = fs::remove_file(tmp_path);
+        });
+    }
+
+    Ok(())
 }
 
-func ensureGrabbed(config *Config) {
-	conn, err := dbus.ConnectSessionBus()
-	if err != nil {
-		log.Printf("Failed to connect to session bus: %v", err)
-		return
-	}
-	defer conn.Close()
+pub async fn ensure_grabbed(config: &Config) -> Result<()> {
+    let conn = Connection::session().await?;
+    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
-	obj := conn.Object("org.kde.KWin", "/Scripting")
+    let script = INIT_SCRIPT_TEMPLATE
+        .replace("__WINDOW_CLASS__", &config.window_class)
+        .replace("__DISPLAY_MODE__", &config.display_mode)
+        .replace("__DISPLAY_INDEX__", &config.display_index.to_string())
+        .replace("__WIDTH_PERCENT__", &config.width_percent.to_string())
+        .replace("__HEIGHT_PERCENT__", &config.height_percent.to_string())
+        .replace("__WIDTH_COLS__", &config.width_cols.to_string())
+        .replace("__HEIGHT_ROWS__", &config.height_rows.to_string())
+        .replace("__KEEP_ABOVE__", &config.keep_above.to_string());
 
-	tmpFile, err := os.CreateTemp("", "quake_init_*.js")
-	if err != nil {
-		log.Printf("Failed to create temp file: %v", err)
-		return
-	}
-	defer os.Remove(tmpFile.Name())
+    let unique_name = "quake_init";
+    let tmp_path = std::env::temp_dir().join("quake_init.js");
+    fs::write(&tmp_path, script).expect("Failed to write init script");
+    let tmp_path_str = tmp_path.to_string_lossy().to_string();
 
-	scriptCode := fmt.Sprintf(initScriptTemplate,
-		config.WindowClass,
-		config.DisplayMode,
-		config.DisplayIndex,
-		config.WidthPercent,
-		config.HeightPercent,
-		config.WidthCols,
-		config.HeightRows,
-		config.KeepAbove,
-	)
+    let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name)).await?;
+    let script_id: i32 = reply.body().deserialize()?;
 
-	if _, err := tmpFile.WriteString(scriptCode); err != nil {
-		log.Printf("Failed to write to temp file: %v", err)
-		return
-	}
-	tmpFile.Close()
+    if script_id >= 0 {
+        let script_obj_path = format!("/Scripting/Script{}", script_id);
+        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+        script_proxy.call_method("run", &()).await?;
 
-	var scriptID int32
-	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), "quake_init").Store(&scriptID)
-	if err != nil {
-		log.Printf("Failed to load KWin script: %v", err)
-		return
-	}
-
-	scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
-	scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
-	err = scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
-	if err != nil {
-		log.Printf("Failed to run KWin script: %v", err)
-		return
-	}
-
-	time.Sleep(100 * time.Millisecond) // Short delay to let it run
-	scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
-	obj.Call("org.kde.kwin.Scripting.unloadScript", 0, "quake_init").Store()
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Unload
+        let _ = proxy.call_method("unloadScript", &(unique_name)).await;
+        let _ = fs::remove_file(tmp_path);
+    }
+    Ok(())
 }
 
-func restoreQuake(config *Config) {
-	conn, err := dbus.ConnectSessionBus()
-	if err != nil {
-		return
-	}
-	defer conn.Close()
+pub async fn restore_quake(config: &Config) -> Result<()> {
+    let conn = Connection::session().await?;
+    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
-	obj := conn.Object("org.kde.KWin", "/Scripting")
-	uniqueName := fmt.Sprintf("goake_restore_%d", time.Now().UnixNano())
-	scriptCode := fmt.Sprintf(restoreScript, config.WindowClass)
+    let script = RESTORE_SCRIPT.replace("__WINDOW_CLASS__", &config.window_class);
+    let unique_name = format!("goake_restore_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
+    let tmp_path = std::env::temp_dir().join(format!("{}.js", unique_name));
+    fs::write(&tmp_path, script).expect("Failed to write restore script");
+    let tmp_path_str = tmp_path.to_string_lossy().to_string();
 
-	tmpFile, err := os.CreateTemp("", "quake_restore_*.js")
-	if err != nil {
-		return
-	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(scriptCode)
-	tmpFile.Close()
+    let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name.as_str())).await?;
+    let script_id: i32 = reply.body().deserialize()?;
 
-	var scriptID int32
-	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
-	if err == nil && scriptID > 0 {
-		scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
-		scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
-		scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
-		time.Sleep(300 * time.Millisecond) // Give it more time to execute
-		scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
-		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, uniqueName).Store()
-	}
+     if script_id >= 0 {
+        let script_obj_path = format!("/Scripting/Script{}", script_id);
+        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+        script_proxy.call_method("run", &()).await?;
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let _ = script_proxy.call_method("stop", &()).await;
+        let _ = proxy.call_method("unloadScript", &(unique_name.as_str())).await;
+        let _ = fs::remove_file(tmp_path);
+    }
+    Ok(())
+}
+
+// Reset state
+pub async fn reset_visibility() {
+    let mut state = STATE.lock().await;
+    state.target_visible = false;
 }

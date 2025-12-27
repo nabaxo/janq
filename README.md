@@ -1,16 +1,17 @@
-# Goake - Quake-Style Terminal Manager for KDE Wayland
+# Rustake - Quake-Style Terminal Manager for KDE Wayland
 
-A standalone Go tool to manage a terminal window (like WezTerm) as a quake-style dropdown terminal on KDE Plasma Wayland.
+A standalone Rust tool to manage a terminal window (like WezTerm) as a quake-style dropdown terminal on KDE Plasma Wayland.
+Rewritten from Goake (Go) to Rust for better performance and safety.
 
 ## Features
 
 - **Dropdown Animations**: Smooth sliding toggle with configurable easing and duration
 - **Opacity Animation**: Optional fade in/out effect with adjustable timing
 - **Multi-Monitor Support**: Follows mouse cursor across displays with smooth transitions
-- **Configurable**: Managed via `.goake.toml`
+- **Configurable**: Managed via `.rustake.toml`
 - **Lightweight**: Zero-runtime dependencies other than D-Bus and KWin
-- **Pure Go**: No CGO, no GTK, no heavy dependencies
-- **Smart Start**: Running `goake` starts the daemon or toggles the window automatically
+- **Pure Rust**: Blazing fast, safe, and efficient
+- **Smart Start**: Running `rustake` starts the daemon or toggles the window automatically
 - **Interruptible Animations**: Toggle mid-animation for instant reversal
 - **Auto-Respawn**: Automatically restarts the terminal if closed while daemon is running
 - **Hot-Reloading**: Config changes are applied instantly in real-time
@@ -20,31 +21,34 @@ A standalone Go tool to manage a terminal window (like WezTerm) as a quake-style
 
 - KDE Plasma (Wayland session)
 - `wezterm` (or any terminal you specify in config)
-- Go (if building from source)
+- Rust (Cargo) environment (if building from source)
 
 ## Installation
 
 1. Clone the repository:
    ```bash
    git clone <repo-url>
-   cd goake
+   cd rustake
    ```
 2. Build the binary:
    ```bash
    make
+   # Or manually:
+   cargo build --release
    ```
+3. The binary will be at `target/release/rustake`.
 
 ## Usage
 
 1. **Toggle/Start**:
    Simply run the binary. It handles everything.
    ```bash
-   ./goake
+   ./target/release/rustake
    ```
    Bind this to your global shortcut (e.g., Meta+Grave).
 
 2. **Configuration**:
-   Create `.goake.toml` in your home directory or `~/.config/goake/`.
+   Create `.rustake.toml` in your home directory or `~/.config/rustake/`.
 
 ## Configuration
 
@@ -91,7 +95,7 @@ hide_opacity_point = 0.8       # Fade-out starts at 80% of animation
 
 1. Open **KDE System Settings**
 2. Go to **Shortcuts** → **Commands**
-3. Add a new command: `/path/to/goake` (absolute path recommended)
+3. Add a new command: `/path/to/rustake` (absolute path recommended)
 4. Assign `Meta+Grave` (or your preferred key)
 
 ## Tray Icon
