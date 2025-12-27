@@ -4,28 +4,23 @@ A standalone Go tool to manage a terminal window (like WezTerm) as a quake-style
 
 ## Features
 
-- **Dropdown Animations**: Smooth sliding toggle using KWin scripting.
-- **Display Awareness**: Supports "follow-mouse", "active screen", or specific monitor indices.
-- **Configurable**: Managed via `config.toml`.
-- **Lightweight**: Zero-runtime dependencies other than D-Bus and KWin.
+- **Dropdown Animations**: Smooth sliding toggle with configurable easing and duration
+- **Opacity Animation**: Optional fade in/out effect with adjustable timing
+- **Multi-Monitor Support**: Follows mouse cursor across displays with smooth transitions
+- **Configurable**: Managed via `.goake.toml`
+- **Lightweight**: Zero-runtime dependencies other than D-Bus and KWin
+- **Pure Go**: No CGO, no GTK, no heavy dependencies
+- **Smart Start**: Running `goake` starts the daemon or toggles the window automatically
+- **Interruptible Animations**: Toggle mid-animation for instant reversal
+- **Auto-Respawn**: Automatically restarts the terminal if closed while daemon is running
+- **Hot-Reloading**: Config changes are applied instantly in real-time
+- **15+ Easing Curves**: sine, quart, cubic, back, and more
 
 ## Prerequisites
 
 - KDE Plasma (Wayland session)
 - `wezterm` (or any terminal you specify in config)
 - Go (if building from source)
-- **Goake (Refactored)**: Prettier, faster, and more robust than the original.
-- **Pure Go**: No CGO, no GTK, no heavy dependencies.
-- **Wayland/KDE Native**: Uses D-Bus and KWin scripting for smooth window manipulation.
-- **Smart Start**: Running `goake` starts the daemon or toggles the window automatically.
-- **Interruptible Animations**: Toggle mid-air and witness instant reversal.
-- **Stable Multi-Monitor Support**: Uses bottom-edge detection to prevent "see-sawing" between displays.
-- **Terminal Dimensions (Rows/Cols)**: Set specific size for terminal-heavy workflows.
-- **Auto-Respawn**: Automatically restarts the terminal if closed while the daemon is running.
-- **Hot-Reloading**: Config changes are applied instantly in real-time.
-- **Follow-Mouse**: Smartly summons to the monitor where your mouse is.
-- **Improved Easing**: Support for 15+ curves (sine, quart, cubic, back).
-- **Proper Hiding**: Opacity masking to prevent ghosting.
 
 ## Installation
 
@@ -41,34 +36,67 @@ A standalone Go tool to manage a terminal window (like WezTerm) as a quake-style
 
 ## Usage
 
-1.  **Toggle/Start**:
-    Simply run the binary. It handles everything.
-    ```bash
-    ./goake
-    ```
-    Bind this to your global shortcut (e.g., Meta+Grave).
+1. **Toggle/Start**:
+   Simply run the binary. It handles everything.
+   ```bash
+   ./goake
+   ```
+   Bind this to your global shortcut (e.g., Meta+Grave).
 
-2.  **Configuration**:
-    Create `.goake.toml` in your home directory or `~/.config/goake/`.
-    ```toml
-    window_class = "wezquake"
-    show_duration = 300
-    show_easing = "sine-out"
-    ```
+2. **Configuration**:
+   Create `.goake.toml` in your home directory or `~/.config/goake/`.
 
-3.  **Tray Icon**:
-    -   **Left-Click**: Toggle.
-    -   **Middle-Click**: Quit.
+## Configuration
 
-### 2. Global Shortcut Setup
-1. Open **KDE System Settings**.
-2. Go to **Shortcuts** -> **Commands**.
-3. Add a new command: `/path/to/goake` (absolute path recommended).
-4. Assign `Meta+Grave` (or your preferred key).
+```toml
+# Terminal settings
+window_class = "wezquake"
+start_command = "wezterm start --class wezquake"
+hotkey = "Meta+Grave"
+keep_above = false
 
-### 3. Mouse Interaction
-- **Tray Icon Left-Click**: Toggle Terminal.
-- **Tray Icon Middle-Click**: Quit Daemon.
+# Display settings
+display_mode = "follow-mouse"  # "follow-mouse", "specific", or "active"
+display_index = 0              # Only used if display_mode = "specific"
+
+# Size (percentage or terminal dimensions)
+width_percent = 40
+height_percent = 40
+width_cols = 120               # Takes precedence over percentage if > 0
+height_rows = 40
+
+# Animation
+show_duration = 350            # milliseconds
+hide_duration = 350
+show_easing = "ease-out-cubic"
+hide_easing = "ease-in-quart"
+
+# Opacity animation
+animate_opacity = true         # Set to false to disable fade effect
+show_opacity_point = 0.2       # Fade-in completes at 20% of animation
+hide_opacity_point = 0.8       # Fade-out starts at 80% of animation
+```
+
+### Easing Functions
+
+- `linear`
+- `ease-in`, `ease-out`, `ease-in-out`
+- `sine-in`, `sine-out`, `sine-in-out`
+- `cubic-in`, `cubic-out`, `cubic-in-out`
+- `quart-in`, `quart-out`, `quart-in-out`
+- `back-in`, `back-out`
+
+## Global Shortcut Setup
+
+1. Open **KDE System Settings**
+2. Go to **Shortcuts** → **Commands**
+3. Add a new command: `/path/to/goake` (absolute path recommended)
+4. Assign `Meta+Grave` (or your preferred key)
+
+## Tray Icon
+
+- **Left-Click**: Toggle terminal
+- **Middle-Click**: Quit daemon
 
 ## License
 
