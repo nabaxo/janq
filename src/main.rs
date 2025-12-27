@@ -41,7 +41,7 @@ async fn main() -> zbus::Result<()> {
 
         if let Ok(proxy) = proxy_result {
             // "Toggle" is the method name (PascalCase)
-            if let Ok(_) = proxy.call_method("Toggle", &()).await {
+            if proxy.call_method("Toggle", &()).await.is_ok() {
                  // Success! Daemon was running and we toggled it.
                  return Ok(());
             }
