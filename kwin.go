@@ -51,6 +51,18 @@ function getEasing(progress, type) {
     case "back-in": case "ease-in-back": var c1 = 1.70158; var c3 = c1 + 1; return c3 * progress * progress * progress - c1 * progress * progress;
     case "back-out": case "ease-out-back": var c1 = 1.70158; var c3 = c1 + 1; return 1 + c3 * Math.pow(progress - 1, 3) + c1 * Math.pow(progress - 1, 2);
     case "back-in-out": case "ease-in-out-back": var c1 = 1.70158; var c2 = c1 * 1.525; return progress < 0.5 ? (Math.pow(2 * progress, 2) * ((c2 + 1) * 2 * progress - c2)) / 2 : (Math.pow(2 * progress - 2, 2) * ((c2 + 1) * (progress * 2 - 2) + c2) + 2) / 2;
+    case "windows":
+      return (function(x, x1, y1, x2, y2) {
+        if (x <= 0) return 0; if (x >= 1) return 1;
+        var t = x;
+        for (var i = 0; i < 8; i++) {
+          var x_t = 3 * Math.pow(1 - t, 2) * t * x1 + 3 * (1 - t) * Math.pow(t, 2) * x2 + Math.pow(t, 3);
+          var dx_t = 3 * (1 - 4 * t + 3 * t * t) * x1 + 3 * (2 * t - 3 * t * t) * x2 + 3 * t * t;
+          if (Math.abs(dx_t) < 1e-6) break;
+          t -= (x_t - x) / dx_t;
+        }
+        return 3 * Math.pow(1 - t, 2) * t * y1 + 3 * (1 - t) * Math.pow(t, 2) * y2 + Math.pow(t, 3);
+      })(progress, 0.25, 0, 0, 1);
     default: return progress * (2 - progress); // ease-out default
   }
 }

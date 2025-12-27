@@ -84,7 +84,8 @@ hide_opacity_point = 0.8       # Fade-out starts at 80% of animation
 - `sine-in`, `sine-out`, `sine-in-out`
 - `cubic-in`, `cubic-out`, `cubic-in-out`
 - `quart-in`, `quart-out`, `quart-in-out`
-- `back-in`, `back-out`
+- `back-in`, `back-out`, `back-in-out`
+- `windows` for `cubic-bezier(0.25, 0, 0, 1)`
 
 ## Global Shortcut Setup
 

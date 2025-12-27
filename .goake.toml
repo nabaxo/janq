@@ -26,7 +26,7 @@ hide_duration = 350
 # sine-in, sine-out, sine-in-out (or ease-in-sine, etc.)
 # quart-in, quart-out, quart-in-out
 # cubic-in, cubic-out, cubic-in-out
-# back-in, back-out
+# back-in, back-out, back-in-out, windows
 show_easing = "cubic-out"
 hide_easing = "quart-in"
 
