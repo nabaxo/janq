@@ -9,13 +9,13 @@ use zbus::{Connection, Result};
 struct KWinState {
     target_visible: bool,
     last_script_id: String,
-    previous_window_class: String,
+    previous_window_id: String, // Window UUID for precise targeting
 }
 
 static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
     target_visible: false,
     last_script_id: String::new(),
-    previous_window_class: String::new(),
+    previous_window_id: String::new(),
 });
 
 // KWin script template with all animation logic and easings
@@ -84,7 +84,7 @@ if (target) {
   var keepAbove = __KEEP_ABOVE__;
   var animateOpacity = __ANIMATE_OPACITY__;
   var opacityPoint = __OPACITY_POINT__;
-  var prevWindowClass = "__PREV_WINDOW_CLASS__";
+  var prevWindowId = "__PREV_WINDOW_ID__";
 
   var screens = workspace.screens;
   var targetArea = null;
@@ -264,12 +264,13 @@ if (target) {
           var hiddenY = targetArea.y - startH;
           target.frameGeometry = { x: hiddenX, y: hiddenY, width: startW, height: startH };
 
-          // Restore focus to the previous window
-          if (prevWindowClass && prevWindowClass !== "") {
+          // Restore focus to the previous window by ID
+          if (prevWindowId && prevWindowId !== "") {
             var allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
             for (var j = 0; j < allClients.length; j++) {
               var c = allClients[j];
-              if (c.resourceClass && c.resourceClass.toLowerCase() === prevWindowClass.toLowerCase()) {
+              // Match by internalId (UUID) for precise window targeting
+              if (c.internalId && c.internalId.toString() === prevWindowId) {
                 if (workspace.activeWindow !== undefined) workspace.activeWindow = c;
                 else workspace.activeClient = c;
                 break;
@@ -286,12 +287,13 @@ if (target) {
       target.frameGeometry = { x: hiddenX, y: hiddenY, width: startW, height: startH };
       target.opacity = 0.0;
 
-      // Restore focus to the previous window
-      if (prevWindowClass && prevWindowClass !== "") {
+      // Restore focus to the previous window by ID
+      if (prevWindowId && prevWindowId !== "") {
         var allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
         for (var j = 0; j < allClients.length; j++) {
           var c = allClients[j];
-          if (c.resourceClass && c.resourceClass.toLowerCase() === prevWindowClass.toLowerCase()) {
+          // Match by internalId (UUID) for precise window targeting
+          if (c.internalId && c.internalId.toString() === prevWindowId) {
             if (workspace.activeWindow !== undefined) workspace.activeWindow = c;
             else workspace.activeClient = c;
             break;
@@ -411,21 +413,30 @@ if (target) {
 }
 "#;
 
-/// Get the current active window's class using kdotool (KDE-native, works on Wayland)
-fn get_active_window_class(exclude_class: &str) -> String {
-    let output = Command::new("kdotool")
+/// Get the current active window's UUID using kdotool
+fn get_active_window_id(exclude_class: &str) -> String {
+    // First check if active window is the quake terminal - if so, don't capture it
+    let class_output = Command::new("kdotool")
         .args(["getactivewindow", "getwindowclassname"])
         .output();
 
-    match output {
-        Ok(output) if output.status.success() => {
+    if let Ok(output) = class_output {
+        if output.status.success() {
             let class_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            // Don't return if it's the quake terminal itself
             if class_name.eq_ignore_ascii_case(exclude_class) {
-                String::new()
-            } else {
-                class_name
+                return String::new();
             }
+        }
+    }
+
+    // Get the window ID (UUID)
+    let id_output = Command::new("kdotool")
+        .arg("getactivewindow")
+        .output();
+
+    match id_output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
         }
         _ => String::new(),
     }
@@ -458,13 +469,13 @@ pub async fn toggle_quake(config: &Config) -> Result<()> {
     let easing = if visible { &config.show_easing } else { &config.hide_easing };
     let opacity_point = if visible { config.show_opacity_point } else { config.hide_opacity_point };
 
-    let prev_window_class_to_pass: String;
+    let prev_window_id_to_pass: String;
     if visible {
-        // Capture the current active window before we show the terminal
-        state.previous_window_class = get_active_window_class(&config.window_class);
-        prev_window_class_to_pass = String::new(); // Don't restore focus when showing
+        // Capture the current active window ID before we show the terminal
+        state.previous_window_id = get_active_window_id(&config.window_class);
+        prev_window_id_to_pass = String::new(); // Don't restore focus when showing
     } else {
-        prev_window_class_to_pass = state.previous_window_class.clone(); // Pass the captured window for focus restoration
+        prev_window_id_to_pass = state.previous_window_id.clone(); // Pass the captured window for focus restoration
     }
 
     let script = KWIN_SCRIPT_TEMPLATE
@@ -481,7 +492,7 @@ pub async fn toggle_quake(config: &Config) -> Result<()> {
         .replace("__KEEP_ABOVE__", &keep_above.to_string())
         .replace("__ANIMATE_OPACITY__", &config.animate_opacity.to_string())
         .replace("__OPACITY_POINT__", &opacity_point.to_string())
-        .replace("__PREV_WINDOW_CLASS__", &prev_window_class_to_pass);
+        .replace("__PREV_WINDOW_ID__", &prev_window_id_to_pass);
 
     let unique_name = format!("goake_toggle_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
 
