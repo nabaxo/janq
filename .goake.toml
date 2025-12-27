@@ -27,8 +27,8 @@ hide_duration = 350
 # quart-in, quart-out, quart-in-out
 # cubic-in, cubic-out, cubic-in-out
 # back-in, back-out
-show_easing = "ease-out-cubic"
-hide_easing = "ease-in-quart"
+show_easing = "cubic-out"
+hide_easing = "quart-in"
 
 # Opacity animation settings
 # Set to false to disable fade in/out effect entirely

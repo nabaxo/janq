@@ -1,4 +1,3 @@
-BINARY_NAME=vibullshit
 BINARY_NAME=goake
 
 .PHONY: all build clean run
@@ -6,13 +5,10 @@ BINARY_NAME=goake
 all: build
 
 build:
-	go build -o $(BINARY_NAME) .
+	go build -o dist/$(BINARY_NAME) .
 
 clean:
-	rm -f $(BINARY_NAME)
+	rm -f dist/$(BINARY_NAME)
 
 run: build
-	./goake
-
-daemon: build
-	./goake --daemon
+	./dist/$(BINARY_NAME)
