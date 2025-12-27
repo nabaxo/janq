@@ -223,20 +223,20 @@ if (target) {
           timer.stop();
           target.opacity = 0.0;
 
-          // var minTimer = new QTimer();
-          // minTimer.interval = 32; // Small 32ms delay (2 frames) for KWin state sync
-          // minTimer.singleShot = true;
-          // minTimer.timeout.connect(function() {
-          //     target.minimized = true;
-          // });
-          // minTimer.start();
+          // Reposition to hide above the MOUSE screen (not where it was shown)
+          // This ensures next show slides down from the correct display
+          var hiddenX = mouseArea.x + (mouseArea.width - startW) / 2;
+          var hiddenY = mouseArea.y - startH;
+          target.frameGeometry = { x: hiddenX, y: hiddenY, width: startW, height: startH };
         }
       });
       timer.start();
     } else {
-      target.frameGeometry = { x: startX, y: endY, width: startW, height: startH };
+      // Instant hide - position above mouse screen
+      var hiddenX = mouseArea.x + (mouseArea.width - startW) / 2;
+      var hiddenY = mouseArea.y - startH;
+      target.frameGeometry = { x: hiddenX, y: hiddenY, width: startW, height: startH };
       target.opacity = 0.0;
-      target.minimized = true;
     }
   }
 } else {
