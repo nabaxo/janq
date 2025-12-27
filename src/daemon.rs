@@ -135,7 +135,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
         } else {
             // Fallback attempts if no config was loaded initially (using defaults)
             if let Some(home) = dirs::home_dir() {
-                let path = home.join(".rustake.toml");
+                let path = home.join(".goake.toml");
                 // Watch even if it doesn't exist yet? No, notify usually needs existing path or parent dir
                 // For simplicity, just check if it exists
                 if path.exists() {

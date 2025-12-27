@@ -8,7 +8,7 @@ Rewritten from Goake (Go) to Rust for better performance and safety.
 - **Dropdown Animations**: Smooth sliding toggle with configurable easing and duration
 - **Opacity Animation**: Optional fade in/out effect with adjustable timing
 - **Multi-Monitor Support**: Follows mouse cursor across displays with smooth transitions
-- **Configurable**: Managed via `.rustake.toml`
+- **Configurable**: Managed via `.goake.toml`
 - **Lightweight**: Zero-runtime dependencies other than D-Bus and KWin
 - **Pure Rust**: Blazing fast, safe, and efficient
 - **Smart Start**: Running `rustake` starts the daemon or toggles the window automatically
@@ -48,7 +48,7 @@ Rewritten from Goake (Go) to Rust for better performance and safety.
    Bind this to your global shortcut (e.g., Meta+Grave).
 
 2. **Configuration**:
-   Create `.rustake.toml` in your home directory or `~/.config/rustake/`.
+   Create `.goake.toml` in your home directory or `~/.config/rustake/`.
 
 ## Configuration
 
