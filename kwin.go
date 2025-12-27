@@ -126,23 +126,16 @@ if (target) {
 
   if (shouldShow) {
     // SHOWING
-    if (target.minimized) {
-      target.minimized = false;
-    }
-    target.opacity = 1.0;
-
-    if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
-    else workspace.activeClient = target;
 
     // Animation Start Point
     var startY = target.frameGeometry.y;
+    var startOpacity = animateOpacity ? 0.0 : 1.0;
 
-    // If we need to reposition (was hidden or on different screen), snap to new screen off-screen
+    // If we need to reposition (was hidden or on different screen), snap to new screen BEFORE unminimizing
     if (needsReposition) {
+      // Reposition while still invisible
       startY = finalY - finalHeight;
-      if (animateOpacity) {
-        target.opacity = 0.0; // Start invisible for fade-in
-      }
+      target.opacity = 0.0;
       target.frameGeometry = {
         x: finalX,
         y: startY,
@@ -150,7 +143,19 @@ if (target) {
         height: finalHeight
       };
     }
-    var startOpacity = animateOpacity ? target.opacity : 1.0;
+
+    // NOW unminimize after repositioning
+    if (target.minimized) {
+      target.minimized = false;
+    }
+
+    if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
+    else workspace.activeClient = target;
+
+    // If not animating opacity, make visible immediately (after reposition is complete)
+    if (!animateOpacity) {
+      target.opacity = 1.0;
+    }
 
     // Setup timer
     if (duration > 0) {
@@ -190,6 +195,7 @@ if (target) {
       });
       timer.start();
     } else {
+      target.opacity = 1.0;
       target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
     }
 
