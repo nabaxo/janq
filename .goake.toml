@@ -19,8 +19,8 @@ height_percent = 40         # Height as percentage of screen height
 width_cols = 120
 height_rows = 40
 
-show_duration = 300
-hide_duration = 300
+show_duration = 350
+hide_duration = 350
 # Easing functions:
 # linear, ease-in, ease-out, ease-in-out
 # sine-in, sine-out, sine-in-out (or ease-in-sine, etc.)
@@ -29,3 +29,13 @@ hide_duration = 300
 # back-in, back-out
 show_easing = "ease-out-cubic"
 hide_easing = "ease-in-quart"
+
+# Opacity animation settings
+# Set to false to disable fade in/out effect entirely
+animate_opacity = true
+# show_opacity_point: When fade-in completes (0.0-1.0)
+#   Lower values = faster fade-in (e.g., 0.3 = full opacity at 30% of animation)
+show_opacity_point = 0.2
+# hide_opacity_point: When fade-out starts (0.0-1.0)
+#   Higher values = later fade-out (e.g., 0.7 = start fading at 70% of animation)
+hide_opacity_point = 0.8

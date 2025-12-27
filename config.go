@@ -22,9 +22,14 @@ type Config struct {
 	ShowEasing   string `toml:"show_easing"`
 	HideEasing   string `toml:"hide_easing"`
 
+	// Opacity animation
+	AnimateOpacity   bool    `toml:"animate_opacity"`    // Enable/disable opacity animation
+	ShowOpacityPoint float64 `toml:"show_opacity_point"` // When fade-in completes (0.0-1.0)
+	HideOpacityPoint float64 `toml:"hide_opacity_point"` // When fade-out starts (0.0-1.0)
+
 	// Terminal logic
-	WidthCols  int `toml:"width_cols"`
-	HeightRows int `toml:"height_rows"`
+	WidthCols  int  `toml:"width_cols"`
+	HeightRows int  `toml:"height_rows"`
 	KeepAbove  bool `toml:"keep_above"`
 }
 
@@ -60,19 +65,22 @@ func loadConfig() Config {
 	} else {
 		fmt.Println("No config file found. Using defaults.")
 		config = Config{
-			WindowClass:   "wezquake",
-			StartCommand:  "wezterm-gui start",
-			Hotkey:        "Meta+Grave",
-			DisplayMode:   "follow-mouse",
-			WidthPercent:  40,
-			HeightPercent: 40,
-			ShowDuration:  300,
-			HideDuration:  300,
-			ShowEasing:    "ease-out",
-			HideEasing:    "ease-in",
-			WidthCols:     120,
-			HeightRows:    40,
-			KeepAbove:     true,
+			WindowClass:      "wezquake",
+			StartCommand:     "wezterm-gui start",
+			Hotkey:           "Meta+Grave",
+			DisplayMode:      "follow-mouse",
+			WidthPercent:     40,
+			HeightPercent:    40,
+			ShowDuration:     350,
+			HideDuration:     350,
+			ShowEasing:       "ease-out-cubic",
+			HideEasing:       "ease-in-quart",
+			AnimateOpacity:   true,
+			ShowOpacityPoint: 0.2,
+			HideOpacityPoint: 0.8,
+			WidthCols:        120,
+			HeightRows:       40,
+			KeepAbove:        false,
 		}
 	}
 	// Default easings if missing
@@ -81,6 +89,13 @@ func loadConfig() Config {
 	}
 	if config.HideEasing == "" {
 		config.HideEasing = "ease-in"
+	}
+	// Default opacity points if missing or invalid
+	if config.ShowOpacityPoint <= 0 || config.ShowOpacityPoint > 1 {
+		config.ShowOpacityPoint = 0.2
+	}
+	if config.HideOpacityPoint <= 0 || config.HideOpacityPoint > 1 {
+		config.HideOpacityPoint = 0.8
 	}
 	return config
 }

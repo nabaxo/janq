@@ -64,6 +64,8 @@ if (target) {
   var easingType = "%s";
   var shouldShow = %t;
   var keepAbove = %t;
+  var animateOpacity = %t;
+  var opacityPoint = %f;
 
   // Get actual cursor position and find which screen it's on
   var cursorPos = workspace.cursorPos;
@@ -125,6 +127,9 @@ if (target) {
     // If we need to reposition (was hidden or on different screen), snap to new screen off-screen
     if (needsReposition) {
       startY = finalY - finalHeight;
+      if (animateOpacity) {
+        target.opacity = 0.0; // Start invisible for fade-in
+      }
       target.frameGeometry = {
         x: finalX,
         y: startY,
@@ -132,6 +137,7 @@ if (target) {
         height: finalHeight
       };
     }
+    var startOpacity = animateOpacity ? target.opacity : 1.0;
 
     // Setup timer
     if (duration > 0) {
@@ -149,6 +155,13 @@ if (target) {
 
         var currentY = startY + diff * ease;
 
+        if (animateOpacity) {
+          // Opacity completes at opacityPoint of animation (faster fade-in)
+          var opacityProgress = Math.min(progress / opacityPoint, 1.0);
+          var currentOpacity = startOpacity + (1.0 - startOpacity) * opacityProgress;
+          target.opacity = currentOpacity;
+        }
+
         target.frameGeometry = {
           x: finalX,
           y: currentY,
@@ -158,6 +171,7 @@ if (target) {
 
         if (progress >= 1.0) {
           timer.stop();
+          target.opacity = 1.0;
           target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
         }
       });
@@ -191,6 +205,13 @@ if (target) {
 
         var currentY = startY + diff * ease;
 
+        if (animateOpacity) {
+          // Opacity starts fading at opacityPoint of animation (delayed fade-out)
+          var opacityProgress = Math.max((progress - opacityPoint) / (1.0 - opacityPoint), 0.0);
+          var currentOpacity = 1.0 - opacityProgress;
+          target.opacity = currentOpacity;
+        }
+
         target.frameGeometry = {
           x: startX,
           y: currentY,
@@ -200,8 +221,6 @@ if (target) {
 
         if (progress >= 1.0) {
           timer.stop();
-          // PROPER HIDE: Minimize with a small delay to avoid ghosting
-          // Opacity 0 makes it invisible immediately
           target.opacity = 0.0;
 
           // var minTimer = new QTimer();
@@ -338,12 +357,15 @@ func toggleQuake(config *Config) {
 	// Choose params based on state
 	var duration int
 	var easing string
+	var opacityPoint float64
 	if targetVisible {
 		duration = config.ShowDuration
 		easing = config.ShowEasing
+		opacityPoint = config.ShowOpacityPoint
 	} else {
 		duration = config.HideDuration
 		easing = config.HideEasing
+		opacityPoint = config.HideOpacityPoint
 	}
 
 	uniqueName := fmt.Sprintf("goake_toggle_%d", time.Now().UnixNano())
@@ -365,6 +387,8 @@ func toggleQuake(config *Config) {
 		easing,
 		targetVisible,
 		config.KeepAbove,
+		config.AnimateOpacity,
+		opacityPoint,
 	)
 
 	tmpFile.WriteString(scriptCode)
