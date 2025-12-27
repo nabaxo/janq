@@ -1,29 +1,29 @@
-use crate::config::Config;
-use std::fs;
-use std::process::Command;
-use tokio::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use zbus::{Connection, Result};
+package main
 
-// Global state
-struct KWinState {
-    target_visible: bool,
-    last_script_id: String,
-    previous_window_class: String,
-}
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
 
-static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
-    target_visible: false,
-    last_script_id: String::new(),
-    previous_window_class: String::new(),
-});
+	"github.com/godbus/dbus/v5"
+)
 
-// KWin script template with all animation logic and easings
-const KWIN_SCRIPT_TEMPLATE: &str = r#"
+// Global state to track toggle direction
+var targetVisible bool = false
+var toggleMutex sync.Mutex
+var lastScriptID string        // Track last script name to unload
+var previousWindowClass string // Track previous window to restore focus
+
+// Updated KWin script with Interruptible Animation logic & New Easings
+const kwinScriptTemplate = `
 // Compatibility
 var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
-var windowClass = "__WINDOW_CLASS__";
+var windowClass = "%s";
 
 for (var i = 0; i < clients.length; i++) {
   var c = clients[i];
@@ -71,20 +71,20 @@ function getEasing(progress, type) {
 }
 
 if (target) {
-  // Config Parameters
-  var displayMode = "__DISPLAY_MODE__";
-  var displayIndex = __DISPLAY_INDEX__;
-  var widthPct = __WIDTH_PERCENT__ / 100.0;
-  var heightPct = __HEIGHT_PERCENT__ / 100.0;
-  var widthCols = __WIDTH_COLS__;
-  var heightRows = __HEIGHT_ROWS__;
-  var duration = __DURATION__;
-  var easingType = "__EASING__";
-  var shouldShow = __SHOULD_SHOW__;
-  var keepAbove = __KEEP_ABOVE__;
-  var animateOpacity = __ANIMATE_OPACITY__;
-  var opacityPoint = __OPACITY_POINT__;
-  var prevWindowClass = "__PREV_WINDOW_CLASS__";
+  // Config Paramters
+  var displayMode = "%s";
+  var displayIndex = %d;
+  var widthPct = %d / 100.0;
+  var heightPct = %d / 100.0;
+  var widthCols = %d;
+  var heightRows = %d;
+  var duration = %d;
+  var easingType = "%s";
+  var shouldShow = %t;
+  var keepAbove = %t;
+  var animateOpacity = %t;
+  var opacityPoint = %f;
+  var prevWindowClass = "%s";
 
   var screens = workspace.screens;
   var targetArea = null;
@@ -300,13 +300,15 @@ if (target) {
       }
     }
   }
+} else {
+  // No target window found!
 }
-"#;
+`
 
-const INIT_SCRIPT_TEMPLATE: &str = r#"
+const initScriptTemplate = `
 var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
-var windowClass = "__WINDOW_CLASS__";
+var windowClass = "%s";
 
 for (var i = 0; i < clients.length; i++) {
   var c = clients[i];
@@ -322,13 +324,13 @@ for (var i = 0; i < clients.length; i++) {
 }
 
 if (target) {
-  var displayMode = "__DISPLAY_MODE__";
-  var displayIndex = __DISPLAY_INDEX__;
-  var widthPct = __WIDTH_PERCENT__ / 100.0;
-  var heightPct = __HEIGHT_PERCENT__ / 100.0;
-  var widthCols = __WIDTH_COLS__;
-  var heightRows = __HEIGHT_ROWS__;
-  var keepAbove = __KEEP_ABOVE__;
+  var displayMode = "%s";
+  var displayIndex = %d;
+  var widthPct = %d / 100.0;
+  var heightPct = %d / 100.0;
+  var widthCols = %d;
+  var heightRows = %d;
+  var keepAbove = %t;
 
   // Select screen based on display_mode
   var area = null;
@@ -375,12 +377,12 @@ if (target) {
     height: finalHeight
   };
 }
-"#;
+`
 
-const RESTORE_SCRIPT: &str = r#"
+const restoreScript = `
 var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 var target = null;
-var windowClass = "__WINDOW_CLASS__";
+var windowClass = "%s";
 for (var i = 0; i < clients.length; i++) {
   var c = clients[i];
   if ((c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) ||
@@ -409,178 +411,203 @@ if (target) {
     };
   }
 }
-"#;
+`
 
-/// Get the current active window's class using kdotool (KDE-native, works on Wayland)
-fn get_active_window_class(exclude_class: &str) -> String {
-    let output = Command::new("kdotool")
-        .args(["getactivewindow", "getwindowclassname"])
-        .output();
-
-    match output {
-        Ok(output) if output.status.success() => {
-            let class_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            // Don't return if it's the quake terminal itself
-            if class_name.eq_ignore_ascii_case(exclude_class) {
-                String::new()
-            } else {
-                class_name
-            }
-        }
-        _ => String::new(),
-    }
+// getActiveWindowClass gets the current active window's class using kdotool
+func getActiveWindowClass(excludeClass string) string {
+	// Use kdotool to get the active window class (KDE-native, works on Wayland)
+	cmd := exec.Command("kdotool", "getactivewindow", "getwindowclassname")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	className := strings.TrimSpace(string(output))
+	// Don't return if it's the quake terminal itself
+	if strings.EqualFold(className, excludeClass) {
+		return ""
+	}
+	return className
 }
 
-pub async fn toggle_quake(config: &Config) -> Result<()> {
-    // Acquire lock (ASYNC)
-    let mut state = STATE.lock().await;
+func toggleQuake(config *Config) {
+	toggleMutex.Lock()
+	defer toggleMutex.Unlock()
 
-    // 0. Ensure Terminal
-    if crate::terminal::ensure_terminal_running(config).await {
-        state.target_visible = false;
-    }
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		log.Printf("Failed to connect to session bus: %v", err)
+		return
+	}
+	defer conn.Close()
 
-    let conn = Connection::session().await?;
-    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+	obj := conn.Object("org.kde.KWin", "/Scripting")
 
-    // 1. Unload previous script if exists
-    if !state.last_script_id.is_empty() {
-         let _ = proxy.call_method("unloadScript", &(state.last_script_id.as_str())).await;
-    }
+	// 0. Ensure Terminal is running
+	if ensureTerminalRunning(config) {
+		targetVisible = false
+	}
 
-    // 2. Toggle state
-    state.target_visible = !state.target_visible;
-    let visible = state.target_visible;
-    let keep_above = config.keep_above;
+	// 1. Unload Previous Script if exists
+	if lastScriptID != "" {
+		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, lastScriptID).Store()
+	}
 
-    // Choose params based on state
-    let duration = if visible { config.show_duration } else { config.hide_duration };
-    let easing = if visible { &config.show_easing } else { &config.hide_easing };
-    let opacity_point = if visible { config.show_opacity_point } else { config.hide_opacity_point };
+	// 2. Toggle State
+	targetVisible = !targetVisible
 
-    let prev_window_class_to_pass: String;
-    if visible {
-        // Capture the current active window before we show the terminal
-        state.previous_window_class = get_active_window_class(&config.window_class);
-        prev_window_class_to_pass = String::new(); // Don't restore focus when showing
-    } else {
-        prev_window_class_to_pass = state.previous_window_class.clone(); // Pass the captured window for focus restoration
-    }
+	// Choose params based on state
+	var duration int
+	var easing string
+	var opacityPoint float64
+	var prevWindowClassToPass string
+	if targetVisible {
+		duration = config.ShowDuration
+		easing = config.ShowEasing
+		opacityPoint = config.ShowOpacityPoint
+		// Capture the current active window before we show the terminal
+		previousWindowClass = getActiveWindowClass(config.WindowClass)
+		prevWindowClassToPass = "" // Don't restore focus when showing
+	} else {
+		duration = config.HideDuration
+		easing = config.HideEasing
+		opacityPoint = config.HideOpacityPoint
+		prevWindowClassToPass = previousWindowClass // Pass the captured window for focus restoration
+	}
 
-    let script = KWIN_SCRIPT_TEMPLATE
-        .replace("__WINDOW_CLASS__", &config.window_class)
-        .replace("__DISPLAY_MODE__", &config.display_mode)
-        .replace("__DISPLAY_INDEX__", &config.display_index.to_string())
-        .replace("__WIDTH_PERCENT__", &config.width_percent.to_string())
-        .replace("__HEIGHT_PERCENT__", &config.height_percent.to_string())
-        .replace("__WIDTH_COLS__", &config.width_cols.to_string())
-        .replace("__HEIGHT_ROWS__", &config.height_rows.to_string())
-        .replace("__DURATION__", &duration.to_string())
-        .replace("__EASING__", easing)
-        .replace("__SHOULD_SHOW__", &visible.to_string())
-        .replace("__KEEP_ABOVE__", &keep_above.to_string())
-        .replace("__ANIMATE_OPACITY__", &config.animate_opacity.to_string())
-        .replace("__OPACITY_POINT__", &opacity_point.to_string())
-        .replace("__PREV_WINDOW_CLASS__", &prev_window_class_to_pass);
+	uniqueName := fmt.Sprintf("goake_toggle_%d", time.Now().UnixNano())
+	lastScriptID = uniqueName
 
-    let unique_name = format!("goake_toggle_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
+	tmpFile, err := os.CreateTemp("", uniqueName+"_*.js")
+	if err != nil {
+		return
+	}
+	defer os.Remove(tmpFile.Name())
 
-    state.last_script_id = unique_name.clone();
+	scriptCode := fmt.Sprintf(kwinScriptTemplate,
+		config.WindowClass,
+		config.DisplayMode,
+		config.DisplayIndex,
+		config.WidthPercent,
+		config.HeightPercent,
+		config.WidthCols,
+		config.HeightRows,
+		duration,
+		easing,
+		targetVisible,
+		config.KeepAbove,
+		config.AnimateOpacity,
+		opacityPoint,
+		prevWindowClassToPass,
+	)
 
-    // Create temp file
-    let tmp_path = std::env::temp_dir().join(format!("{}.js", unique_name));
-    fs::write(&tmp_path, script).expect("Failed to write tmp script");
+	tmpFile.WriteString(scriptCode)
+	tmpFile.Close()
 
-    let tmp_path_str = tmp_path.to_string_lossy().to_string();
+	var scriptID int32
+	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
+	if err != nil {
+		log.Printf("Failed load: %v", err)
+		return
+	}
 
-    let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name.as_str())).await?;
-    let script_id: i32 = reply.body().deserialize()?;
+	if scriptID >= 0 {
+		scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
+		scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
+		scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
 
-    if script_id >= 0 {
-        let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
-        script_proxy.call_method("run", &()).await?;
-
-        // Spawn async task to unload later
-        let duration_ms = duration as u64;
-        let name_clone = unique_name.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(duration_ms + 100)).await;
-            if let Ok(conn2) = Connection::session().await {
-                 if let Ok(proxy2) = zbus::Proxy::new(&conn2, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await {
-                      let _ = proxy2.call_method("unloadScript", &(name_clone)).await;
-                 }
-            }
-            let _ = fs::remove_file(tmp_path);
-        });
-    }
-
-    Ok(())
+		go func(name string, d int) {
+			time.Sleep(time.Duration(d+100) * time.Millisecond)
+			conn2, err := dbus.ConnectSessionBus()
+			if err == nil {
+				obj2 := conn2.Object("org.kde.KWin", "/Scripting")
+				obj2.Call("org.kde.kwin.Scripting.unloadScript", 0, name).Store()
+				conn2.Close()
+			}
+		}(uniqueName, duration)
+	}
 }
 
-pub async fn ensure_grabbed(config: &Config) -> Result<()> {
-    let conn = Connection::session().await?;
-    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+func ensureGrabbed(config *Config) {
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		log.Printf("Failed to connect to session bus: %v", err)
+		return
+	}
+	defer conn.Close()
 
-    let script = INIT_SCRIPT_TEMPLATE
-        .replace("__WINDOW_CLASS__", &config.window_class)
-        .replace("__DISPLAY_MODE__", &config.display_mode)
-        .replace("__DISPLAY_INDEX__", &config.display_index.to_string())
-        .replace("__WIDTH_PERCENT__", &config.width_percent.to_string())
-        .replace("__HEIGHT_PERCENT__", &config.height_percent.to_string())
-        .replace("__WIDTH_COLS__", &config.width_cols.to_string())
-        .replace("__HEIGHT_ROWS__", &config.height_rows.to_string())
-        .replace("__KEEP_ABOVE__", &config.keep_above.to_string());
+	obj := conn.Object("org.kde.KWin", "/Scripting")
 
-    let unique_name = "quake_init";
-    let tmp_path = std::env::temp_dir().join("quake_init.js");
-    fs::write(&tmp_path, script).expect("Failed to write init script");
-    let tmp_path_str = tmp_path.to_string_lossy().to_string();
+	tmpFile, err := os.CreateTemp("", "quake_init_*.js")
+	if err != nil {
+		log.Printf("Failed to create temp file: %v", err)
+		return
+	}
+	defer os.Remove(tmpFile.Name())
 
-    let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name)).await?;
-    let script_id: i32 = reply.body().deserialize()?;
+	scriptCode := fmt.Sprintf(initScriptTemplate,
+		config.WindowClass,
+		config.DisplayMode,
+		config.DisplayIndex,
+		config.WidthPercent,
+		config.HeightPercent,
+		config.WidthCols,
+		config.HeightRows,
+		config.KeepAbove,
+	)
 
-    if script_id >= 0 {
-        let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
-        script_proxy.call_method("run", &()).await?;
+	if _, err := tmpFile.WriteString(scriptCode); err != nil {
+		log.Printf("Failed to write to temp file: %v", err)
+		return
+	}
+	tmpFile.Close()
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let _ = script_proxy.call_method("stop", &()).await;
-        let _ = proxy.call_method("unloadScript", &(unique_name)).await;
-        let _ = fs::remove_file(tmp_path);
-    }
-    Ok(())
+	var scriptID int32
+	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), "quake_init").Store(&scriptID)
+	if err != nil {
+		log.Printf("Failed to load KWin script: %v", err)
+		return
+	}
+
+	scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
+	scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
+	err = scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
+	if err != nil {
+		log.Printf("Failed to run KWin script: %v", err)
+		return
+	}
+
+	time.Sleep(100 * time.Millisecond) // Short delay to let it run
+	scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
+	obj.Call("org.kde.kwin.Scripting.unloadScript", 0, "quake_init").Store()
 }
 
-pub async fn restore_quake(config: &Config) -> Result<()> {
-    let conn = Connection::session().await?;
-    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+func restoreQuake(config *Config) {
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return
+	}
+	defer conn.Close()
 
-    let script = RESTORE_SCRIPT.replace("__WINDOW_CLASS__", &config.window_class);
-    let unique_name = format!("goake_restore_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
-    let tmp_path = std::env::temp_dir().join(format!("{}.js", unique_name));
-    fs::write(&tmp_path, script).expect("Failed to write restore script");
-    let tmp_path_str = tmp_path.to_string_lossy().to_string();
+	obj := conn.Object("org.kde.KWin", "/Scripting")
+	uniqueName := fmt.Sprintf("goake_restore_%d", time.Now().UnixNano())
+	scriptCode := fmt.Sprintf(restoreScript, config.WindowClass)
 
-    let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name.as_str())).await?;
-    let script_id: i32 = reply.body().deserialize()?;
+	tmpFile, err := os.CreateTemp("", "quake_restore_*.js")
+	if err != nil {
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString(scriptCode)
+	tmpFile.Close()
 
-     if script_id >= 0 {
-        let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
-        script_proxy.call_method("run", &()).await?;
-
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        let _ = script_proxy.call_method("stop", &()).await;
-        let _ = proxy.call_method("unloadScript", &(unique_name.as_str())).await;
-        let _ = fs::remove_file(tmp_path);
-    }
-    Ok(())
-}
-
-// Reset state
-pub async fn reset_visibility() {
-    let mut state = STATE.lock().await;
-    state.target_visible = false;
+	var scriptID int32
+	err = obj.Call("org.kde.kwin.Scripting.loadScript", 0, tmpFile.Name(), uniqueName).Store(&scriptID)
+	if err == nil && scriptID > 0 {
+		scriptObjPath := dbus.ObjectPath(fmt.Sprintf("/Scripting/Script%d", scriptID))
+		scriptObj := conn.Object("org.kde.KWin", scriptObjPath)
+		scriptObj.Call("org.kde.kwin.Script.run", 0).Store()
+		time.Sleep(300 * time.Millisecond) // Give it more time to execute
+		scriptObj.Call("org.kde.kwin.Script.stop", 0).Store()
+		obj.Call("org.kde.kwin.Scripting.unloadScript", 0, uniqueName).Store()
+	}
 }
