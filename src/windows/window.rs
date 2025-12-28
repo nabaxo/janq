@@ -7,8 +7,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA, SW_SHOWNOACTIVATE
 };
 use windows::Win32::Graphics::Gdi::{
-    MonitorFromWindow, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO
+    MonitorFromPoint, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO
 };
+use windows::Win32::Foundation::POINT;
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
 use std::ffi::OsString;
@@ -97,7 +99,12 @@ pub async fn toggle_window(config: &Config) {
     unsafe {
         let is_visible = IsWindowVisible(hwnd.0).as_bool();
 
-        let monitor = MonitorFromWindow(hwnd.0, MONITOR_DEFAULTTONEAREST);
+
+        // Use cursor position to determine target monitor
+        let mut cursor_pos = POINT { x: 0, y: 0 };
+        let _ = GetCursorPos(&mut cursor_pos);
+
+        let monitor = MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST);
         let mut mi = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
