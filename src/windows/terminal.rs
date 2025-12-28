@@ -24,10 +24,23 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     if parts.is_empty() { return false; }
 
     let cmd = parts[0];
-    let args = &parts[1..];
+    let mut args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+
+    // Inject config dimensions if running wezterm
+    if cmd.contains("wezterm") {
+        args.push("--initial-rows".to_string());
+        args.push(config.height_rows.to_string());
+        args.push("--initial-cols".to_string());
+        args.push(config.width_cols.to_string());
+    }
+
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 
     match Command::new(cmd)
-        .args(args)
+        .args(&args)
+        .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
