@@ -1,10 +1,14 @@
 use clap::Parser;
-use zbus::Connection;
 
 mod config;
-mod kwin;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "windows")]
+mod windows;
 mod terminal;
 mod daemon;
+#[cfg(target_os = "windows")]
+mod hotkey;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -15,7 +19,7 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> zbus::Result<()> {
+async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let (config, config_path) = config::load_config();
 
@@ -26,27 +30,9 @@ async fn main() -> zbus::Result<()> {
 
     // Smart Mode
     // Try to connect to existing daemon
-    let conn_result = Connection::session().await;
-
-    if let Ok(conn) = conn_result {
-        // We try to call Toggle on dev.nabaxo.rustake
-        // If the service is not active, this call will fail quickly
-        // We don't need a full Proxy struct, just a quick call
-        let proxy_result = zbus::Proxy::new(
-            &conn,
-            "dev.nabaxo.rustake",
-            "/dev/nabaxo/rustake",
-            "dev.nabaxo.rustake"
-        ).await;
-
-        if let Ok(proxy) = proxy_result {
-            // "Toggle" is the method name (PascalCase)
-            if proxy.call_method("Toggle", &()).await.is_ok() {
-                 // Success! Daemon was running and we toggled it.
-                 return Ok(());
-            }
-        }
-        // If we got here, connection worked but maybe service not found or call failed
+    if daemon::send_toggle().await.is_ok() {
+        // Success! Daemon was running and we toggled it.
+        return Ok(());
     }
 
     // Fallback: Start Daemon

@@ -1,8 +1,24 @@
 # Quake Terminal Configuration
 
+# Window Identification
+# - Linux (KWin): Matches against Window Class (xprop WM_CLASS)
+# - Windows: Matches against Process Name (e.g. "wezterm-gui.exe", "notepad")
+#   NOTE: For WezTerm on Windows, use "wezterm-gui" or "wezterm-gui.exe"
 window_class = "wezquake"
+
+# Command to launch the terminal if not running
+# Windows Tip: Ensure the command is in your PATH
 start_command = "wezterm start --class wezquake"
-hotkey = "Meta+Grave"
+
+# Global Hotkey
+# - Linux: Ignored (Use KDE System Settings -> Shortcuts)
+# - Windows: Handled internally by Rustake daemon
+# Supported modifiers: Meta (Super/Win), Ctrl, Alt, Shift
+# Supports single string or list of strings:
+# hotkey = "Meta+Grave"
+# hotkey = ["Meta+Grave", "Meta+Space"]
+hotkey = ["Meta+Grave", "Meta+Section"]
+
 keep_above = false
 
 # Display settings:
@@ -15,7 +31,7 @@ height_percent = 40         # Height as percentage of screen height
 
 # Optional: Set dimensions as terminal rows and columns instead of percentage.
 # If these are non-zero, they take precedence over percentages.
-# (Goake will automatically pass these to WezTerm via --config initial_cols/rows)
+# (Rustake will automatically pass these to WezTerm via --config initial_cols/rows if detected)
 width_cols = 120
 height_rows = 40
 

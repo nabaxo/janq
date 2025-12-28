@@ -1,7 +1,12 @@
-# Rustake - Quake-Style Terminal Manager for KDE Wayland
+# Rustake - Quake-Style Terminal Manager
 
-A standalone Rust tool to manage a terminal window (like WezTerm) as a quake-style dropdown terminal on KDE Plasma Wayland.
+A standalone Rust tool to manage a terminal window (like WezTerm) as a quake-style dropdown terminal.
 Rewritten from Goake (Go) to Rust for better performance and safety.
+
+## Supported Platforms
+
+- **Linux**: KDE Plasma (Wayland only, via KWin scripts)
+- **Windows**: Windows 10/11 (via WinAPI)
 
 ## Features
 
@@ -9,18 +14,20 @@ Rewritten from Goake (Go) to Rust for better performance and safety.
 - **Opacity Animation**: Optional fade in/out effect with adjustable timing
 - **Multi-Monitor Support**: Follows mouse cursor across displays with smooth transitions
 - **Configurable**: Managed via `.goake.toml`
-- **Lightweight**: Zero-runtime dependencies other than D-Bus and KWin
+- **Lightweight**: Zero-runtime dependencies other than OS APIs
 - **Pure Rust**: Blazing fast, safe, and efficient
 - **Smart Start**: Running `rustake` starts the daemon or toggles the window automatically
 - **Interruptible Animations**: Toggle mid-animation for instant reversal
 - **Auto-Respawn**: Automatically restarts the terminal if closed while daemon is running
 - **Hot-Reloading**: Config changes are applied instantly in real-time
-- **15+ Easing Curves**: sine, quart, cubic, back, and more
+- **Native IPC**: Uses D-Bus (Linux) and Named Pipes (Windows)
+- **Global Hotkeys**: Built-in hotkey daemon on Windows (Linux relies on system shortcuts)
+- **System Tray**: Native tray icon for management (Windows only)
 
 ## Prerequisites
 
-- KDE Plasma (Wayland session)
-- `wezterm` (or any terminal you specify in config)
+- **Linux**: KDE Plasma (Wayland session), `wezterm` (or any terminal)
+- **Windows**: `pwsh`, `cmd`, or `wezterm`, Windows 10/11
 - Rust (Cargo) environment (if building from source)
 
 ## Installation
@@ -40,23 +47,32 @@ Rewritten from Goake (Go) to Rust for better performance and safety.
 
 ## Usage
 
+### Windows
+1. Run `rustake.exe`. It will start in the background and show a tray icon.
+2. Use the hotkey configured in `.goake.toml` (default `Meta+Grave`) to toggle.
+3. Managing: Right-click the tray icon to Quit.
+
+### Linux
 1. **Toggle/Start**:
    Simply run the binary. It handles everything.
    ```bash
    ./target/release/rustake
    ```
-   Bind this to your global shortcut (e.g., Meta+Grave).
-
-2. **Configuration**:
-   Create `.goake.toml` in your home directory or `~/.config/rustake/`.
+2. **Global Shortcut Setup**:
+   - Open **KDE System Settings**
+   - Go to **Shortcuts** → **Commands**
+   - Add legacy command: `/path/to/rustake` (absolute path recommended)
+   - Assign `Meta+Grave` (or your preferred key)
 
 ## Configuration
 
+Create `.goake.toml` in your home directory (`~` or `%USERPROFILE%`).
+
 ```toml
 # Terminal settings
-window_class = "wezquake"
+window_class = "wezquake"      # Linux: Window Class | Windows: Process Name (e.g. "wezterm-gui")
 start_command = "wezterm start --class wezquake"
-hotkey = "Meta+Grave"
+hotkey = ["Meta+Grave", "Meta+Space"] # Windows Only: Global hotkey(s)
 keep_above = false
 
 # Display settings
@@ -90,18 +106,6 @@ hide_opacity_point = 0.8       # Fade-out starts at 80% of animation
 - `quart-in`, `quart-out`, `quart-in-out`
 - `back-in`, `back-out`, `back-in-out`
 - `windows` for `cubic-bezier(0.25, 0, 0, 1)`
-
-## Global Shortcut Setup
-
-1. Open **KDE System Settings**
-2. Go to **Shortcuts** → **Commands**
-3. Add a new command: `/path/to/rustake` (absolute path recommended)
-4. Assign `Meta+Grave` (or your preferred key)
-
-## Tray Icon
-
-- **Left-Click**: Toggle terminal
-- **Middle-Click**: Quit daemon
 
 ## License
 
