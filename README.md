@@ -70,8 +70,9 @@ Create `.goake.toml` in your home directory (`~` or `%USERPROFILE%`).
 
 ```toml
 # Terminal settings
-window_class = "wezquake"      # Linux: Window Class | Windows: Process Name (e.g. "wezterm-gui")
-start_command = "wezterm start --class wezquake"
+# Terminal settings
+window_class = "wezquake"      # Linux: Window Class | Windows: Process Name (e.g. "wezterm-gui" or "wezquake")
+start_command = "wezterm start --class wezquake" # On Windows, if using default `wezterm-gui`, change window_class above.
 hotkey = ["Meta+Grave", "Meta+Space"] # Windows Only: Global hotkey(s)
 keep_above = false
 

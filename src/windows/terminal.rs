@@ -1,15 +1,13 @@
 use crate::config::Config;
-use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
-};
-use windows::Win32::Foundation::CloseHandle;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
+use crate::windows::window::find_window_by_process;
+
 pub async fn ensure_terminal_running(config: &Config) -> bool {
-    if check_process_running(&config.window_class) {
-        return false; // Already running
+    if find_window_by_process(&config.window_class).is_some() {
+        return false; // Already running and has window
     }
 
     if config.start_command.is_empty() {
@@ -37,7 +35,6 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-
     match Command::new(cmd)
         .args(&args)
         .creation_flags(CREATE_NO_WINDOW)
@@ -52,51 +49,15 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
             }
     }
 
-    // Wait for process
+    // Wait for window to appear
     for _ in 0..20 {
-        if check_process_running(&config.window_class) {
-            println!("Terminal process detected.");
-            thread::sleep(Duration::from_secs(1));
-            // Ensure window is created? toggle logic will handle it.
+        if find_window_by_process(&config.window_class).is_some() {
+            println!("Terminal window detected.");
+            thread::sleep(Duration::from_millis(200)); // Brief grace period
             return true;
         }
         thread::sleep(Duration::from_millis(300));
     }
 
-    false
-}
-
-pub fn check_process_running(target_name: &str) -> bool {
-    unsafe {
-        let snapshot_result = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        let snapshot = match snapshot_result {
-            Ok(handle) => handle,
-            Err(_) => return false,
-        };
-        // Check for invalid handle if applicable (Windows crate handles are usually Result vs specific InvalidHandle value, but here Result handles errors)
-
-        let mut entry = PROCESSENTRY32W {
-            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-            ..Default::default()
-        };
-
-        if Process32FirstW(snapshot, &mut entry).is_ok() {
-            loop {
-                // szExeFile is [u16; 260]
-                let name = String::from_utf16_lossy(&entry.szExeFile);
-                let name_trimmed = name.trim_matches(char::from(0));
-
-                if name_trimmed.to_lowercase().contains(&target_name.to_lowercase()) {
-                    let _ = CloseHandle(snapshot);
-                    return true;
-                }
-
-                if Process32NextW(snapshot, &mut entry).is_err() {
-                    break;
-                }
-            }
-        }
-        let _ = CloseHandle(snapshot);
-    }
     false
 }

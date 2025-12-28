@@ -62,7 +62,7 @@ struct TargetSearch {
     found_hwnd: Option<HWND>,
 }
 
-fn find_window_by_process(name: &str) -> Option<HWND> {
+pub fn find_window_by_process(name: &str) -> Option<HWND> {
     let mut search = TargetSearch {
         name: name.to_string(),
         found_hwnd: None,
