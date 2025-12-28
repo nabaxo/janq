@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::fs;
 
 #[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct Config {
     #[serde(default = "default_window_class")]
     pub window_class: String,
