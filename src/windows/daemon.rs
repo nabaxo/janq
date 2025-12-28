@@ -26,6 +26,7 @@ fn load_icon() -> tray_icon::Icon {
 pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_show: bool) -> Result<()> {
     // 1. Setup Runtime for async tasks (IPC, Animation, Watcher)
     let rt = Runtime::new()?;
+    let _guard = rt.enter(); // Keep runtime context active for this thread
     let config = Arc::new(RwLock::new(initial_config));
 
     // 2. Setup Winit EventLoop (Must be on main thread)
