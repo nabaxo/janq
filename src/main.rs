@@ -18,26 +18,49 @@ struct Args {
     daemon: bool,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let (config, config_path) = config::load_config();
 
-    if args.daemon {
-        daemon::run_daemon(config, config_path, false).await?;
-        return Ok(());
+    #[cfg(target_os = "linux")]
+    {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            if args.daemon {
+                daemon::run_daemon(config, config_path, false).await?;
+                return Ok(());
+            }
+
+            if daemon::send_toggle().await.is_ok() {
+                return Ok(());
+            }
+
+            println!("Daemon not running (or reachable). Starting new daemon instance...");
+            daemon::run_daemon(config, config_path, true).await?;
+            Ok(())
+        })
     }
 
-    // Smart Mode
-    // Try to connect to existing daemon
-    if daemon::send_toggle().await.is_ok() {
-        // Success! Daemon was running and we toggled it.
-        return Ok(());
+    #[cfg(target_os = "windows")]
+    {
+        if args.daemon {
+            daemon::run_daemon(config, config_path, false)?;
+            return Ok(());
+        }
+
+        // For Windows "Smart Mode", we need a temporary runtime to check IPC
+        let rt = tokio::runtime::Runtime::new()?;
+        let ipc_success = rt.block_on(async {
+            daemon::send_toggle().await.is_ok()
+        });
+
+        if ipc_success {
+             return Ok(());
+        }
+
+        println!("Daemon not running (or reachable). Starting new daemon instance...");
+        // This takes over the thread with Winit loop
+        daemon::run_daemon(config, config_path, true)?;
+        Ok(())
     }
-
-    // Fallback: Start Daemon
-    println!("Daemon not running (or reachable). Starting new daemon instance...");
-    daemon::run_daemon(config, config_path, true).await?;
-
-    Ok(())
 }

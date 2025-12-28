@@ -37,3 +37,4 @@ windows = { version = "0.58", features = [
 ] }
 global-hotkey = "0.5" # Lightweight global hotkey
 tray-icon = "0.14"
+winit = "0.29"

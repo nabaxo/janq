@@ -5,12 +5,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::net::windows::named_pipe::{ServerOptions, ClientOptions};
 use tokio::io::AsyncWriteExt;
-use tokio::time::{sleep, Duration};
 use anyhow::Result;
 use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
 use notify::{Watcher, RecursiveMode, RecommendedWatcher, Config as NotifyConfig};
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}};
-// use image::GenericImageView;
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event::{Event, StartCause};
+use tokio::runtime::Runtime;
 
 const PIPE_NAME: &str = r"\\.\pipe\rustake";
 
@@ -22,49 +23,38 @@ fn load_icon() -> tray_icon::Icon {
     tray_icon::Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon")
 }
 
-pub async fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_show: bool) -> Result<()> {
+pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_show: bool) -> Result<()> {
+    // 1. Setup Runtime for async tasks (IPC, Animation, Watcher)
+    let rt = Runtime::new()?;
     let config = Arc::new(RwLock::new(initial_config));
 
-    // 0. Initial Setup
-    {
-        let cfg = config.read().unwrap().clone();
-        if auto_show {
-            crate::windows::terminal::ensure_terminal_running(&cfg).await;
-            sleep(Duration::from_millis(500)).await;
-            toggle_window(&cfg).await;
-        }
-    }
+    // 2. Setup Winit EventLoop (Must be on main thread)
+    let event_loop = EventLoop::new()?;
 
-    // 1. Setup Named Pipe Server
+    // 3. Setup IPC Server (Spawned on Runtime)
+    let config_clone = config.clone();
     let server = ServerOptions::new()
         .first_pipe_instance(true)
         .create(PIPE_NAME)?;
 
-    // Spawn IPC listener
-    let config_clone = config.clone();
-    tokio::spawn(async move {
+    rt.spawn(async move {
+        // We need to keep the server alive
         let server = server;
         loop {
-            // Wait for connection
             if let Err(e) = server.connect().await {
                 eprintln!("Pipe connection error: {}", e);
             } else {
-                // Connected
                 let cfg = config_clone.read().unwrap().clone();
                 crate::windows::terminal::ensure_terminal_running(&cfg).await;
                 toggle_window(&cfg).await;
             }
-
-            // Disconnect to allow next client
             if let Err(e) = server.disconnect() {
                  eprintln!("Pipe disconnect error: {}", e);
             }
         }
     });
 
-    println!("Rustake (Windows) daemon running...");
-
-    // 2. Hotkey Manager
+    // 4. Hotkey Manager
     let manager = GlobalHotKeyManager::new().unwrap();
     let mut current_hotkeys: Vec<HotKey> = Vec::new();
 
@@ -85,7 +75,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, au
         }
     }
 
-    // 3. Tray Icon
+    // 5. Tray Icon
     let tray_menu = Menu::new();
     let quit_i = MenuItem::new("Quit", true, None);
     let toggle_i = MenuItem::new("Toggle", true, None);
@@ -99,10 +89,11 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, au
         .build()
         .unwrap();
 
-    // 4. Config Watcher (Thread)
+    // 6. Config Watcher (Spawned task or thread)
     let config_clone_watcher = config.clone();
     let path_to_watch = config_path.clone();
 
+    // Watcher logic can run on a separate thread, but updating config needs lock
     std::thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
@@ -133,36 +124,60 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, au
         }
     });
 
-    // 5. Main Loop
+    println!("Rustake (Windows) daemon running...");
+
+    // 7. Event Loop (Main Thread)
     let hotkey_receiver = global_hotkey::GlobalHotKeyEvent::receiver();
     let menu_receiver = MenuEvent::receiver();
+    let config_clone_loop = config.clone();
 
-    loop {
-        // Hotkeys
-        if let Ok(event) = hotkey_receiver.try_recv() {
-            if event.state == global_hotkey::HotKeyState::Released {
-                 // Check if ID matches any registered hotkey
-                  if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
-                       let cfg = config.read().unwrap().clone();
-                       crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                       toggle_window(&cfg).await;
-                  }
-            }
-        }
-
-        // Menu Events
-        if let Ok(event) = menu_receiver.try_recv() {
-             if event.id == quit_i.id() {
-                  std::process::exit(0);
-              } else if event.id == toggle_i.id() {
-                   let cfg = config.read().unwrap().clone();
-                   crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                   toggle_window(&cfg).await;
-              }
-        }
-
-        sleep(Duration::from_millis(16)).await;
+    // Initial auto-show
+    if auto_show {
+        let cfg = config_clone_loop.read().unwrap().clone();
+        rt.spawn(async move {
+            crate::windows::terminal::ensure_terminal_running(&cfg).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            toggle_window(&cfg).await;
+        });
     }
+
+    event_loop.run(move |event, elwt| {
+        // Poll for events every ~16ms (60hz check for channels)
+        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
+
+        match event {
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
+                // Check Hotkeys
+                if let Ok(event) = hotkey_receiver.try_recv() {
+                    if event.state == global_hotkey::HotKeyState::Released {
+                         if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
+                              let cfg = config_clone_loop.read().unwrap().clone();
+                              rt.spawn(async move {
+                                  crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                                  toggle_window(&cfg).await;
+                              });
+                         }
+                    }
+                }
+
+                // Check Menu
+                if let Ok(event) = menu_receiver.try_recv() {
+                     if event.id == quit_i.id() {
+                          std::process::exit(0);
+                     } else if event.id == toggle_i.id() {
+                          let cfg = config_clone_loop.read().unwrap().clone();
+                          rt.spawn(async move {
+                              crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                              toggle_window(&cfg).await;
+                          });
+                     }
+                }
+            }
+            _ => ()
+        }
+    })?;
+
+    Ok(())
 }
 
 pub async fn send_toggle() -> Result<()> {
