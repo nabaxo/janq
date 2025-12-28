@@ -9,8 +9,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::Win32::Graphics::Gdi::{
     MonitorFromPoint, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO
 };
-use windows::Win32::Foundation::POINT;
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows::Win32::Foundation::{RECT, POINT};
+use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
 use std::ffi::OsString;
@@ -120,8 +120,20 @@ pub async fn toggle_window(config: &Config) {
         let screen_w = work_area.right - work_area.left;
         let screen_h = work_area.bottom - work_area.top;
 
-        let width = (screen_w as f64 * (config.width_percent as f64 / 100.0)) as i32;
-        let height = (screen_h as f64 * (config.height_percent as f64 / 100.0)) as i32;
+        let width_pct = (screen_w as f64 * (config.width_percent as f64 / 100.0)) as i32;
+        let height_pct = (screen_h as f64 * (config.height_percent as f64 / 100.0)) as i32;
+
+        // Check if window has existing dimensions (user might have resized it)
+        let mut rect = RECT::default();
+        let (width, height) = if GetWindowRect(hwnd.0, &mut rect).is_ok() && (rect.right - rect.left) > 0 {
+             (rect.right - rect.left, rect.bottom - rect.top)
+        } else {
+             (width_pct, height_pct)
+        };
+
+        // On first show (if hidden and never shown?), we might want to force size?
+        // But GetWindowRect should work even if hidden. If it's 0 size, we fallback to config.
+
         let x = work_area.left + (screen_w - width) / 2;
         // Target Y when fully shown
         let target_y = work_area.top;

@@ -52,7 +52,11 @@ fn main() -> anyhow::Result<()> {
         // For Windows "Smart Mode", we need a temporary runtime to check IPC
         let rt = tokio::runtime::Runtime::new()?;
         let ipc_success = rt.block_on(async {
-            daemon::send_toggle().await.is_ok()
+            // Add timeout to prevent hanging on zombie pipes
+            match tokio::time::timeout(std::time::Duration::from_secs(1), daemon::send_toggle()).await {
+                Ok(Ok(())) => true,
+                _ => false,
+            }
         });
 
         if ipc_success {

@@ -143,6 +143,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     }
 
     event_loop.run(move |event, elwt| {
+        // Keep manager alive by capturing it
+        let _ = &manager;
+
         // Poll for events every ~16ms (60hz check for channels)
         elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
 
