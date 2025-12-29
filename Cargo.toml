@@ -36,6 +36,13 @@ windows = { version = "0.58", features = [
     "Win32_System_ProcessStatus",
     "Win32_UI_HiDpi",
     "Win32_System_Console",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "UI_Composition",
+    "UI_Composition_Desktop",
+    "Foundation",
 ] }
 global-hotkey = "0.5" # Lightweight global hotkey
 tray-icon = "0.14"

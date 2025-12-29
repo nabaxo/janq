@@ -5,8 +5,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
     SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA,
-    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SW_RESTORE, SWP_NOSIZE
+    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SW_RESTORE, SWP_NOSIZE, SWP_NOCOPYBITS
 };
+use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
     MonitorFromPoint, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, HMONITOR, HDC, EnumDisplayMonitors
 };
@@ -14,7 +15,7 @@ use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, 
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStrExt;
-use tokio::time::{interval, Duration, Instant};
+use tokio::time::Instant;
 
 // Wrapper to make HWND Send/Sync for async tasks
 #[derive(Clone, Copy)]
@@ -313,10 +314,10 @@ pub async fn toggle_window(config: &Config) {
             let z_flag = SendHwnd(if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
 
             let start_time = Instant::now();
-            let mut interval = interval(Duration::from_millis(16));
 
             loop {
-                interval.tick().await;
+                // Synchronize with DWM VSync for perfectly smooth animation
+                let _ = DwmFlush();
                 let elapsed = start_time.elapsed().as_millis() as f64;
                 let progress = (elapsed / duration_ms as f64).min(1.0);
 
@@ -340,7 +341,7 @@ pub async fn toggle_window(config: &Config) {
                  }
 
                 let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), alpha, LWA_ALPHA);
-                let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOCOPYBITS);
 
                 if progress >= 1.0 { break; }
             }
@@ -348,7 +349,7 @@ pub async fn toggle_window(config: &Config) {
             // Finalize
             if should_show {
                  let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
-                 let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+                 let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
             } else {
                  let _ = ShowWindow(hwnd.inner(), SW_HIDE);
                  // Focus already restored synchronously at start for speed.
