@@ -207,30 +207,28 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
                 // Check Tray Icon Events (Clicks)
                 while let Ok(event) = tray_receiver.try_recv() {
-                    println!("DEBUG: Tray Event Raw: {:?}", event);
+                    // println!("DEBUG: Tray Event Raw: {:?}", event);
 
                     match event {
                         TrayIconEvent::Click { button, button_state, .. } => {
-                            if button_state == MouseButtonState::Up {
+                            if button_state == MouseButtonState::Down {
                                 if button == MouseButton::Left {
-                                    println!("Left Click (Up): Toggling...");
+                                    println!("Left Click (Down): Toggling...");
                                     let cfg = config_clone_loop.read().unwrap().clone();
                                     rt.spawn(async move {
                                         crate::windows::terminal::ensure_terminal_running(&cfg).await;
                                         toggle_window(&cfg).await;
                                     });
                                 } else if button == MouseButton::Middle {
-                                    println!("Middle Click (Up): Exiting...");
+                                    println!("Middle Click (Down): Exiting...");
                                     let cfg = config_clone_loop.read().unwrap().clone();
                                     crate::windows::window::restore_window_visibility(&cfg);
                                     std::process::exit(0);
                                 }
-                            } else {
-                                println!("Ignored Tray Click State: {:?} for button: {:?}", button_state, button);
                             }
                         }
                         _ => {
-                            println!("Unhandled Tray Event: {:?}", event);
+                            // Ignore Up events or others
                         }
                     }
                 }
