@@ -206,7 +206,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     // Spawn Hotkey Listener Thread (instant wakeup)
     std::thread::spawn(move || {
         while let Ok(event) = hotkey_receiver.recv() {
+            let t0 = std::time::Instant::now();
             let _ = hotkey_proxy.send_event(DaemonEvent::Hotkey(event));
+            println!("DEBUG: Hotkey send_event took {:?}", t0.elapsed());
         }
     });
 
@@ -246,6 +248,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         elwt.exit();
                     },
                     DaemonEvent::Hotkey(event) => {
+                        let t1 = std::time::Instant::now();
                         if event.state == global_hotkey::HotKeyState::Released {
                              if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
                                   // println!("Hotkey Pressed! Toggling...");
@@ -268,6 +271,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                       });
                                   }
                              }
+                             println!("DEBUG: Hotkey handler took {:?}", t1.elapsed());
                         }
                     },
                     DaemonEvent::TrayPoll => {
