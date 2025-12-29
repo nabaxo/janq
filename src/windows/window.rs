@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::windows::easing::get_easing;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, COLORREF, RECT, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow,
+    EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
     SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA, SW_SHOWNOACTIVATE,
     GetCursorPos, GetWindowRect
@@ -24,6 +24,7 @@ unsafe impl Sync for SendHwnd {}
 
 lazy_static::lazy_static! {
     static ref IS_ANIMATING: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+    static ref PREVIOUS_FOCUS: std::sync::Mutex<Option<SendHwnd>> = std::sync::Mutex::new(None);
 }
 
 // Helper to convert string to wide string for Windows API
@@ -110,7 +111,14 @@ pub async fn toggle_window(config: &Config) {
             // IF HIDING: Stay on current monitor
             MonitorFromWindow(hwnd.0, MONITOR_DEFAULTTONEAREST)
         } else {
-            // IF SHOWING: Determine target monitor based on config
+            // IF SHOWING: Capture previous focus first
+            let fg_window = GetForegroundWindow();
+            if fg_window.0 != std::ptr::null_mut() && fg_window.0 != hwnd.0.0 {
+                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+                 *prev = Some(SendHwnd(fg_window));
+            }
+
+            // Determine target monitor based on config
             match config.display_mode.as_str() {
                 "specific" => {
                     let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
@@ -122,6 +130,17 @@ pub async fn toggle_window(config: &Config) {
                          let mut cursor_pos = POINT { x: 0, y: 0 };
                          let _ = GetCursorPos(&mut cursor_pos);
                          MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+                    }
+                },
+                "active" => {
+                    let fg_window = GetForegroundWindow();
+                    if fg_window.0 != std::ptr::null_mut() {
+                        MonitorFromWindow(fg_window, MONITOR_DEFAULTTONEAREST)
+                    } else {
+                         // Fallback to primary/mouse if no active window found (shouldn't happen often)
+                        let mut cursor_pos = POINT { x: 0, y: 0 };
+                        let _ = GetCursorPos(&mut cursor_pos);
+                        MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
                     }
                 },
                 _ => {
@@ -243,6 +262,14 @@ pub async fn toggle_window(config: &Config) {
         if is_visible {
              // HIDDEN
              let _ = ShowWindow(hwnd.0, SW_HIDE);
+             // Restore Focus
+             let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+             if let Some(h) = *prev {
+                 if IsWindowVisible(h.0).as_bool() {
+                     let _ = SetForegroundWindow(h.0);
+                 }
+                 *prev = None;
+             }
         } else {
              // SHOWN
              let _ = SetLayeredWindowAttributes(hwnd.0, COLORREF(0), 255, LWA_ALPHA);
