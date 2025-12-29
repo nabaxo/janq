@@ -10,7 +10,7 @@ use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
 use notify::{Watcher, RecursiveMode, RecommendedWatcher, Config as NotifyConfig};
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}, TrayIconEvent, MouseButton, MouseButtonState};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
-use winit::event::{Event, StartCause};
+use winit::event::Event;
 use tokio::runtime::Runtime;
 
 const PIPE_NAME: &str = r"\\.\pipe\ruake";
@@ -18,6 +18,7 @@ const PIPE_NAME: &str = r"\\.\pipe\ruake";
 #[derive(Debug)]
 enum DaemonEvent {
     Hotkey(global_hotkey::GlobalHotKeyEvent),
+    TrayPoll,
     Exit,
 }
 
@@ -197,15 +198,23 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         });
     }
 
-    // Setup EventLoopProxy for external signals (Ctrl+C and Hotkeys)
+    // Setup EventLoopProxy for external signals (Ctrl+C, Hotkeys, and Tray polling)
     let proxy = event_loop.create_proxy();
-    // Clone proxy for hotkey thread
     let hotkey_proxy = proxy.clone();
+    let tray_proxy = proxy.clone();
 
-    // Spawn Hotkey Listener Thread
+    // Spawn Hotkey Listener Thread (instant wakeup)
     std::thread::spawn(move || {
         while let Ok(event) = hotkey_receiver.recv() {
             let _ = hotkey_proxy.send_event(DaemonEvent::Hotkey(event));
+        }
+    });
+
+    // Spawn Tray Polling Thread (100ms interval)
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let _ = tray_proxy.send_event(DaemonEvent::TrayPoll);
         }
     });
 
@@ -222,9 +231,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         let _ = &tray_icon;
         let _ = &manager;
 
-        // Poll every 10ms (100hz) for responsive hotkey handling while still being CPU-efficient
-        // This ensures hotkeys are processed with minimal delay (<=10ms worst case)
-        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(10)));
+        // Wait indefinitely for events - no polling!
+        // Events wake us up instantly (hotkeys, tray timer, Ctrl+C)
+        elwt.set_control_flow(ControlFlow::Wait);
 
         match event {
             Event::LoopExiting => {
@@ -260,55 +269,55 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                   }
                              }
                         }
-                    }
-                }
-            }
-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
-                 // Check Tray Icon Events (Clicks) - Still Polled
-                 while let Ok(event) = tray_receiver.try_recv() {
-                    match event {
-                        TrayIconEvent::Click { button, button_state, .. } => {
-                            if button_state == MouseButtonState::Up {
-                                if button == MouseButton::Left {
-                                    unsafe {
-                                         use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
-                                         let _ = AllowSetForegroundWindow(ASFW_ANY);
-                                    }
-                                    let cfg = config_clone_loop.read().unwrap().clone();
+                    },
+                    DaemonEvent::TrayPoll => {
+                        // Check Tray Icon Events on 100ms timer
+                        while let Ok(event) = tray_receiver.try_recv() {
+                            match event {
+                                TrayIconEvent::Click { button, button_state, .. } => {
+                                    if button_state == MouseButtonState::Up {
+                                        if button == MouseButton::Left {
+                                            unsafe {
+                                                use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+                                                let _ = AllowSetForegroundWindow(ASFW_ANY);
+                                            }
+                                            let cfg = config_clone_loop.read().unwrap().clone();
 
-                                    // Fast path: if window exists, toggle immediately
-                                    if crate::windows::window::find_window_by_process(&cfg.general.window_class).is_some() {
-                                        rt.spawn(async move {
-                                            toggle_window(&cfg).await;
-                                        });
-                                    } else {
-                                        // Slow path: ensure terminal is running first
-                                        rt.spawn(async move {
-                                            crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                                            toggle_window(&cfg).await;
-                                        });
+                                            // Fast path: if window exists, toggle immediately
+                                            if crate::windows::window::find_window_by_process(&cfg.general.window_class).is_some() {
+                                                rt.spawn(async move {
+                                                    toggle_window(&cfg).await;
+                                                });
+                                            } else {
+                                                // Slow path: ensure terminal is running first
+                                                rt.spawn(async move {
+                                                    crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                                                    toggle_window(&cfg).await;
+                                                });
+                                            }
+                                        }
                                     }
                                 }
+                                _ => {}
                             }
                         }
-                        _ => {}
-                    }
-                 }
 
-                 // Check Menu
-                 while let Ok(event) = menu_receiver.try_recv() {
-                     if event.id == quit_i.id() {
-                          let cfg = config_clone_loop.read().unwrap().clone();
-                          crate::windows::window::restore_window_visibility(&cfg);
-                          std::process::exit(0);
-                     } else if event.id == toggle_i.id() {
-                          let cfg = config_clone_loop.read().unwrap().clone();
-                          rt.spawn(async move {
-                               crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                               toggle_window(&cfg).await;
-                          });
-                     }
-                 }
+                        // Check Menu
+                        while let Ok(event) = menu_receiver.try_recv() {
+                            if event.id == quit_i.id() {
+                                let cfg = config_clone_loop.read().unwrap().clone();
+                                crate::windows::window::restore_window_visibility(&cfg);
+                                std::process::exit(0);
+                            } else if event.id == toggle_i.id() {
+                                let cfg = config_clone_loop.read().unwrap().clone();
+                                rt.spawn(async move {
+                                    crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                                    toggle_window(&cfg).await;
+                                });
+                            }
+                        }
+                    }
+                }
             }
             _ => ()
         }

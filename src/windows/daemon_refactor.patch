@@ -1,0 +1,88 @@
+--- daemon.rs.old
++++ daemon.rs
+@@ -10,7 +10,8 @@
+ use notify::{Watcher, RecursiveMode, RecommendedWatcher, Config as NotifyConfig};
+ use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}, TrayIconEvent, MouseButton, MouseButtonState};
+ use winit::event_loop::{ControlFlow, EventLoopBuilder};
+-use winit::event::{Event, StartCause};
++use winit::event::Event;
+ use tokio::runtime::Runtime;
+
+ const PIPE_NAME: &str = r"\\.\pipe\ruake";
+@@ -18,6 +19,7 @@
+ #[derive(Debug)]
+ enum DaemonEvent {
+     Hotkey(global_hotkey::GlobalHotKeyEvent),
++    TrayPoll,
+     Exit,
+ }
+
+@@ -199,9 +201,9 @@
+     // Setup EventLoopProxy for external signals (Ctrl+C, Hotkeys, and Tray polling)
+     let proxy = event_loop.create_proxy();
+     let hotkey_proxy = proxy.clone();
++    let tray_proxy = proxy.clone();
+
+-    // Spawn Hotkey Listener Thread
++    // Spawn Hotkey Listener Thread (instant wakeup)
+     std::thread::spawn(move || {
+         while let Ok(event) = hotkey_receiver.recv() {
+             let _ = hotkey_proxy.send_event(DaemonEvent::Hotkey(event));
+@@ -208,6 +210,14 @@
+     });
+
++    // Spawn Tray Polling Thread (100ms interval)
++    std::thread::spawn(move || {
++        loop {
++            std::thread::sleep(std::time::Duration::from_millis(100));
++            let _ = tray_proxy.send_event(DaemonEvent::TrayPoll);
++        }
++    });
++
+     // Watch for Ctrl+C
+     rt.spawn(async move {
+         if let Ok(_) = tokio::signal::ctrl_c().await {
+@@ -222,9 +232,9 @@
+         let _ = &tray_icon;
+         let _ = &manager;
+
+-        // Poll every 10ms (100hz) for responsive hotkey handling while still being CPU-efficient
+-        // This ensures hotkeys are processed with minimal delay (<=10ms worst case)
+-        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(10)));
++        // Wait indefinitely for events - no polling!
++        // Events wake us up instantly (hotkeys, tray timer, Ctrl+C)
++        elwt.set_control_flow(ControlFlow::Wait);
+
+         match event {
+             Event::LoopExiting => {
+@@ -262,9 +272,9 @@
+                              }
+                         }
+                     }
++                    DaemonEvent::TrayPoll => {
++                        // Check Tray Icon Events on 100ms timer
++                        while let Ok(event) = tray_receiver.try_recv() {
+-                }
+-            }
+-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
+-                 // Check Tray Icon Events (Clicks) - Still Polled
+-                 while let Ok(event) = tray_receiver.try_recv() {
+                     match event {
+                         TrayIconEvent::Click { button, button_state, .. } => {
+@@ -296,6 +306,7 @@
+                         _ => {}
+                     }
+                  }
++                        }
+
+                  // Check Menu
+                  while let Ok(event) = menu_receiver.try_recv() {
+@@ -310,6 +321,8 @@
+                           });
+                      }
+                  }
++                    }
++                }
+             }
+             _ => ()
+         }
