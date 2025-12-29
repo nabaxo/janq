@@ -5,7 +5,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
     SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA,
-    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SW_RESTORE, SWP_NOSIZE, SWP_NOCOPYBITS
+    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SWP_NOSIZE, SWP_NOCOPYBITS
 };
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
@@ -404,14 +404,12 @@ pub fn restore_window_visibility(config: &Config) {
             // 3. Ensure visible, opaque, and NOT topmost.
             let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
 
-            // Ensure not minimized
+            // Ensure not minimized without stealing focus
             if IsIconic(hwnd).as_bool() {
-                 let _ = ShowWindow(hwnd, SW_RESTORE);
+                 let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE);
             } else {
-                 let _ = ShowWindow(hwnd, SW_SHOW);
+                 let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA);
             }
-
-             let _ = SetForegroundWindow(hwnd);
         }
     } else {
         println!("DEBUG: No window found to restore!");
