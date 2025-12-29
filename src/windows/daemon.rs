@@ -211,16 +211,16 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
                     match event {
                         TrayIconEvent::Click { button, button_state, .. } => {
-                            if button_state == MouseButtonState::Down {
+                            if button_state == MouseButtonState::Up {
                                 if button == MouseButton::Left {
-                                    println!("Left Click (Down): Toggling...");
+                                    println!("Left Click (Up): Toggling...");
                                     let cfg = config_clone_loop.read().unwrap().clone();
                                     rt.spawn(async move {
                                         crate::windows::terminal::ensure_terminal_running(&cfg).await;
                                         toggle_window(&cfg).await;
                                     });
                                 } else if button == MouseButton::Middle {
-                                    println!("Middle Click (Down): Exiting...");
+                                    println!("Middle Click (Up): Exiting...");
                                     let cfg = config_clone_loop.read().unwrap().clone();
                                     crate::windows::window::restore_window_visibility(&cfg);
                                     std::process::exit(0);
@@ -228,7 +228,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                             }
                         }
                         _ => {
-                            // Ignore Up events or others
+                             // Print unhandled for debug
+                             println!("Unhandled Tray Event: {:?}", event);
                         }
                     }
                 }
