@@ -4,7 +4,7 @@ use windows::Win32::Foundation::{BOOL, HWND, LPARAM, COLORREF, RECT, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
-    SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA,
+    GetLayeredWindowAttributes, SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA,
     GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SWP_NOSIZE, SWP_NOCOPYBITS, SWP_DEFERERASE
 };
 use windows::Win32::Graphics::Dwm::DwmFlush;
@@ -15,6 +15,7 @@ use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, 
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStrExt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::Instant;
 
 // Wrapper to make HWND Send/Sync for async tasks
@@ -31,7 +32,7 @@ impl SendHwnd {
 
 lazy_static::lazy_static! {
     static ref ANIMATION_TASK: std::sync::Mutex<Option<tokio::task::AbortHandle>> = std::sync::Mutex::new(None);
-    static ref TARGET_VISIBLE: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+    static ref TARGET_VISIBLE: AtomicBool = AtomicBool::new(false);
     static ref PREVIOUS_FOCUS: std::sync::Mutex<Option<SendHwnd>> = std::sync::Mutex::new(None);
 }
 
@@ -121,11 +122,8 @@ unsafe extern "system" fn monitor_enum_proc(hmonitor: HMONITOR, _hdc: HDC, _rect
 pub async fn toggle_window(config: &Config) {
     println!("Toggling window...");
 
-    let should_show = {
-        let mut target_visible = TARGET_VISIBLE.lock().unwrap();
-        *target_visible = !*target_visible;
-        *target_visible
-    };
+    let should_show = !TARGET_VISIBLE.load(Ordering::Relaxed);
+    TARGET_VISIBLE.store(should_show, Ordering::Relaxed);
 
     {
         let mut task_handle = ANIMATION_TASK.lock().unwrap();
@@ -168,76 +166,41 @@ pub async fn toggle_window(config: &Config) {
 
     let handle = tokio::spawn(async move {
         // Use the SendHwnd wrapper inside the async block
-        // Animation Loop logic...
         unsafe {
-            // Determine current state
-             // ... [Logic similar to before but without SetForegroundWindow at end/start]
-
-             // Determine target monitor based on config...
-            let monitor = {
-                 // Re-use logic to find monitor.
-                 // Note: We can't use GetForegroundWindow logic for "active" display mode easily if we just stole focus!
-                 // BUT we already stole focus if showing.
-                 // So we should rely on where the mouse is or where it was?
-                 // If display_mode = "active", and we just became active, we are on the active monitor.
-                 // If we were hidden, we were not active.
-                 // So we need to match the logic:
-                 match config.window.display_mode.as_str() {
-                     "specific" => {
-                        let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
-                        let _ = EnumDisplayMonitors(None, None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
-                        if (config.window.display_index as usize) < ctx.monitors.len() {
-                             ctx.monitors[config.window.display_index as usize]
-                        } else {
-                             let mut cursor_pos = POINT { x: 0, y: 0 };
-                             let _ = GetCursorPos(&mut cursor_pos);
-                             MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
-                        }
-                    },
-                    "active" => {
-                         // We are now the foreground window if showing.
-                         // But we want to spawn on the monitor where the USER WAS.
-                         // Previous logic: "activeWin != target".
-                         // Our PREVIOUS_FOCUS has the window where the user was.
-                         // If PREVIOUS_FOCUS is set, use that.
-                         // If not, use mouse.
-
-                         // BUT we are inside the thread, PREVIOUS_FOCUS is locked/unlocked briefly.
-                         // We can check PREVIOUS_FOCUS again? No, we cleared it if hiding.
-
-                         // If Showing: PREVIOUS_FOCUS should be set.
-                         // If Hiding: We don't care about monitor really, just animate out.
-                         if should_show {
-                             let prev = PREVIOUS_FOCUS.lock().unwrap();
-                             if let Some(h) = *prev {
-                                 MonitorFromWindow(h.0, MONITOR_DEFAULTTONEAREST)
-                             } else {
-                                  let mut cursor_pos = POINT { x: 0, y: 0 };
-                                  let _ = GetCursorPos(&mut cursor_pos);
-                                  MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
-                             }
-                         } else {
-                             // Hiding: Use current monitor
-                             MonitorFromWindow(hwnd.inner(), MONITOR_DEFAULTTONEAREST)
-                         }
-                    },
-                    _ => {
-                        // "follow-mouse" or default
+            let monitor = match config.window.display_mode.as_str() {
+                "specific" => {
+                    let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
+                    let _ = EnumDisplayMonitors(None, None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+                    if (config.window.display_index as usize) < ctx.monitors.len() {
+                        ctx.monitors[config.window.display_index as usize]
+                    } else {
                         let mut cursor_pos = POINT { x: 0, y: 0 };
                         let _ = GetCursorPos(&mut cursor_pos);
                         MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
                     }
-                 }
+                },
+                "active" => {
+                    let prev = PREVIOUS_FOCUS.lock().unwrap();
+                    if let Some(h) = *prev {
+                        MonitorFromWindow(h.0, MONITOR_DEFAULTTONEAREST)
+                    } else {
+                        let mut cursor_pos = POINT { x: 0, y: 0 };
+                        let _ = GetCursorPos(&mut cursor_pos);
+                        MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+                    }
+                },
+                _ => {
+                    let mut cursor_pos = POINT { x: 0, y: 0 };
+                    let _ = GetCursorPos(&mut cursor_pos);
+                    MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+                }
             };
 
             let mut mi = MONITORINFO {
                 cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                 ..Default::default()
             };
-
-            if !GetMonitorInfoW(monitor, &mut mi).as_bool() {
-                 return;
-            }
+            if !GetMonitorInfoW(monitor, &mut mi).as_bool() { return; }
 
             let work_area = mi.rcWork;
             let screen_w = work_area.right - work_area.left;
@@ -246,120 +209,89 @@ pub async fn toggle_window(config: &Config) {
             let width_pct = (screen_w as f64 * (config.window.width_percent as f64 / 100.0)) as i32;
             let height_pct = (screen_h as f64 * (config.window.height_percent as f64 / 100.0)) as i32;
 
-            // Target dimensions
-            let (target_w, target_h) = if config.window.width_cols > 0 && config.window.height_rows > 0 {
-                  // Use existing logic
-                 let mut r = RECT::default();
-                 if GetWindowRect(hwnd.inner(), &mut r).is_ok() {
-                      (r.right - r.left, r.bottom - r.top)
-                 } else {
-                      (width_pct, height_pct)
-                 }
+            let (width, height) = if config.window.width_cols > 0 && config.window.height_rows > 0 {
+                let mut r = RECT::default();
+                if GetWindowRect(hwnd.inner(), &mut r).is_ok() {
+                    (r.right - r.left, r.bottom - r.top)
+                } else {
+                    (width_pct, height_pct)
+                }
             } else {
-                 (width_pct, height_pct)
+                (width_pct, height_pct)
             };
 
-            let width = target_w;
-            let height = target_h;
             let target_x = work_area.left + (screen_w - width) / 2;
             let shown_y = work_area.top;
             let hidden_y = work_area.top - height;
-
             let target_y = if should_show { shown_y } else { hidden_y };
 
-            // Ensure styles
+            // Styles & State Capture
             let ex_style = GetWindowLongW(hwnd.inner(), GWL_EXSTYLE);
             if (ex_style & WS_EX_LAYERED.0 as i32) == 0 {
-                 SetWindowLongW(hwnd.inner(), GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+                SetWindowLongW(hwnd.inner(), GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
             }
 
-            // Current Pos
             let mut rect = RECT::default();
-            let current_y = if GetWindowRect(hwnd.inner(), &mut rect).is_ok() {
-                 rect.top
+            let mut current_alpha: u8 = 255;
+            let _ = GetLayeredWindowAttributes(hwnd.inner(), None, Some(&mut current_alpha), None);
+            let _ = GetWindowRect(hwnd.inner(), &mut rect);
+
+            let start_y = if (rect.left - target_x).abs() > 500 {
+                if should_show { hidden_y } else { shown_y }
             } else {
-                 if should_show { hidden_y } else { shown_y }
+                rect.top
             };
 
-            // If we are showing and current_y is far off (different monitor maybe?), snap to hidden_y on target monitor
-            let start_y = if should_show {
-                // If rect.left isn't close to target_x, we moved monitors.
-                // Snap to hidden_y.
-                if (rect.left - target_x).abs() > 500 {
-                    hidden_y
-                } else {
-                    current_y
-                }
-            } else {
-                current_y
-            };
+            let start_alpha = current_alpha;
+            let target_alpha: u8 = if should_show { 255 } else { 0 };
 
             let dist_y = target_y - start_y;
+            let dist_alpha = target_alpha as i32 - start_alpha as i32;
 
-            let duration_secs = if should_show { config.animation.show_duration as f64 / 1000.0 } else { config.animation.hide_duration as f64 / 1000.0 };
+            let full_duration = if should_show { config.animation.show_duration } else { config.animation.hide_duration };
+            let dynamic_duration = if dist_y.abs() > 0 {
+                (dist_y.abs() as f64 / height as f64) * (full_duration as f64 / 1000.0)
+            } else {
+                0.0
+            };
+
             let easing_type = if should_show { &config.animation.show_easing } else { &config.animation.hide_easing };
-            let opacity_point = if should_show { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
-            let animate_opacity = config.animation.animate_opacity;
-
             let z_flag = SendHwnd(if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
 
             let start_time = Instant::now();
 
-            loop {
-                // Synchronize with DWM VSync for perfectly smooth animation
-                let _ = DwmFlush();
+            if dynamic_duration > 0.0 {
+                loop {
+                    let _ = DwmFlush();
+                    tokio::task::yield_now().await;
 
-                // Allow tokio to abort this task at each frame
-                tokio::task::yield_now().await;
+                    if TARGET_VISIBLE.load(Ordering::Relaxed) != should_show { return; }
 
-                // Secondary check: if the world moved on, stop this animation
-                if *TARGET_VISIBLE.lock().unwrap() != should_show {
-                    return;
+                    let elapsed = start_time.elapsed().as_secs_f64();
+                    let progress = (elapsed / dynamic_duration).min(1.0);
+                    let ease_val = get_easing(progress, easing_type);
+
+                    let new_y = start_y + (dist_y as f64 * ease_val) as i32;
+                    let new_alpha = (start_alpha as i32 + (dist_alpha as f64 * ease_val) as i32).clamp(0, 255) as u8;
+
+                    let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), new_alpha, LWA_ALPHA);
+                    let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, 0, 0, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE | SWP_NOSIZE);
+
+                    if progress >= 1.0 { break; }
                 }
-
-                let elapsed = start_time.elapsed().as_secs_f64();
-                let progress = (elapsed / duration_secs).min(1.0);
-
-                let ease_val = get_easing(progress, easing_type);
-                let new_y = start_y + (dist_y as f64 * ease_val) as i32;
-
-                 let mut alpha = 255;
-                 if animate_opacity {
-                     let opacity_progress = if should_show {
-                          (progress / opacity_point).min(1.0)
-                     } else {
-                          if progress < opacity_point { 0.0 } else { (progress - opacity_point) / (1.0 - opacity_point) }
-                     };
-
-                     let opacity_val = if should_show {
-                          get_easing(opacity_progress, "linear")
-                     } else {
-                          1.0 - get_easing(opacity_progress, "linear")
-                     };
-                     alpha = (opacity_val * 255.0) as u8;
-                 }
-
-                let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), alpha, LWA_ALPHA);
-                let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, 0, 0, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE | SWP_NOSIZE);
-
-                if progress >= 1.0 { break; }
             }
 
             // Finalize
             if should_show {
-                 let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
-                 let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+                let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
+                let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
             } else {
-                 let _ = ShowWindow(hwnd.inner(), SW_HIDE);
-
-                 // Restore focus only after the window is hidden
-                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
-                 if let Some(h) = *prev {
-                     if IsWindowVisible(h.0).as_bool() {
-                         let _ = SetForegroundWindow(h.0);
-                     }
-                     *prev = None;
-                 }
+                let _ = ShowWindow(hwnd.inner(), SW_HIDE);
+                let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+                if let Some(h) = *prev {
+                    if IsWindowVisible(h.0).as_bool() { let _ = SetForegroundWindow(h.0); }
+                    *prev = None;
+                }
             }
         }
     });
@@ -375,7 +307,7 @@ pub fn restore_window_visibility(config: &Config) {
     let start = std::time::Instant::now();
 
     if let Some(hwnd) = find_window_by_process(&config.general.window_class) {
-        let is_target_visible = *TARGET_VISIBLE.lock().unwrap();
+        let is_target_visible = TARGET_VISIBLE.load(Ordering::Relaxed);
         println!("DEBUG: Found window HWND: {:?}, is_target_visible={}", hwnd, is_target_visible);
 
         unsafe {
