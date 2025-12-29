@@ -3,7 +3,7 @@ use crate::windows::easing::get_easing;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, COLORREF, RECT, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
-    SetWindowPos, SW_HIDE, HWND_TOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
+    SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
     SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA, SW_SHOWNOACTIVATE,
     GetCursorPos, GetWindowRect
 };
@@ -202,6 +202,9 @@ pub async fn toggle_window(config: &Config) {
         let opacity_point = if is_visible { config.hide_opacity_point } else { config.show_opacity_point };
         let animate_opacity = config.animate_opacity;
 
+        // Determine Z-Order flag
+        let z_flag = SendHwnd(if config.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
+
         let start_time = Instant::now();
         let mut interval = interval(Duration::from_millis(16)); // ~60 FPS
 
@@ -209,7 +212,7 @@ pub async fn toggle_window(config: &Config) {
         if !is_visible {
              // SHOWING
              // Set initial pos (hidden) and show
-             let _ = SetWindowPos(hwnd.0, HWND_TOPMOST, x, hidden_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+             let _ = SetWindowPos(hwnd.0, z_flag.0, x, hidden_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
              let _ = SetLayeredWindowAttributes(hwnd.0, COLORREF(0), 0, LWA_ALPHA); // Start transparent
              let _ = ShowWindow(hwnd.0, SW_SHOWNOACTIVATE); // Show without stealing focus yet?
              // Actually we want focus eventually, but let's animate first
@@ -251,7 +254,7 @@ pub async fn toggle_window(config: &Config) {
 
             // Apply updates
             let _ = SetLayeredWindowAttributes(hwnd.0, COLORREF(0), alpha, LWA_ALPHA);
-            let _ = SetWindowPos(hwnd.0, HWND_TOPMOST, x, current_y, width, height, SWP_NOACTIVATE);
+            let _ = SetWindowPos(hwnd.0, z_flag.0, x, current_y, width, height, SWP_NOACTIVATE);
 
             if progress >= 1.0 {
                  break;
@@ -273,7 +276,7 @@ pub async fn toggle_window(config: &Config) {
         } else {
              // SHOWN
              let _ = SetLayeredWindowAttributes(hwnd.0, COLORREF(0), 255, LWA_ALPHA);
-             let _ = SetWindowPos(hwnd.0, HWND_TOPMOST, x, target_y, width, height, SWP_SHOWWINDOW);
+             let _ = SetWindowPos(hwnd.0, z_flag.0, x, target_y, width, height, SWP_SHOWWINDOW);
              let _ = SetForegroundWindow(hwnd.0);
         }
     }
