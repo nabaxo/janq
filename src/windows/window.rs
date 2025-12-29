@@ -5,7 +5,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
     SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA, SW_SHOWNOACTIVATE,
-    GetCursorPos, GetWindowRect
+    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SW_RESTORE, SWP_NOSIZE, SWP_NOMOVE
 };
 use windows::Win32::Graphics::Gdi::{
     MonitorFromPoint, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, HMONITOR, HDC, EnumDisplayMonitors
@@ -330,16 +330,55 @@ pub async fn toggle_window(config: &Config) {
 }
 
 pub fn restore_window_visibility(config: &Config) {
+    println!("DEBUG: restore_window_visibility started");
+    let start = std::time::Instant::now();
+
     if let Some(hwnd) = find_window_by_process(&config.window_class) {
+        println!("DEBUG: Found window HWND: {:?}, finding monitor...", hwnd);
+
         unsafe {
-            // Ensure fully opaque
+            // 2. Find Monitor to restore to (Primary or current)
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+
+            let (x, y) = if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                // Restore to top-left of work area to ensure visibility
+                (mi.rcWork.left, mi.rcWork.top)
+            } else {
+                (0, 0) // Fallback
+            };
+
+            println!("DEBUG: Restoring to x={}, y={}", x, y);
+
+            // 1. Ensure Opacity is 255 (Opaque)
+            // Note: GWL_EXSTYLE must have WS_EX_LAYERED for this to work, but if we want to be safe,
+            // maybe we REMOVE WS_EX_LAYERED to force opacity?
+            // Actually, setting 255 is safe if LAYERED is set.
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
-            // Force reset position to avoid it getting stuck off-screen?
-            // Actually, let's just use SW_RESTORE which handles min/max states.
-            // And maybe SetWindowPos to SWP_NOMOVE | SWP_NOSIZE to just apply Z-order.
-            let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_RESTORE);
+            // 3. Force Move to visual area and Show
+            // Use SW_SHOW (5) instead of SW_RESTORE (9) to force visibility without "restoring" min/max animation if possible?
+            // Actually SW_RESTORE is good if it was minimized. SW_SHOW doesn't restore from Minimize.
+            // Let's use ShowWindowAsync if we want to be fast? No, we want to ensure it happens before we exit.
+
+            let _ = SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0,
+                SWP_NOSIZE | SWP_SHOWWINDOW
+            );
+
+            // Ensure not minimized
+            if IsIconic(hwnd).as_bool() {
+                 let _ = ShowWindow(hwnd, SW_RESTORE);
+            } else {
+                 let _ = ShowWindow(hwnd, SW_SHOW);
+            }
+
             let _ = SetForegroundWindow(hwnd);
         }
+    } else {
+        println!("DEBUG: No window found to restore!");
     }
+    println!("DEBUG: restore_window_visibility output took {:?}", start.elapsed());
 }
