@@ -34,6 +34,7 @@ lazy_static::lazy_static! {
     static ref ANIMATION_TASK: std::sync::Mutex<Option<tokio::task::AbortHandle>> = std::sync::Mutex::new(None);
     static ref TARGET_VISIBLE: AtomicBool = AtomicBool::new(false);
     static ref PREVIOUS_FOCUS: std::sync::Mutex<Option<SendHwnd>> = std::sync::Mutex::new(None);
+    static ref LAST_MONITOR: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
 }
 
 // ... (helpers omitted for brevity if unchanged, but for replace_file_content we need context)
@@ -191,15 +192,30 @@ pub async fn toggle_window(config: &Config) {
                     }
                 }
             } else {
-                // When hiding, stay on the current monitor
                 MonitorFromWindow(hwnd.inner(), MONITOR_DEFAULTTONEAREST)
+            };
+
+            // STRICT PERSISTENCE LOGIC:
+            // 1. If Showing: Update LAST_MONITOR and use current choice.
+            // 2. If Hiding: Use LAST_MONITOR if available (ignore mouse).
+            let final_monitor = if should_show {
+                let mut last = LAST_MONITOR.lock().unwrap();
+                *last = Some(monitor.0 as isize);
+                monitor
+            } else {
+                let last = LAST_MONITOR.lock().unwrap();
+                if let Some(h) = *last {
+                    HMONITOR(h as *mut std::ffi::c_void)
+                } else {
+                    monitor
+                }
             };
 
             let mut mi = MONITORINFO {
                 cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                 ..Default::default()
             };
-            if !GetMonitorInfoW(monitor, &mut mi).as_bool() { return; }
+            if !GetMonitorInfoW(final_monitor, &mut mi).as_bool() { return; }
 
             let work_area = mi.rcWork;
             let screen_w = work_area.right - work_area.left;
