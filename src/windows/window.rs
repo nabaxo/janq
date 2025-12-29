@@ -35,6 +35,7 @@ lazy_static::lazy_static! {
     static ref TARGET_VISIBLE: AtomicBool = AtomicBool::new(false);
     static ref PREVIOUS_FOCUS: std::sync::Mutex<Option<SendHwnd>> = std::sync::Mutex::new(None);
     static ref LAST_MONITOR: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
+    static ref CACHED_RUAKE_HWND: std::sync::Mutex<Option<SendHwnd>> = std::sync::Mutex::new(None);
 }
 
 // ... (helpers omitted for brevity if unchanged, but for replace_file_content we need context)
@@ -134,11 +135,33 @@ pub async fn toggle_window(config: &Config) {
     }
 
     // Find the SendHwnd wrapper
-    let hwnd = match find_window_by_process(&config.general.window_class) {
-        Some(h) => SendHwnd(h),
-        None => {
-            println!("Window not found for process: {}", config.general.window_class);
-            return;
+    // Check cache first
+    let mut cached_hwnd = None;
+    {
+        let cache = CACHED_RUAKE_HWND.lock().unwrap();
+        if let Some(h) = *cache {
+             unsafe {
+                 if windows::Win32::UI::WindowsAndMessaging::IsWindow(h.inner()).as_bool() {
+                     cached_hwnd = Some(h);
+                 }
+             }
+        }
+    }
+
+    let hwnd = if let Some(h) = cached_hwnd {
+        h
+    } else {
+        match find_window_by_process(&config.general.window_class) {
+            Some(h) => {
+                let mut cache = CACHED_RUAKE_HWND.lock().unwrap();
+                let wrapper = SendHwnd(h);
+                *cache = Some(wrapper);
+                wrapper
+            },
+            None => {
+                println!("Window not found for process: {}", config.general.window_class);
+                return;
+            }
         }
     };
 
