@@ -90,7 +90,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     let _ = tray_menu.append(&toggle_i);
     let _ = tray_menu.append(&quit_i);
 
-    let _tray_icon = TrayIconBuilder::new()
+    let tray_icon = TrayIconBuilder::new()
         .with_menu(Box::new(tray_menu))
         .with_tooltip("Ruake")
         .with_icon(load_icon())
@@ -170,12 +170,18 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         }
     });
 
+    // Verify TrayIcon is alive by printing it (debugging)
+    println!("DEBUG: Tray Icon initialized: {:?}", tray_icon.id());
+
+    let mut last_pulse = std::time::Instant::now();
+
     event_loop.run(move |event, elwt| {
-        // Keep manager alive by capturing it
+        // Capture tray icon explicitly to keep it alive
+        let _ = &tray_icon;
         let _ = &manager;
 
-        // Poll for events every ~16ms (60hz check for channels)
-        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
+        // Force POLL for debugging (Maximum CPU/Responsiveness)
+        elwt.set_control_flow(ControlFlow::Poll);
 
         match event {
             Event::LoopExiting => {
@@ -187,15 +193,18 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                 println!("User event (Ctrl+C) received. Exiting...");
                 elwt.exit();
             }
-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
-                // Check Hotkeys
-                if let Ok(event) = hotkey_receiver.try_recv() {
+            Event::NewEvents(StartCause::Poll) | Event::AboutToWait => {
+                 // Heartbeat every 2 seconds
+                 if last_pulse.elapsed() > std::time::Duration::from_secs(2) {
+                      println!("DEBUG: Loop Pulse (Alive)...");
+                      last_pulse = std::time::Instant::now();
+                 }
+
+                 // Check Hotkeys
+                 if let Ok(event) = hotkey_receiver.try_recv() {
+                    println!("DEBUG: Hotkey Event: {:?}", event);
                     if event.state == global_hotkey::HotKeyState::Released {
                          if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
-                              // Check if we are already busy to avoid spam
-                              {
-                                  // Borrow IS_ANIMATING from window module via static, or better:
-                                  // Just assume if toggle task is spawned, we shouldn't spawn another immediately.
                                   let cfg = config_clone_loop.read().unwrap().clone();
                                   rt.spawn(async move {
                                       crate::windows::terminal::ensure_terminal_running(&cfg).await;
@@ -203,10 +212,10 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                   });
                          }
                     }
-                }
+                 }
 
-                // Check Tray Icon Events (Clicks)
-                while let Ok(event) = tray_receiver.try_recv() {
+                 // Check Tray Icon Events (Clicks)
+                 while let Ok(event) = tray_receiver.try_recv() {
                     println!("DEBUG: Tray Event: {:?}", event);
 
                     match event {
@@ -234,6 +243,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
                 // Check Menu
                 while let Ok(event) = menu_receiver.try_recv() {
+                     println!("DEBUG: Menu Event: {:?}", event);
                      if event.id == quit_i.id() {
                           println!("Quit requested via tray menu. Exiting...");
                           let cfg = config_clone_loop.read().unwrap().clone();
@@ -246,7 +256,6 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                toggle_window(&cfg).await;
                           });
                      }
-                }
                 }
             }
             _ => ()
