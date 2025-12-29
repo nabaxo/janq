@@ -144,6 +144,10 @@ pub async fn toggle_window(config: &Config) {
     // Synchronously handle Focus and Initial Visibility
     unsafe {
         if should_show {
+            // Small delay to ensure Windows has updated foreground window state
+            // (especially important when using key press + synchronous execution)
+            std::thread::sleep(std::time::Duration::from_millis(10));
+
             // IMPORTANT: Capture foreground window BEFORE SetForegroundWindow
             let fg_window = GetForegroundWindow();
             if fg_window.0 != std::ptr::null_mut() && fg_window != hwnd.inner() {
