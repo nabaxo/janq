@@ -196,6 +196,10 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                 // Check Menu
                 if let Ok(event) = menu_receiver.try_recv() {
                      if event.id == quit_i.id() {
+                          println!("Quit requested via tray. Restoring window...");
+                          let cfg = config_clone_loop.read().unwrap().clone();
+                          // Restore window visibility synchronously
+                          crate::windows::window::restore_window_visibility(&cfg);
                           std::process::exit(0);
                      } else if event.id == toggle_i.id() {
                           let cfg = config_clone_loop.read().unwrap().clone();

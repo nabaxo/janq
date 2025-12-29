@@ -283,3 +283,16 @@ pub async fn toggle_window(config: &Config) {
         *animating = false;
     }
 }
+
+pub fn restore_window_visibility(config: &Config) {
+    if let Some(hwnd) = find_window_by_process(&config.window_class) {
+        unsafe {
+            // Ensure fully opaque
+            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+            // Show window
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            // Actually, user wants it "brought into view", so maybe activate?
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+}
