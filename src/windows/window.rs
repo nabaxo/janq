@@ -1,16 +1,15 @@
 use crate::config::Config;
 use crate::windows::easing::get_easing;
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, COLORREF};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, COLORREF, RECT, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
-    SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA, SW_SHOWNOACTIVATE
+    SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA, SW_SHOWNOACTIVATE,
+    GetCursorPos, GetWindowRect
 };
 use windows::Win32::Graphics::Gdi::{
-    MonitorFromPoint, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO
+    MonitorFromPoint, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, HMONITOR, HDC, EnumDisplayMonitors
 };
-use windows::Win32::Foundation::{RECT, POINT};
-use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
 use std::ffi::OsString;
@@ -27,7 +26,6 @@ lazy_static::lazy_static! {
     static ref IS_ANIMATING: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 }
 
-// Helper to convert string to wide string for Windows API
 // Helper to convert string to wide string for Windows API
 #[allow(dead_code)]
 fn to_wstring(s: &str) -> Vec<u16> {
@@ -75,6 +73,16 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
     search.found_hwnd
 }
 
+// Helper for Specific Display Mode
+struct MonitorEnumCtx {
+    monitors: Vec<HMONITOR>,
+}
+unsafe extern "system" fn monitor_enum_proc(hmonitor: HMONITOR, _hdc: HDC, _rect: *mut RECT, lparam: LPARAM) -> BOOL {
+    let ctx = &mut *(lparam.0 as *mut MonitorEnumCtx);
+    ctx.monitors.push(hmonitor);
+    BOOL(1)
+}
+
 pub async fn toggle_window(config: &Config) {
     // Prevent overlapping animations
     {
@@ -84,7 +92,6 @@ pub async fn toggle_window(config: &Config) {
         }
         *animating = true;
     }
-    // Ensure lock is dropped before await loop
 
     let hwnd = match find_window_by_process(&config.window_class) {
         Some(h) => SendHwnd(h),
@@ -99,12 +106,33 @@ pub async fn toggle_window(config: &Config) {
     unsafe {
         let is_visible = IsWindowVisible(hwnd.0).as_bool();
 
+        let monitor = if is_visible {
+            // IF HIDING: Stay on current monitor
+            MonitorFromWindow(hwnd.0, MONITOR_DEFAULTTONEAREST)
+        } else {
+            // IF SHOWING: Determine target monitor based on config
+            match config.display_mode.as_str() {
+                "specific" => {
+                    let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
+                    let _ = EnumDisplayMonitors(None, None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+                    if (config.display_index as usize) < ctx.monitors.len() {
+                         ctx.monitors[config.display_index as usize]
+                    } else {
+                         // Fallback to primary/mouse
+                         let mut cursor_pos = POINT { x: 0, y: 0 };
+                         let _ = GetCursorPos(&mut cursor_pos);
+                         MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+                    }
+                },
+                _ => {
+                    // "follow-mouse" or default
+                    let mut cursor_pos = POINT { x: 0, y: 0 };
+                    let _ = GetCursorPos(&mut cursor_pos);
+                    MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+                }
+            }
+        };
 
-        // Use cursor position to determine target monitor
-        let mut cursor_pos = POINT { x: 0, y: 0 };
-        let _ = GetCursorPos(&mut cursor_pos);
-
-        let monitor = MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST);
         let mut mi = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
@@ -125,16 +153,20 @@ pub async fn toggle_window(config: &Config) {
 
         // Check if window has existing dimensions (user might have resized it)
         let mut rect = RECT::default();
-        let (width, height) = if GetWindowRect(hwnd.0, &mut rect).is_ok() && (rect.right - rect.left) > 0 {
-             (rect.right - rect.left, rect.bottom - rect.top)
+        let (width, height, current_x) = if GetWindowRect(hwnd.0, &mut rect).is_ok() {
+             (rect.right - rect.left, rect.bottom - rect.top, rect.left)
         } else {
-             (width_pct, height_pct)
+             (width_pct, height_pct, work_area.left + (screen_w - width_pct) / 2)
         };
 
-        // On first show (if hidden and never shown?), we might want to force size?
-        // But GetWindowRect should work even if hidden. If it's 0 size, we fallback to config.
+        let x = if is_visible {
+             // If hiding, stay at current X
+             current_x
+        } else {
+             // If showing, center on target monitor
+             work_area.left + (screen_w - width) / 2
+        };
 
-        let x = work_area.left + (screen_w - width) / 2;
         // Target Y when fully shown
         let target_y = work_area.top;
         // Target Y when hidden (above screen)
