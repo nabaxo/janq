@@ -47,8 +47,8 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
             let name = String::from_utf16_lossy(&buffer[..len as usize]);
             // Check if name matches (ignoring case)
             if name.to_lowercase().contains(&target_struct.name.to_lowercase()) {
-                target_struct.found_hwnd = Some(hwnd);
-                return BOOL(0); // Stop enumeration
+                target_struct.found_hwnds.push(hwnd);
+                // Continue enumeration to find ALL windows
             }
         }
     }
@@ -58,20 +58,51 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 
 struct TargetSearch {
     name: String,
-    found_hwnd: Option<HWND>,
+    found_hwnds: Vec<HWND>,
 }
 
 pub fn find_window_by_process(name: &str) -> Option<HWND> {
     let mut search = TargetSearch {
         name: name.to_string(),
-        found_hwnd: None,
+        found_hwnds: Vec::new(),
     };
 
     unsafe {
         let _ = EnumWindows(Some(enum_windows_proc), LPARAM(&mut search as *mut _ as isize));
     }
 
-    search.found_hwnd
+    // Heuristic: Find the "best" window
+    // 1. Must have dimensions > 0 (avoid message-only/utility windows)
+    // 2. Prefer Visible windows (if any)
+
+    let mut best_hwnd = None;
+    let mut best_score = -1;
+
+    for hwnd in search.found_hwnds {
+        unsafe {
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_ok() {
+                let w = rect.right - rect.left;
+                let h = rect.bottom - rect.top;
+
+                if w > 10 && h > 10 {
+                    let is_visible = IsWindowVisible(hwnd).as_bool();
+                    let mut score = 0;
+                    if is_visible { score += 10; }
+
+                    // Simple tie-breaker: larger area?
+                    score += if (w * h) > 10000 { 1 } else { 0 };
+
+                    if score > best_score {
+                         best_score = score;
+                         best_hwnd = Some(hwnd);
+                    }
+                }
+            }
+        }
+    }
+
+    best_hwnd
 }
 
 // Helper for Specific Display Mode
