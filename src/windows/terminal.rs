@@ -5,16 +5,28 @@ use std::time::Duration;
 
 use crate::windows::window::find_window_by_process;
 
+use std::fs::OpenOptions;
+use std::io::Write;
+
+fn log_debug(msg: &str) {
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("rustake_debug.log") {
+        let _ = writeln!(file, "{}", msg);
+    }
+}
+
 pub async fn ensure_terminal_running(config: &Config) -> bool {
+    log_debug("ensure_terminal_running called");
     if find_window_by_process(&config.window_class).is_some() {
+        log_debug("Terminal window found, skipping spawn.");
         return false; // Already running and has window
     }
 
     if config.start_command.is_empty() {
+        log_debug("Start command is empty.");
         return false;
     }
 
-    println!("Starting terminal: {}", config.start_command);
+    log_debug(&format!("Starting terminal: {}", config.start_command));
 
     // On Windows, start_command might need cmd /C or just running executable
     // Split command
@@ -32,6 +44,9 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
         args.push(config.width_cols.to_string());
     }
 
+    let full_cmd = format!("{} {}", cmd, args.join(" "));
+    log_debug(&format!("Exec: {}", full_cmd));
+
     use std::os::windows::process::CommandExt;
     const DETACHED_PROCESS: u32 = 0x00000008;
 
@@ -42,16 +57,21 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn() {
-            Ok(_) => {},
+            Ok(_) => {
+                log_debug("Process spawned successfully.");
+            },
             Err(e) => {
+                log_debug(&format!("Failed to start terminal: {}", e));
                 println!("Failed to start terminal: {}", e);
                 return false;
             }
     }
 
     // Wait for window to appear
-    for _ in 0..20 {
+    log_debug("Waiting for window to appear...");
+    for i in 0..20 {
         if find_window_by_process(&config.window_class).is_some() {
+            log_debug("Terminal window detected.");
             println!("Terminal window detected.");
             thread::sleep(Duration::from_millis(200)); // Brief grace period
             return true;
@@ -59,5 +79,6 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
         thread::sleep(Duration::from_millis(300));
     }
 
+    log_debug("Timed out waiting for window.");
     false
 }
