@@ -100,15 +100,30 @@ show_opacity_point = 0.2       # Fade-in completes at 20% of animation
 hide_opacity_point = 0.8       # Fade-out starts at 80% of animation
 ```
 
-### Easing Functions
-
-- `linear`
-- `ease-in`, `ease-out`, `ease-in-out`
-- `sine-in`, `sine-out`, `sine-in-out`
-- `cubic-in`, `cubic-out`, `cubic-in-out`
-- `quart-in`, `quart-out`, `quart-in-out`
-- `back-in`, `back-out`, `back-in-out`
 - `windows` for `cubic-bezier(0.25, 0, 0, 1)`
+
+## Hotkey Reference (Windows Only)
+
+The `hotkey` field in `.ruake.toml` supports multiple modifiers and key combinations.
+
+### Modifiers
+- `Meta`, `Super`, `Win`, `Cmd`
+- `Ctrl`, `Control`
+- `Alt`
+- `Shift`
+
+### Common Keycodes
+| Type | Keycodes |
+|------|----------|
+| **Vowels/Letters** | `a` - `z` |
+| **Digits** | `0` - `9` |
+| **Function Keys** | `f1` - `f12` |
+| **Punctuation** | `grave` (` ` `), `minus` (`-`), `equal` (`=`), `bracketleft` (`[`), `bracketright` (`]`), `backslash` (`\`), `semicolon` (`;`), `quote` (`'`), `comma` (`,`), `period` (`.`), `slash` (`/`) |
+| **Navigation** | `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn` |
+| **Special** | `enter`, `space`, `esc`, `tab`, `backspace`, `insert`, `delete`, `capslock` |
+| **International** | `section` (`§`), `plusminus` (`±`) |
+
+**Example**: `hotkey = ["Meta+Grave", "Ctrl+Alt+Space"]`
 
 ## License
 

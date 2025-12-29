@@ -30,6 +30,7 @@ pub struct GeneralConfig {
     #[serde(default = "default_start_command")]
     pub start_command: String,
     #[serde(default = "default_hotkeys", deserialize_with = "deserialize_hotkeys")]
+    #[allow(dead_code)]
     pub hotkey: Vec<String>,
 }
 

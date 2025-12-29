@@ -246,7 +246,10 @@ pub async fn toggle_window(config: &Config) {
             let target_alpha: u8 = if should_show { 255 } else { 0 };
 
             let dist_y = target_y - start_y;
-            let dist_alpha = target_alpha as i32 - start_alpha as i32;
+
+            if !config.animation.animate_opacity {
+                let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
+            }
 
             let full_duration = if should_show { config.animation.show_duration } else { config.animation.hide_duration };
             let dynamic_duration = if dist_y.abs() > 0 {
@@ -259,6 +262,7 @@ pub async fn toggle_window(config: &Config) {
             let z_flag = SendHwnd(if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
 
             let start_time = Instant::now();
+            let opacity_point = if should_show { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
 
             if dynamic_duration > 0.0 {
                 loop {
@@ -272,9 +276,22 @@ pub async fn toggle_window(config: &Config) {
                     let ease_val = get_easing(progress, easing_type);
 
                     let new_y = start_y + (dist_y as f64 * ease_val) as i32;
-                    let new_alpha = (start_alpha as i32 + (dist_alpha as f64 * ease_val) as i32).clamp(0, 255) as u8;
 
-                    let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), new_alpha, LWA_ALPHA);
+                    if config.animation.animate_opacity {
+                        let opacity_progress = if should_show {
+                            (progress / opacity_point).min(1.0)
+                        } else {
+                            ((progress - opacity_point) / (1.0 - opacity_point)).max(0.0)
+                        };
+
+                        let new_alpha = if should_show {
+                             (start_alpha as f64 + (255.0 - start_alpha as f64) * opacity_progress).clamp(0.0, 255.0) as u8
+                        } else {
+                             (start_alpha as f64 * (1.0 - opacity_progress)).clamp(0.0, 255.0) as u8
+                        };
+                        let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), new_alpha, LWA_ALPHA);
+                    }
+
                     let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, 0, 0, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE | SWP_NOSIZE);
 
                     if progress >= 1.0 { break; }

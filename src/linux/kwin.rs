@@ -199,9 +199,10 @@ if (target) {{
 
     if (needsReposition) {{
       startY = finalY - finalHeight;
-      target.opacity = 0.0;
+      if (animateOpacity) target.opacity = 0.0;
+      else target.opacity = 1.0;
       target.frameGeometry = {{ x: finalX, y: startY, width: finalWidth, height: finalHeight }};
-      startOpacity = 0.0;
+      startOpacity = target.opacity;
     }}
 
     if (target.minimized) target.minimized = false;
@@ -269,7 +270,8 @@ if (target) {{
 
         if (progress >= 1.0) {{
           timer.stop();
-          target.opacity = 0.0;
+          if (animateOpacity) target.opacity = 0.0;
+          else target.opacity = 1.0;
           var hiddenX = targetArea.x + (targetArea.width - startW) / 2;
           var hiddenY = targetArea.y - startH;
           target.frameGeometry = {{ x: hiddenX, y: hiddenY, width: startW, height: startH }};
