@@ -222,9 +222,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         let _ = &tray_icon;
         let _ = &manager;
 
-        // Poll every 100ms (10hz) only for Tray/Menu events
-        // WaitUntil is still good because it sleeps, but now hotkeys wake it up immediately
-        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(100)));
+        // Poll every 10ms (100hz) for responsive hotkey handling while still being CPU-efficient
+        // This ensures hotkeys are processed with minimal delay (<=10ms worst case)
+        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(10)));
 
         match event {
             Event::LoopExiting => {

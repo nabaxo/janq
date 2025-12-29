@@ -150,7 +150,6 @@ pub async fn toggle_window(config: &Config) {
                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
                 // Always update to the most recent focused window when showing
                 *prev = Some(SendHwnd(fg_window));
-                println!("DEBUG: Captured previous focus: {:?}", fg_window);
             }
 
             // Immediately activate (steal focus)
@@ -334,15 +333,10 @@ pub async fn toggle_window(config: &Config) {
                 let _ = ShowWindow(hwnd.inner(), SW_HIDE);
                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
                 if let Some(h) = *prev {
-                    println!("DEBUG: Restoring focus to: {:?}", h.0);
                     if IsWindowVisible(h.0).as_bool() {
                         let _ = SetForegroundWindow(h.0);
-                    } else {
-                        println!("DEBUG: Previous window not visible, not restoring focus");
                     }
                     *prev = None;
-                } else {
-                    println!("DEBUG: No previous focus to restore");
                 }
             }
         }
@@ -355,12 +349,9 @@ pub async fn toggle_window(config: &Config) {
 }
 
 pub fn restore_window_visibility(config: &Config) {
-    println!("DEBUG: restore_window_visibility started");
-    let start = std::time::Instant::now();
 
     if let Some(hwnd) = find_window_by_process(&config.general.window_class) {
         let is_target_visible = TARGET_VISIBLE.load(Ordering::Relaxed);
-        println!("DEBUG: Found window HWND: {:?}, is_target_visible={}", hwnd, is_target_visible);
 
         unsafe {
             // 1. Ensure Layered Style & Opacity is 255 (Opaque)
@@ -399,8 +390,5 @@ pub fn restore_window_visibility(config: &Config) {
                  let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA);
             }
         }
-    } else {
-        println!("DEBUG: No window found to restore!");
     }
-    println!("DEBUG: restore_window_visibility output took {:?}", start.elapsed());
 }
