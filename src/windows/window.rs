@@ -144,12 +144,13 @@ pub async fn toggle_window(config: &Config) {
     // Synchronously handle Focus and Initial Visibility
     unsafe {
         if should_show {
+            // IMPORTANT: Capture foreground window BEFORE SetForegroundWindow
             let fg_window = GetForegroundWindow();
-            if fg_window.0 != std::ptr::null_mut() && fg_window.0 != hwnd.inner().0 {
+            if fg_window.0 != std::ptr::null_mut() && fg_window != hwnd.inner() {
                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
-                if prev.is_none() {
-                    *prev = Some(SendHwnd(fg_window));
-                }
+                // Always update to the most recent focused window when showing
+                *prev = Some(SendHwnd(fg_window));
+                println!("DEBUG: Captured previous focus: {:?}", fg_window);
             }
 
             // Immediately activate (steal focus)
@@ -333,8 +334,15 @@ pub async fn toggle_window(config: &Config) {
                 let _ = ShowWindow(hwnd.inner(), SW_HIDE);
                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
                 if let Some(h) = *prev {
-                    if IsWindowVisible(h.0).as_bool() { let _ = SetForegroundWindow(h.0); }
+                    println!("DEBUG: Restoring focus to: {:?}", h.0);
+                    if IsWindowVisible(h.0).as_bool() {
+                        let _ = SetForegroundWindow(h.0);
+                    } else {
+                        println!("DEBUG: Previous window not visible, not restoring focus");
+                    }
                     *prev = None;
+                } else {
+                    println!("DEBUG: No previous focus to restore");
                 }
             }
         }
