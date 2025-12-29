@@ -115,22 +115,40 @@ unsafe extern "system" fn monitor_enum_proc(hmonitor: HMONITOR, _hdc: HDC, _rect
     BOOL(1)
 }
 
-pub async fn toggle_window(config: &Config) {
-    // Prevent overlapping animations
-    {
+struct AnimationGuard;
+
+impl AnimationGuard {
+    fn new() -> Option<Self> {
         let mut animating = IS_ANIMATING.lock().unwrap();
         if *animating {
-             return;
+            return None;
         }
         *animating = true;
+        Some(Self)
     }
+}
+
+impl Drop for AnimationGuard {
+    fn drop(&mut self) {
+        let mut animating = IS_ANIMATING.lock().unwrap();
+        *animating = false;
+    }
+}
+
+pub async fn toggle_window(config: &Config) {
+    // Acquire RAII guard for animation state
+    // If already animating, this returns None and we exit
+    let _guard = match AnimationGuard::new() {
+        Some(g) => g,
+        None => return,
+    };
+
+    println!("Toggling window...");
 
     let hwnd = match find_window_by_process(&config.window_class) {
         Some(h) => SendHwnd(h),
         None => {
             println!("Window not found for process: {}", config.window_class);
-            let mut animating = IS_ANIMATING.lock().unwrap();
-            *animating = false;
             return;
         }
     };
@@ -189,8 +207,6 @@ pub async fn toggle_window(config: &Config) {
         };
 
         if !GetMonitorInfoW(monitor, &mut mi).as_bool() {
-             let mut animating = IS_ANIMATING.lock().unwrap();
-             *animating = false;
              return;
         }
 
@@ -310,11 +326,6 @@ pub async fn toggle_window(config: &Config) {
              let _ = SetWindowPos(hwnd.0, z_flag.0, x, target_y, width, height, SWP_SHOWWINDOW);
              let _ = SetForegroundWindow(hwnd.0);
         }
-    }
-
-    {
-        let mut animating = IS_ANIMATING.lock().unwrap();
-        *animating = false;
     }
 }
 

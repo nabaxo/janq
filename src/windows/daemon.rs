@@ -196,20 +196,11 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                               {
                                   // Borrow IS_ANIMATING from window module via static, or better:
                                   // Just assume if toggle task is spawned, we shouldn't spawn another immediately.
-                                  // A simple primitive valid atomic/mutex here would work.
-                              }
-                              // We'll use a local atomic in the loop if we could, but closure captures.
-                              // Let's use a static since this is a singleton daemon.
-                              static IS_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                              if !IS_BUSY.load(std::sync::atomic::Ordering::Relaxed) {
-                                  IS_BUSY.store(true, std::sync::atomic::Ordering::Relaxed);
                                   let cfg = config_clone_loop.read().unwrap().clone();
                                   rt.spawn(async move {
                                       crate::windows::terminal::ensure_terminal_running(&cfg).await;
                                       toggle_window(&cfg).await;
-                                      IS_BUSY.store(false, std::sync::atomic::Ordering::Relaxed);
                                   });
-                              }
                          }
                     }
                 }
@@ -250,7 +241,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                crate::windows::terminal::ensure_terminal_running(&cfg).await;
                                toggle_window(&cfg).await;
                           });
-                     }
+                         }
+                    }
                 }
             }
             _ => ()
