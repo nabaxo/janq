@@ -323,9 +323,11 @@ pub fn restore_window_visibility(config: &Config) {
         unsafe {
             // Ensure fully opaque
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
-            // Show window
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            // Actually, user wants it "brought into view", so maybe activate?
+
+            // Force reset position to avoid it getting stuck off-screen?
+            // Actually, let's just use SW_RESTORE which handles min/max states.
+            // And maybe SetWindowPos to SWP_NOMOVE | SWP_NOSIZE to just apply Z-order.
+            let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_RESTORE);
             let _ = SetForegroundWindow(hwnd);
         }
     }

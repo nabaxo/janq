@@ -215,20 +215,27 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                 }
 
                 // Check Tray Icon Events (Clicks)
-                if let Ok(event) = tray_receiver.try_recv() {
-                    // Check for Left Click Toggle
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                        println!("Left Click on Tray: Toggling...");
-                        let cfg = config_clone_loop.read().unwrap().clone();
-                        rt.spawn(async move {
-                             crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                             toggle_window(&cfg).await;
-                        });
-                    }
-                    // Check for Middle Click Quit
-                    else if let TrayIconEvent::Click { button: MouseButton::Middle, button_state: MouseButtonState::Up, .. } = event {
-                        println!("Middle Click on Tray: Exiting...");
-                        elwt.exit();
+                while let Ok(event) = tray_receiver.try_recv() {
+                    // Log event for debugging
+                    // println!("Tray Event: {:?}", event);
+
+                    match event {
+                        TrayIconEvent::Click { button, button_state: MouseButtonState::Up, .. } => {
+                            if button == MouseButton::Left {
+                                println!("Left Click on Tray: Toggling...");
+                                let cfg = config_clone_loop.read().unwrap().clone();
+                                rt.spawn(async move {
+                                     crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                                     toggle_window(&cfg).await;
+                                });
+                            } else if button == MouseButton::Middle {
+                                println!("Middle Click on Tray: Exiting...");
+                                elwt.exit();
+                            } else {
+                                println!("Other click on tray: {:?}", button);
+                            }
+                        }
+                        _ => {}
                     }
                 }
 
