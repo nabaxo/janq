@@ -1,6 +1,3 @@
-dist/
-target/
-**/*.exe
-**/*.dll
-**/*.so
-**/*.log
+/target
+**/*.rs.bk
+Cargo.lock
