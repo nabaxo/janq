@@ -367,37 +367,32 @@ pub fn restore_window_visibility(config: &Config) {
     let start = std::time::Instant::now();
 
     if let Some(hwnd) = find_window_by_process(&config.general.window_class) {
-        let is_ruake_visible = *TARGET_VISIBLE.lock().unwrap();
-        println!("DEBUG: Found window HWND: {:?}, ruake_visible={}", hwnd, is_ruake_visible);
+        let is_target_visible = *TARGET_VISIBLE.lock().unwrap();
+        println!("DEBUG: Found window HWND: {:?}, is_target_visible={}", hwnd, is_target_visible);
 
         unsafe {
-            // Ensure Opacity is 255 (Opaque)
+            // 1. Ensure Opacity is 255 (Opaque)
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
-            let mut flags = SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE;
-            let (mut x, mut y) = (0, 0);
-
-            if !is_ruake_visible {
-                // Determine monitor to restore to
+            // 2. Determine if we need to move the window
+            // If it was hidden, move it to the visible work area.
+            // If it was visible, leave it where it is.
+            let (x, y, flags) = if is_target_visible {
+                (0, 0, windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE)
+            } else {
                 let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
                 let mut mi = MONITORINFO {
                     cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                     ..Default::default()
                 };
-
                 if GetMonitorInfoW(monitor, &mut mi).as_bool() {
-                    x = mi.rcWork.left;
-                    y = mi.rcWork.top;
-                    println!("DEBUG: Restoring to visible area at x={}, y={}", x, y);
+                    (mi.rcWork.left, mi.rcWork.top, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE)
                 } else {
-                    flags |= windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE;
+                    (0, 0, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE)
                 }
-            } else {
-                println!("DEBUG: Terminal is currently visible, keeping in place.");
-                flags |= windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE;
-            }
+            };
 
-            // Apply Z-order and position/visibility
+            // 3. Ensure visible, opaque, and NOT topmost.
             let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
 
             // Ensure not minimized
@@ -407,7 +402,7 @@ pub fn restore_window_visibility(config: &Config) {
                  let _ = ShowWindow(hwnd, SW_SHOW);
             }
 
-            let _ = SetForegroundWindow(hwnd);
+             let _ = SetForegroundWindow(hwnd);
         }
     } else {
         println!("DEBUG: No window found to restore!");
