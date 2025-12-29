@@ -73,14 +73,18 @@ pub async fn toggle_quake(config: &Config) -> Result<()> {
     let easing = if visible { &config.animation.show_easing } else { &config.animation.hide_easing };
     let opacity_point = if visible { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
 
-    let prev_window_id_to_pass: String;
-    if visible {
-        // Capture the current active window ID before we show the terminal
-        state.previous_window_id = get_active_window_id(&config.general.window_class);
-        prev_window_id_to_pass = String::new(); // Don't restore focus when showing
-    } else {
-        prev_window_id_to_pass = state.previous_window_id.clone(); // Pass the captured window for focus restoration
+    // Capture the current active window ID (if it's not Ruake/Quake)
+    // This handles both initial show (active=Previous) AND focus changes while visible (active=NewWindow)
+    let current_id = get_active_window_id(&config.general.window_class);
+    if !current_id.is_empty() {
+        state.previous_window_id = current_id;
     }
+
+    let prev_window_id_to_pass = if visible {
+        String::new() // Don't restore focus when showing
+    } else {
+        state.previous_window_id.clone() // Pass the captured window for focus restoration
+    };
 
     // Optimized script using format! to minimize string allocations
     let script = format!(
