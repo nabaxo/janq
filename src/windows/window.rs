@@ -142,6 +142,19 @@ pub async fn toggle_window(config: &Config) {
         }
     };
 
+    // Unconditionally capture valid foreground window
+    // This handles:
+    // 1. SHOW: Captures the app you are working on.
+    // 2. HIDE: If you clicked another window (B) while Ruake was open, captures B.
+    // 3. HIDE: If Ruake is focused, ignores it (preserves previous capture).
+    unsafe {
+        let fg_window = GetForegroundWindow();
+        if fg_window.0 != std::ptr::null_mut() && fg_window != hwnd.inner() {
+            let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+            *prev = Some(SendHwnd(fg_window));
+        }
+    }
+
     // Synchronously handle Initial Visibility
     unsafe {
         if should_show {
@@ -345,13 +358,7 @@ pub async fn toggle_window(config: &Config) {
                 let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
                 let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
             } else {
-                // IMPORTANT: Capture current foreground window BEFORE hiding
-                // This ensures we restore to whatever window has focus NOW, not what had focus when we showed
-                let fg_window = GetForegroundWindow();
-                if fg_window.0 != std::ptr::null_mut() && fg_window != hwnd.inner() {
-                    let mut prev = PREVIOUS_FOCUS.lock().unwrap();
-                    *prev = Some(SendHwnd(fg_window));
-                }
+
 
                 let _ = ShowWindow(hwnd.inner(), SW_HIDE);
                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
