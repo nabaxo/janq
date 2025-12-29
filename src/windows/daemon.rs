@@ -170,39 +170,30 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         }
     });
 
-    // Verify TrayIcon is alive by printing it (debugging)
-    println!("DEBUG: Tray Icon initialized: {:?}", tray_icon.id());
-
-    let mut last_pulse = std::time::Instant::now();
+    // Verify TrayIcon is alive by printing it (debugging) - keeping this for now as it's low cost
+    //println!("DEBUG: Tray Icon initialized: {:?}", tray_icon.id());
 
     event_loop.run(move |event, elwt| {
         // Capture tray icon explicitly to keep it alive
         let _ = &tray_icon;
         let _ = &manager;
 
-        // Force POLL for debugging (Maximum CPU/Responsiveness)
-        elwt.set_control_flow(ControlFlow::Poll);
+        // Poll every 50ms (20hz) to maintain responsiveness without burning CPU
+        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(50)));
 
         match event {
             Event::LoopExiting => {
-                println!("Ruake shutting down (LoopExiting). Restoring window...");
+                // println!("Ruake shutting down (LoopExiting). Restoring window...");
                 let cfg = config_clone_loop.read().unwrap().clone();
                 crate::windows::window::restore_window_visibility(&cfg);
             }
             Event::UserEvent(_) => {
-                println!("User event (Ctrl+C) received. Exiting...");
+                // println!("User event (Ctrl+C) received. Exiting...");
                 elwt.exit();
             }
-            Event::NewEvents(StartCause::Poll) | Event::AboutToWait => {
-                 // Heartbeat every 2 seconds
-                 if last_pulse.elapsed() > std::time::Duration::from_secs(2) {
-                      println!("DEBUG: Loop Pulse (Alive)...");
-                      last_pulse = std::time::Instant::now();
-                 }
-
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
                  // Check Hotkeys
                  if let Ok(event) = hotkey_receiver.try_recv() {
-                    println!("DEBUG: Hotkey Event: {:?}", event);
                     if event.state == global_hotkey::HotKeyState::Released {
                          if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
                                   let cfg = config_clone_loop.read().unwrap().clone();
@@ -216,13 +207,11 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
                  // Check Tray Icon Events (Clicks)
                  while let Ok(event) = tray_receiver.try_recv() {
-                    println!("DEBUG: Tray Event: {:?}", event);
-
                     match event {
                         TrayIconEvent::Click { button, button_state, .. } => {
                             if button_state == MouseButtonState::Up {
                                 if button == MouseButton::Left {
-                                    println!("Left Click (Up): Toggling...");
+                                    // println!("Left Click (Up): Toggling...");
                                     unsafe {
                                          use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
                                          let _ = AllowSetForegroundWindow(ASFW_ANY);
@@ -235,17 +224,13 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                 }
                             }
                         }
-                        _ => {
-                             println!("Unhandled Tray Event: {:?}", event);
-                        }
+                        _ => {}
                     }
-                }
+                 }
 
-                // Check Menu
-                while let Ok(event) = menu_receiver.try_recv() {
-                     println!("DEBUG: Menu Event: {:?}", event);
+                 // Check Menu
+                 while let Ok(event) = menu_receiver.try_recv() {
                      if event.id == quit_i.id() {
-                          println!("Quit requested via tray menu. Exiting...");
                           let cfg = config_clone_loop.read().unwrap().clone();
                           crate::windows::window::restore_window_visibility(&cfg);
                           std::process::exit(0);
@@ -256,7 +241,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                toggle_window(&cfg).await;
                           });
                      }
-                }
+                 }
             }
             _ => ()
         }
