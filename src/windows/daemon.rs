@@ -255,8 +255,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                   }
                                   let cfg = config_clone_loop.read().unwrap().clone();
 
-                                   // Spawn toggle task immediately - let it handle everything asynchronously
-                                   rt.spawn(async move {
+                                   // Call toggle synchronously for instant response (like Go version)
+                                   rt.block_on(async {
                                        crate::windows::terminal::ensure_terminal_running(&cfg).await;
                                        toggle_window(&cfg).await;
                                    });
