@@ -121,7 +121,7 @@ unsafe extern "system" fn monitor_enum_proc(hmonitor: HMONITOR, _hdc: HDC, _rect
     BOOL(1)
 }
 
-pub async fn toggle_window(config: &Config) {
+pub async fn toggle_window(config: &Config) -> bool {
     println!("Toggling window...");
 
     let should_show = !TARGET_VISIBLE.load(Ordering::Relaxed);
@@ -160,7 +160,7 @@ pub async fn toggle_window(config: &Config) {
             },
             None => {
                 println!("Window not found for process: {}", config.general.window_class);
-                return;
+                return false;
             }
         }
     };
@@ -399,6 +399,7 @@ pub async fn toggle_window(config: &Config) {
         let mut task_handle = ANIMATION_TASK.lock().unwrap();
         *task_handle = Some(handle.abort_handle());
     }
+    true
 }
 
 pub fn restore_window_visibility(config: &Config) {

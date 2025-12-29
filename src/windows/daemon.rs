@@ -257,8 +257,12 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
                                    // Call toggle synchronously for instant response (like Go version)
                                    rt.block_on(async {
-                                       crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                                       toggle_window(&cfg).await;
+                                       // Fast path: Try with cached HWND first
+                                       if !toggle_window(&cfg).await {
+                                           // Slow path: Ensure process running then toggle
+                                           crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                                           toggle_window(&cfg).await;
+                                       }
                                    });
                              }
                         }
