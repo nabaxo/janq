@@ -75,16 +75,22 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     {
         let cfg = config.read().unwrap();
         for hk_str in &cfg.general.hotkey {
+            println!("Attempting to register hotkey: {}", hk_str);
             match parse_hotkey(hk_str) {
                 Ok(key) => {
-                    if let Err(e) = manager.register(key) {
-                        eprintln!("Failed to register hotkey '{}': {}", hk_str, e);
-                    } else {
-                        println!("Registered hotkey: {}", hk_str);
-                        current_hotkeys.push(key);
+                    println!("  Parsed successfully: {:?}", key);
+                    match manager.register(key) {
+                        Ok(_) => {
+                            println!("  ✓ Registered: {}", hk_str);
+                            current_hotkeys.push(key);
+                        }
+                        Err(e) => {
+                            eprintln!("  ✗ Failed to register '{}': {}", hk_str, e);
+                            eprintln!("    This might be because the key code is not supported on Windows.");
+                        }
                     }
                 },
-                Err(e) => eprintln!("Failed to parse hotkey '{}': {}", hk_str, e),
+                Err(e) => eprintln!("  ✗ Failed to parse '{}': {}", hk_str, e),
             }
         }
     }
@@ -108,6 +114,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     let path_to_watch = config_path.clone();
 
     // Watcher logic can run on a separate thread, but updating config needs lock
+    // We'll pass the event proxy after event loop creation
     std::thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
@@ -139,6 +146,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         let mut w = config_clone_watcher.write().unwrap();
                         *w = new_config.clone();
                     }
+                    println!("NOTE: Hotkey changes require a daemon restart to take effect.");
                 },
                 Err(e) => println!("Watch error: {:?}", e),
              }
