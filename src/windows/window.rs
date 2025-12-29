@@ -161,15 +161,6 @@ pub async fn toggle_window(config: &Config) {
             if !IsWindowVisible(hwnd.inner()).as_bool() {
                 let _ = ShowWindow(hwnd.inner(), SW_SHOW);
             }
-        } else {
-             // Immediately surrender focus
-             let mut prev = PREVIOUS_FOCUS.lock().unwrap();
-             if let Some(h) = *prev {
-                 if IsWindowVisible(h.0).as_bool() {
-                     let _ = SetForegroundWindow(h.0);
-                 }
-                 *prev = None;
-             }
         }
     }
 
@@ -360,7 +351,15 @@ pub async fn toggle_window(config: &Config) {
                  let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
             } else {
                  let _ = ShowWindow(hwnd.inner(), SW_HIDE);
-                 // Focus already restored synchronously at start for speed.
+
+                 // Restore focus only after the window is hidden
+                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+                 if let Some(h) = *prev {
+                     if IsWindowVisible(h.0).as_bool() {
+                         let _ = SetForegroundWindow(h.0);
+                     }
+                     *prev = None;
+                 }
             }
         }
     });
