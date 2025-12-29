@@ -178,8 +178,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         let _ = &tray_icon;
         let _ = &manager;
 
-        // Poll every 50ms (20hz) to maintain responsiveness without burning CPU
-        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(50)));
+        // Poll every 100ms (10hz) to maintain responsiveness without burning CPU
+        elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(100)));
 
         match event {
             Event::LoopExiting => {
