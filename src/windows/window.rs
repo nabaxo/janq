@@ -5,7 +5,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
     SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA,
-    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SWP_NOSIZE, SWP_NOCOPYBITS
+    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SWP_NOSIZE, SWP_NOCOPYBITS, SWP_DEFERERASE
 };
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
@@ -349,7 +349,7 @@ pub async fn toggle_window(config: &Config) {
                  }
 
                 let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), alpha, LWA_ALPHA);
-                let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOCOPYBITS);
+                let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, 0, 0, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE | SWP_NOSIZE);
 
                 if progress >= 1.0 { break; }
             }
