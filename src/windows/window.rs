@@ -243,7 +243,6 @@ pub async fn toggle_window(config: &Config) {
             };
 
             let start_alpha = current_alpha;
-            let target_alpha: u8 = if should_show { 255 } else { 0 };
 
             let dist_y = target_y - start_y;
 
