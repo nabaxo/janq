@@ -10,7 +10,7 @@ use image::GenericImageView;
 
 
 struct QuakeDaemon {
-    config: Arc<RwLock<Config>>,
+    config: Arc<RwLock<Arc<Config>>>,
 }
 
 #[interface(name = "dev.nabaxo.ruake")]
@@ -22,7 +22,7 @@ impl QuakeDaemon {
 }
 
 struct StatusNotifierItem {
-    config: Arc<RwLock<Config>>,
+    config: Arc<RwLock<Arc<Config>>>,
     icon_cache: IconPixmap,
 }
 
@@ -65,7 +65,7 @@ impl StatusNotifierItem {
 }
 
 pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::PathBuf>, auto_show: bool) -> anyhow::Result<()> {
-    let config = Arc::new(RwLock::new(initial_config));
+    let config = Arc::new(RwLock::new(Arc::new(initial_config)));
 
     let conn = Connection::session().await?;
 
@@ -162,7 +162,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
                     let (new_config, _) = load_config();
                     {
                         let mut w = config_clone.write().unwrap();
-                        *w = new_config.clone();
+                        *w = Arc::new(new_config.clone());
                     }
                     // Apply changes
                     let rt = tokio::runtime::Runtime::new().unwrap();

@@ -55,14 +55,7 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
 
     let mut final_args: Vec<String> = Vec::new();
 
-    // Inject config dimensions if running wezterm
-    // WezTerm global flags must appear BEFORE the subcommand (e.g. 'start')
-    if cmd.contains("wezterm") {
-        final_args.push("--config".to_string());
-        final_args.push(format!("initial_rows={}", config.window.height_rows));
-        final_args.push("--config".to_string());
-        final_args.push(format!("initial_cols={}", config.window.width_cols));
-    }
+
 
     // Append original arguments (e.g. "start --class wezquake")
     for arg in original_args {

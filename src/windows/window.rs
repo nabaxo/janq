@@ -59,7 +59,7 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
         if len > 0 {
             let name = String::from_utf16_lossy(&buffer[..len as usize]);
             // Check if name matches (ignoring case)
-            if name.to_lowercase().contains(&target_struct.name.to_lowercase()) {
+            if name.to_lowercase().contains(&target_struct.name) {
                 target_struct.found_hwnds.push(hwnd);
                 // Continue enumeration to find ALL windows
             }
@@ -76,7 +76,7 @@ struct TargetSearch {
 
 pub fn find_window_by_process(name: &str) -> Option<HWND> {
     let mut search = TargetSearch {
-        name: name.to_string(),
+        name: name.to_string().to_lowercase(),
         found_hwnds: Vec::new(),
     };
 
@@ -260,15 +260,26 @@ pub async fn toggle_window(config: &Config) -> bool {
             let width_pct = (screen_w as f64 * (config.window.width_percent as f64 / 100.0)) as i32;
             let height_pct = (screen_h as f64 * (config.window.height_percent as f64 / 100.0)) as i32;
 
-            let (width, height) = if config.window.width_cols > 0 && config.window.height_rows > 0 {
+            let width = if width_pct > 0 {
+                width_pct
+            } else {
                 let mut r = RECT::default();
                 if GetWindowRect(hwnd.inner(), &mut r).is_ok() {
-                    (r.right - r.left, r.bottom - r.top)
+                    r.right - r.left
                 } else {
-                    (width_pct, height_pct)
+                    width_pct
                 }
+            };
+
+            let height = if height_pct > 0 {
+                height_pct
             } else {
-                (width_pct, height_pct)
+                let mut r = RECT::default();
+                if GetWindowRect(hwnd.inner(), &mut r).is_ok() {
+                    r.bottom - r.top
+                } else {
+                    height_pct
+                }
             };
 
             let target_x = work_area.left + (screen_w - width) / 2;

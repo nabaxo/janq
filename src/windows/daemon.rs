@@ -41,7 +41,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 
-    let config = Arc::new(RwLock::new(initial_config));
+    let config = Arc::new(RwLock::new(Arc::new(initial_config)));
 
     // 2. Setup Winit EventLoop with Custom Event Type
     let event_loop = EventLoopBuilder::<DaemonEvent>::with_user_event().build()?;
@@ -169,7 +169,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                     let (new_config, _) = load_config();
                     {
                         let mut w = config_clone_watcher.write().unwrap();
-                        *w = new_config.clone();
+                        *w = Arc::new(new_config.clone());
                     }
                     println!("NOTE: Hotkey changes require a daemon restart to take effect.");
                 },

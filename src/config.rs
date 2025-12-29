@@ -54,10 +54,7 @@ pub struct WindowConfig {
     pub width_percent: i32,
     #[serde(default = "default_height_percent")]
     pub height_percent: i32,
-    #[serde(default = "default_width_cols")]
-    pub width_cols: i32,
-    #[serde(default = "default_height_rows")]
-    pub height_rows: i32,
+
     #[serde(default)]
     pub keep_above: bool,
 }
@@ -69,8 +66,6 @@ impl Default for WindowConfig {
             display_index: 0,
             width_percent: default_width_percent(),
             height_percent: default_height_percent(),
-            width_cols: default_width_cols(),
-            height_rows: default_height_rows(),
             keep_above: false,
         }
     }
@@ -120,8 +115,6 @@ fn default_hide_easing() -> String { "ease-in-quart".to_string() }
 fn default_true() -> bool { true }
 fn default_show_opacity() -> f64 { 0.2 }
 fn default_hide_opacity() -> f64 { 0.8 }
-fn default_width_cols() -> i32 { 120 }
-fn default_height_rows() -> i32 { 40 }
 
 pub fn load_config() -> (Config, Option<PathBuf>) {
     let mut config_paths = vec![PathBuf::from(".ruake.toml"), PathBuf::from(".goake.toml")];

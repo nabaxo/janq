@@ -72,7 +72,7 @@ Create `.ruake.toml` (or `.goake.toml`) in your home directory (`~` or `%USERPRO
 [general]
 # Terminal settings
 window_class = "wezquake"      # Linux: Window Class | Windows: Process Name (e.g. "wezterm-gui" or "wezquake")
-start_command = "wezterm start --class wezquake" # Command to launch the terminal
+start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake" # Command to launch the terminal
 hotkey = ["Meta+Grave", "Meta+Space"] # Global hotkey(s) (Windows Only)
 
 [window]
@@ -82,10 +82,8 @@ display_index = 0              # Only used if display_mode = "specific"
 keep_above = false             # Keep window on top (Windows)
 
 # Size (percentage or terminal dimensions)
-width_percent = 40
-height_percent = 40
-width_cols = 160               # Takes precedence over percentage if > 0
-height_rows = 40
+width_percent = 40           # Set to 0 to disable resizing width
+height_percent = 40          # Set to 0 to disable resizing height
 
 [animation]
 # Timing

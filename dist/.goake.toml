@@ -9,7 +9,7 @@ window_class = "wezquake"
 
 # Command to launch the terminal if not running
 # Windows Tip: Ensure the command is in your PATH
-start_command = "wezterm start --class wezquake"
+start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
 
 # Global Hotkey
 # - Linux: Ignored (Use KDE System Settings -> Shortcuts)
@@ -26,13 +26,8 @@ keep_above = false
 display_mode = "follow-mouse"
 display_index = 0           # Only used if display_mode = "specific"
 
-width_percent = 40        # Width as percentage of screen width
-height_percent = 40         # Height as percentage of screen height
-
-# Optional: Set dimensions as terminal rows and columns instead of percentage.
-# If these are non-zero, they take precedence over percentages.
-width_cols = 160
-height_rows = 40
+width_percent = 40        # Width as percentage of screen width (0 to disable)
+height_percent = 40         # Height as percentage of screen height (0 to disable)
 
 [animation]
 show_duration = 350
@@ -51,7 +46,7 @@ hide_easing = "windows"
 animate_opacity = true
 # show_opacity_point: When fade-in completes (0.0-1.0)
 #   Lower values = faster fade-in (e.g., 0.3 = full opacity at 30% of animation)
-show_opacity_point = 0.2
+show_opacity_point = 0.5
 # hide_opacity_point: When fade-out starts (0.0-1.0)
 #   Higher values = later fade-out (e.g., 0.7 = start fading at 70% of animation)
-hide_opacity_point = 0.8
+hide_opacity_point = 1.0
