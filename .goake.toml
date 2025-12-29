@@ -31,7 +31,7 @@ height_percent = 40         # Height as percentage of screen height
 
 # Optional: Set dimensions as terminal rows and columns instead of percentage.
 # If these are non-zero, they take precedence over percentages.
-width_cols = 120
+width_cols = 160
 height_rows = 40
 
 [animation]
