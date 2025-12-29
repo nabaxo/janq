@@ -154,6 +154,9 @@ pub async fn toggle_window(config: &Config) {
                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
                 // Always update to the most recent focused window when showing
                 *prev = Some(SendHwnd(fg_window));
+                println!("DEBUG: Captured foreground window: {:?}", fg_window);
+            } else {
+                println!("DEBUG: Foreground window is null or ruake itself");
             }
 
             // Immediately activate (steal focus)
@@ -337,10 +340,15 @@ pub async fn toggle_window(config: &Config) {
                 let _ = ShowWindow(hwnd.inner(), SW_HIDE);
                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
                 if let Some(h) = *prev {
+                    println!("DEBUG: Restoring focus to: {:?}", h.0);
                     if IsWindowVisible(h.0).as_bool() {
                         let _ = SetForegroundWindow(h.0);
+                    } else {
+                        println!("DEBUG: Previous window no longer visible");
                     }
                     *prev = None;
+                } else {
+                    println!("DEBUG: No previous window to restore");
                 }
             }
         }
