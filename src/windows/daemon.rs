@@ -246,7 +246,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         elwt.exit();
                     },
                     DaemonEvent::Hotkey(event) => {
-                        if event.state == global_hotkey::HotKeyState::Released {
+                        if event.state == global_hotkey::HotKeyState::Pressed {
                              if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
                                   // println!("Hotkey Pressed! Toggling...");
                                   unsafe {
