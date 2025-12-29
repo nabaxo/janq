@@ -161,33 +161,38 @@ pub async fn toggle_window(config: &Config) {
     let handle = tokio::spawn(async move {
         // Use the SendHwnd wrapper inside the async block
         unsafe {
-            let monitor = match config.window.display_mode.as_str() {
-                "specific" => {
-                    let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
-                    let _ = EnumDisplayMonitors(None, None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
-                    if (config.window.display_index as usize) < ctx.monitors.len() {
-                        ctx.monitors[config.window.display_index as usize]
-                    } else {
+            let monitor = if should_show {
+                match config.window.display_mode.as_str() {
+                    "specific" => {
+                        let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
+                        let _ = EnumDisplayMonitors(None, None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+                        if (config.window.display_index as usize) < ctx.monitors.len() {
+                            ctx.monitors[config.window.display_index as usize]
+                        } else {
+                            let mut cursor_pos = POINT { x: 0, y: 0 };
+                            let _ = GetCursorPos(&mut cursor_pos);
+                            MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+                        }
+                    },
+                    "active" => {
+                        let prev = PREVIOUS_FOCUS.lock().unwrap();
+                        if let Some(h) = *prev {
+                            MonitorFromWindow(h.0, MONITOR_DEFAULTTONEAREST)
+                        } else {
+                            let mut cursor_pos = POINT { x: 0, y: 0 };
+                            let _ = GetCursorPos(&mut cursor_pos);
+                            MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+                        }
+                    },
+                    _ => {
                         let mut cursor_pos = POINT { x: 0, y: 0 };
                         let _ = GetCursorPos(&mut cursor_pos);
                         MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
                     }
-                },
-                "active" => {
-                    let prev = PREVIOUS_FOCUS.lock().unwrap();
-                    if let Some(h) = *prev {
-                        MonitorFromWindow(h.0, MONITOR_DEFAULTTONEAREST)
-                    } else {
-                        let mut cursor_pos = POINT { x: 0, y: 0 };
-                        let _ = GetCursorPos(&mut cursor_pos);
-                        MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
-                    }
-                },
-                _ => {
-                    let mut cursor_pos = POINT { x: 0, y: 0 };
-                    let _ = GetCursorPos(&mut cursor_pos);
-                    MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
                 }
+            } else {
+                // When hiding, stay on the current monitor
+                MonitorFromWindow(hwnd.inner(), MONITOR_DEFAULTTONEAREST)
             };
 
             let mut mi = MONITORINFO {
