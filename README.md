@@ -69,29 +69,32 @@
 Create `.ruake.toml` (or `.goake.toml`) in your home directory (`~` or `%USERPROFILE%`).
 
 ```toml
+[general]
 # Terminal settings
 window_class = "wezquake"      # Linux: Window Class | Windows: Process Name (e.g. "wezterm-gui" or "wezquake")
-start_command = "wezterm start --class wezquake" # On Windows, if using default `wezterm-gui`, change window_class above.
-hotkey = ["Meta+Grave", "Meta+Space"] # Windows Only: Global hotkey(s)
-keep_above = false
+start_command = "wezterm start --class wezquake" # Command to launch the terminal
+hotkey = ["Meta+Grave", "Meta+Space"] # Global hotkey(s) (Windows Only)
 
+[window]
 # Display settings
 display_mode = "follow-mouse"  # "follow-mouse", "specific", or "active"
 display_index = 0              # Only used if display_mode = "specific"
+keep_above = false             # Keep window on top (Windows)
 
 # Size (percentage or terminal dimensions)
 width_percent = 40
 height_percent = 40
-width_cols = 120               # Takes precedence over percentage if > 0
+width_cols = 160               # Takes precedence over percentage if > 0
 height_rows = 40
 
-# Animation
+[animation]
+# Timing
 show_duration = 350            # milliseconds
 hide_duration = 350
-show_easing = "ease-out-cubic"
-hide_easing = "ease-in-quart"
+show_easing = "windows"        # Easing function
+hide_easing = "windows"
 
-# Opacity animation
+# Opacity
 animate_opacity = true         # Set to false to disable fade effect
 show_opacity_point = 0.2       # Fade-in completes at 20% of animation
 hide_opacity_point = 0.8       # Fade-out starts at 80% of animation
