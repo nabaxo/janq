@@ -141,23 +141,10 @@ pub async fn toggle_window(config: &Config) {
         }
     };
 
-    // Synchronously handle Focus and Initial Visibility
+    // Synchronously handle Initial Visibility
     unsafe {
         if should_show {
-            // Small delay to ensure Windows has updated foreground window state
-            // (especially important when using key press + synchronous execution)
-            std::thread::sleep(std::time::Duration::from_millis(10));
-
-            // IMPORTANT: Capture foreground window BEFORE SetForegroundWindow
-            let fg_window = GetForegroundWindow();
-            if fg_window.0 != std::ptr::null_mut() && fg_window != hwnd.inner() {
-                let mut prev = PREVIOUS_FOCUS.lock().unwrap();
-                // Always update to the most recent focused window when showing
-                *prev = Some(SendHwnd(fg_window));
-                println!("DEBUG: Captured foreground window: {:?}", fg_window);
-            } else {
-                println!("DEBUG: Foreground window is null or ruake itself");
-            }
+            // No focus capture here - we capture when hiding instead!
 
             // Immediately activate (steal focus)
             let _ = SetForegroundWindow(hwnd.inner());
@@ -337,6 +324,17 @@ pub async fn toggle_window(config: &Config) {
                 let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
                 let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
             } else {
+                // IMPORTANT: Capture current foreground window BEFORE hiding
+                // This ensures we restore to whatever window has focus NOW, not what had focus when we showed
+                let fg_window = unsafe { GetForegroundWindow() };
+                if fg_window.0 != std::ptr::null_mut() && fg_window != hwnd.inner() {
+                    let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+                    *prev = Some(SendHwnd(fg_window));
+                    println!("DEBUG: Captured foreground window before hiding: {:?}", fg_window);
+                } else {
+                    println!("DEBUG: Foreground window is null or ruake itself");
+                }
+
                 let _ = ShowWindow(hwnd.inner(), SW_HIDE);
                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
                 if let Some(h) = *prev {
