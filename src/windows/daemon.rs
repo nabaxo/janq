@@ -158,6 +158,17 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         });
     }
 
+    // Setup EventLoopProxy for external signals (Ctrl+C)
+    let proxy = event_loop.create_proxy();
+
+    // Watch for Ctrl+C
+    rt.spawn(async move {
+        if let Ok(_) = tokio::signal::ctrl_c().await {
+            println!("Ctrl+C received. Sending exit signal...");
+            let _ = proxy.send_event(());
+        }
+    });
+
     event_loop.run(move |event, elwt| {
         // Keep manager alive by capturing it
         let _ = &manager;
@@ -166,6 +177,15 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
 
         match event {
+            Event::LoopExiting => {
+                println!("Ruake shutting down (LoopExiting). Restoring window...");
+                let cfg = config_clone_loop.read().unwrap().clone();
+                crate::windows::window::restore_window_visibility(&cfg);
+            }
+            Event::UserEvent(_) => {
+                println!("User event (Ctrl+C) received. Exiting...");
+                elwt.exit();
+            }
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
                 // Check Hotkeys
                 if let Ok(event) = hotkey_receiver.try_recv() {
@@ -196,16 +216,13 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                 // Check Menu
                 if let Ok(event) = menu_receiver.try_recv() {
                      if event.id == quit_i.id() {
-                          println!("Quit requested via tray. Restoring window...");
-                          let cfg = config_clone_loop.read().unwrap().clone();
-                          // Restore window visibility synchronously
-                          crate::windows::window::restore_window_visibility(&cfg);
-                          std::process::exit(0);
+                          println!("Quit requested via tray. Exiting...");
+                          elwt.exit();
                      } else if event.id == toggle_i.id() {
                           let cfg = config_clone_loop.read().unwrap().clone();
                           rt.spawn(async move {
-                              crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                              toggle_window(&cfg).await;
+                               crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                               toggle_window(&cfg).await;
                           });
                      }
                 }
