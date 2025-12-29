@@ -9,11 +9,17 @@ use anyhow::Result;
 use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
 use notify::{Watcher, RecursiveMode, RecommendedWatcher, Config as NotifyConfig};
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}, TrayIconEvent, MouseButton, MouseButtonState};
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::event::{Event, StartCause};
 use tokio::runtime::Runtime;
 
 const PIPE_NAME: &str = r"\\.\pipe\ruake";
+
+#[derive(Debug)]
+enum DaemonEvent {
+    Hotkey(global_hotkey::GlobalHotKeyEvent),
+    Exit,
+}
 
 fn load_icon() -> tray_icon::Icon {
     let bytes = include_bytes!("../../icon.ico");
@@ -36,8 +42,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
     let config = Arc::new(RwLock::new(initial_config));
 
-    // 2. Setup Winit EventLoop (Must be on main thread)
-    let event_loop = EventLoop::new()?;
+    // 2. Setup Winit EventLoop with Custom Event Type
+    let event_loop = EventLoopBuilder::<DaemonEvent>::with_user_event().build()?;
 
     // 3. Setup IPC Server (Spawned on Runtime)
     let config_clone = config.clone();
@@ -62,7 +68,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         }
     });
 
-    // 4. Hotkey Manager
+    // 4. Hotkey Manager (Must be initialized on main thread)
     let manager = GlobalHotKeyManager::new().unwrap();
     let mut current_hotkeys: Vec<HotKey> = Vec::new();
 
@@ -159,59 +165,66 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         });
     }
 
-    // Setup EventLoopProxy for external signals (Ctrl+C)
+    // Setup EventLoopProxy for external signals (Ctrl+C and Hotkeys)
     let proxy = event_loop.create_proxy();
+    // Clone proxy for hotkey thread
+    let hotkey_proxy = proxy.clone();
+
+    // Spawn Hotkey Listener Thread
+    std::thread::spawn(move || {
+        while let Ok(event) = hotkey_receiver.recv() {
+            let _ = hotkey_proxy.send_event(DaemonEvent::Hotkey(event));
+        }
+    });
 
     // Watch for Ctrl+C
     rt.spawn(async move {
         if let Ok(_) = tokio::signal::ctrl_c().await {
             println!("Ctrl+C received. Sending exit signal...");
-            let _ = proxy.send_event(());
+            let _ = proxy.send_event(DaemonEvent::Exit);
         }
     });
-
-    // Verify TrayIcon is alive by printing it (debugging) - keeping this for now as it's low cost
-    //println!("DEBUG: Tray Icon initialized: {:?}", tray_icon.id());
 
     event_loop.run(move |event, elwt| {
         // Capture tray icon explicitly to keep it alive
         let _ = &tray_icon;
         let _ = &manager;
 
-        // Poll every 100ms (10hz) to maintain responsiveness without burning CPU
+        // Poll every 100ms (10hz) only for Tray/Menu events
+        // WaitUntil is still good because it sleeps, but now hotkeys wake it up immediately
         elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(100)));
 
         match event {
             Event::LoopExiting => {
-                // println!("Ruake shutting down (LoopExiting). Restoring window...");
                 let cfg = config_clone_loop.read().unwrap().clone();
                 crate::windows::window::restore_window_visibility(&cfg);
             }
-            Event::UserEvent(_) => {
-                // println!("User event (Ctrl+C) received. Exiting...");
-                elwt.exit();
-            }
-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
-                 // Check Hotkeys
-                 if let Ok(event) = hotkey_receiver.try_recv() {
-                    if event.state == global_hotkey::HotKeyState::Released {
-                         if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
+            Event::UserEvent(daemon_event) => {
+                match daemon_event {
+                    DaemonEvent::Exit => {
+                        elwt.exit();
+                    },
+                    DaemonEvent::Hotkey(event) => {
+                        if event.state == global_hotkey::HotKeyState::Released {
+                             if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
+                                  // println!("Hotkey Pressed! Toggling...");
                                   let cfg = config_clone_loop.read().unwrap().clone();
                                   rt.spawn(async move {
                                       crate::windows::terminal::ensure_terminal_running(&cfg).await;
                                       toggle_window(&cfg).await;
                                   });
-                         }
+                             }
+                        }
                     }
-                 }
-
-                 // Check Tray Icon Events (Clicks)
+                }
+            }
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
+                 // Check Tray Icon Events (Clicks) - Still Polled
                  while let Ok(event) = tray_receiver.try_recv() {
                     match event {
                         TrayIconEvent::Click { button, button_state, .. } => {
                             if button_state == MouseButtonState::Up {
                                 if button == MouseButton::Left {
-                                    // println!("Left Click (Up): Toggling...");
                                     unsafe {
                                          use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
                                          let _ = AllowSetForegroundWindow(ASFW_ANY);
