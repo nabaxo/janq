@@ -223,7 +223,15 @@ if (target) {{
         var currentY = startY + diff * ease;
 
         if (animateOpacity) {{
-          var opacityProgress = Math.min(progress / opacityPoint, 1.0);
+          // When showing: fade in proportionally to progress
+          // If opacity_point = 1.0, fade matches position animation
+          // If opacity_point = 0.5, fade completes at 50% of animation
+          var opacityProgress = 0.0;
+          if (opacityPoint > 0.0) {{
+            opacityProgress = Math.min(progress / opacityPoint, 1.0);
+          }} else {{
+            opacityProgress = 1.0;
+          }}
           target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * opacityProgress);
         }}
 
@@ -262,7 +270,18 @@ if (target) {{
         var currentY = startY + diff * ease;
 
         if (animateOpacity) {{
-          var opacityProgress = Math.max((progress - opacityPoint) / (1.0 - opacityPoint), 0.0);
+          // Opacity points control when opacity animation completes relative to position animation
+          // 0.0 = opacity completes immediately (no fade)
+          // 1.0 = opacity completes at end (fade throughout entire animation)
+          var fadeStart = 1.0 - opacityPoint;
+          var opacityProgress = 0.0;
+          if (progress <= fadeStart) {{
+            opacityProgress = 0.0;
+          }} else if (opacityPoint > 0.0) {{
+            opacityProgress = Math.min((progress - fadeStart) / opacityPoint, 1.0);
+          }} else {{
+            opacityProgress = 1.0;
+          }}
           target.opacity = Math.min(target.opacity, startOpacity * (1.0 - opacityProgress));
         }}
 
