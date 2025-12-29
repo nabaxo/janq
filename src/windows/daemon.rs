@@ -132,13 +132,15 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     let menu_receiver = MenuEvent::receiver();
     let config_clone_loop = config.clone();
 
-    // Initial auto-show
-    if auto_show {
+    // Initial check (Start terminal if missing, optionally toggle)
+    {
         let cfg = config_clone_loop.read().unwrap().clone();
         rt.spawn(async move {
             crate::windows::terminal::ensure_terminal_running(&cfg).await;
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            toggle_window(&cfg).await;
+            if auto_show {
+                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                 toggle_window(&cfg).await;
+            }
         });
     }
 
@@ -147,24 +149,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         let _ = &manager;
 
         // Poll for events every ~16ms (60hz check for channels)
-        // Also used for auto-respawn check
         elwt.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
-
-        // Periodic Check (approx every 1s)
-        // We can't effectively store state in this closure easily without a struct, but we moved everything in.
-        // Quick hack: Use a static or Atomic, or just check every N frames.
-        // Better: Use start_time and modulo, or just a sophisticated timer.
-        // Let's use a simple counter for now (60fps * 1s = 60 frames)
-        static mut FRAMES: u32 = 0;
-        unsafe {
-            FRAMES += 1;
-            if FRAMES % 60 == 0 {
-                 let cfg = config_clone_loop.read().unwrap().clone();
-                 rt.spawn(async move {
-                     crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                 });
-            }
-        }
 
         match event {
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::AboutToWait => {
