@@ -111,9 +111,16 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                   let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
              }
         } else if let Some(home) = dirs::home_dir() {
-             let path = home.join(".goake.toml");
-             if path.exists() {
-                  let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
+             // Fallbacks if no config found at startup
+             let paths = vec![
+                 home.join(".ruake.toml"),
+                 home.join(".goake.toml"),
+             ];
+             for p in paths {
+                 if p.exists() {
+                      let _ = watcher.watch(&p, RecursiveMode::NonRecursive);
+                      break;
+                 }
              }
         }
 

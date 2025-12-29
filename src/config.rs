@@ -87,6 +87,12 @@ pub fn load_config() -> (Config, Option<PathBuf>) {
     if let Some(home) = dirs::home_dir() {
         config_paths.push(home.join(".ruake.toml"));
         config_paths.push(home.join(".goake.toml"));
+
+        // Explicitly check ~/.config/ruake for cross-platform consistency (even on Windows)
+        config_paths.push(home.join(".config").join("ruake").join("ruake.toml"));
+        config_paths.push(home.join(".config").join("ruake").join(".ruake.toml"));
+        config_paths.push(home.join(".config").join("ruake").join(".goake.toml"));
+
         if let Some(xdg_config) = dirs::config_dir() {
              config_paths.push(xdg_config.join("ruake").join("ruake.toml"));
              config_paths.push(xdg_config.join("ruake").join(".ruake.toml"));
