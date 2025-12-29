@@ -59,10 +59,9 @@ pub async fn toggle_quake(config: &Config) -> Result<()> {
     let conn = Connection::session().await?;
     let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
+    let script_name = "ruake_toggle";
     // 1. Unload previous script if exists
-    if !state.last_script_id.is_empty() {
-         let _ = proxy.call_method("unloadScript", &(state.last_script_id.as_str())).await;
-    }
+    let _ = proxy.call_method("unloadScript", &(script_name)).await;
 
     // 2. Toggle state
     state.target_visible = !state.target_visible;
@@ -176,9 +175,12 @@ if (target) {{
   }}
 
   var currentArea = workspace.clientArea(KWin.PlacementArea, target);
-  var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 5);
+  var isMostlyHidden = target.minimized || (target.frameGeometry.y + target.frameGeometry.height <= currentArea.y + 10);
   var area = shouldShow ? targetArea : currentArea;
-  var needsReposition = shouldShow && (isMostlyHidden || currentArea.x != targetArea.x || currentArea.y != targetArea.y);
+
+  // Only snap to start position if the window is truly hidden/inactive or on a different screen
+  var sameScreen = Math.abs(target.frameGeometry.x - (area.x + (area.width - target.frameGeometry.width)/2)) < 500;
+  var needsReposition = shouldShow && (isMostlyHidden || !sameScreen);
 
   var finalWidth = ( widthCols > 0 ) ? target.frameGeometry.width : area.width * widthPct;
   var finalHeight = ( heightRows > 0 ) ? target.frameGeometry.height : area.height * heightPct;
@@ -193,19 +195,18 @@ if (target) {{
 
   if (shouldShow) {{
     var startY = target.frameGeometry.y;
-    var startOpacity = animateOpacity ? 0.0 : 1.0;
+    var startOpacity = target.opacity;
 
     if (needsReposition) {{
       startY = finalY - finalHeight;
       target.opacity = 0.0;
       target.frameGeometry = {{ x: finalX, y: startY, width: finalWidth, height: finalHeight }};
+      startOpacity = 0.0;
     }}
 
     if (target.minimized) target.minimized = false;
     if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
     else workspace.activeClient = target;
-
-    if (!animateOpacity) target.opacity = 1.0;
 
     if (duration > 0) {{
       var endY = finalY;
@@ -222,7 +223,7 @@ if (target) {{
 
         if (animateOpacity) {{
           var opacityProgress = Math.min(progress / opacityPoint, 1.0);
-          target.opacity = startOpacity + (1.0 - startOpacity) * opacityProgress;
+          target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * opacityProgress);
         }}
 
         target.frameGeometry = {{ x: finalX, y: currentY, width: finalWidth, height: finalHeight }};
@@ -244,6 +245,7 @@ if (target) {{
     var startX = target.frameGeometry.x;
     var startW = target.frameGeometry.width;
     var startH = target.frameGeometry.height;
+    var startOpacity = target.opacity;
     var endY = area.y - startH;
 
     if (duration > 0) {{
@@ -260,7 +262,7 @@ if (target) {{
 
         if (animateOpacity) {{
           var opacityProgress = Math.max((progress - opacityPoint) / (1.0 - opacityPoint), 0.0);
-          target.opacity = 1.0 - opacityProgress;
+          target.opacity = Math.min(target.opacity, startOpacity * (1.0 - opacityProgress));
         }}
 
         target.frameGeometry = {{ x: startX, y: currentY, width: startW, height: startH }};
@@ -323,17 +325,15 @@ if (target) {{
         prev_window_id = prev_window_id_to_pass
     );
 
-    let unique_name = format!("goake_toggle_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
-
-    state.last_script_id = unique_name.clone();
+    state.last_script_id = script_name.to_string();
 
     // Create temp file
-    let tmp_path = std::env::temp_dir().join(format!("{}.js", unique_name));
+    let tmp_path = std::env::temp_dir().join(format!("{}.js", script_name));
     fs::write(&tmp_path, script).expect("Failed to write tmp script");
 
     let tmp_path_str = tmp_path.to_string_lossy().to_string();
 
-    let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name.as_str())).await?;
+    let reply = proxy.call_method("loadScript", &(tmp_path_str, script_name)).await?;
     let script_id: i32 = reply.body().deserialize()?;
 
     if script_id >= 0 {
@@ -341,16 +341,9 @@ if (target) {{
         let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
         script_proxy.call_method("run", &()).await?;
 
-        // Spawn async task to unload later
-        let duration_ms = duration as u64;
-        let name_clone = unique_name.clone();
+        // Spawn async task to remove temp file, but no longer unloads (we unload at start of next toggle)
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(duration_ms + 100)).await;
-            if let Ok(conn2) = Connection::session().await {
-                 if let Ok(proxy2) = zbus::Proxy::new(&conn2, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await {
-                      let _ = proxy2.call_method("unloadScript", &(name_clone)).await;
-                 }
-            }
+            tokio::time::sleep(Duration::from_millis(duration as u64 + 500)).await;
             let _ = fs::remove_file(tmp_path);
         });
     }

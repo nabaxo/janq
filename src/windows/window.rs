@@ -305,7 +305,7 @@ pub async fn toggle_window(config: &Config) {
 
             let dist_y = target_y - start_y;
 
-            let duration_ms = if should_show { config.animation.show_duration } else { config.animation.hide_duration } as u64;
+            let duration_secs = if should_show { config.animation.show_duration as f64 / 1000.0 } else { config.animation.hide_duration as f64 / 1000.0 };
             let easing_type = if should_show { &config.animation.show_easing } else { &config.animation.hide_easing };
             let opacity_point = if should_show { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
             let animate_opacity = config.animation.animate_opacity;
@@ -326,8 +326,8 @@ pub async fn toggle_window(config: &Config) {
                     return;
                 }
 
-                let elapsed = start_time.elapsed().as_millis() as f64;
-                let progress = (elapsed / duration_ms as f64).min(1.0);
+                let elapsed = start_time.elapsed().as_secs_f64();
+                let progress = (elapsed / duration_secs).min(1.0);
 
                 let ease_val = get_easing(progress, easing_type);
                 let new_y = start_y + (dist_y as f64 * ease_val) as i32;
