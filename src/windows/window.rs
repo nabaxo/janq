@@ -5,7 +5,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE,
     GetLayeredWindowAttributes, SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA,
-    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SWP_NOSIZE, SWP_NOCOPYBITS, SWP_DEFERERASE
+    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SWP_NOSIZE, SWP_NOCOPYBITS, SWP_DEFERERASE, SWP_NOMOVE, SWP_FRAMECHANGED
 };
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
@@ -229,10 +229,15 @@ pub async fn toggle_window(config: &Config) {
             let ex_style = GetWindowLongW(hwnd.inner(), GWL_EXSTYLE);
             if (ex_style & WS_EX_LAYERED.0 as i32) == 0 {
                 SetWindowLongW(hwnd.inner(), GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+                // Important: Notify the system that the frame has changed to apply the new style
+                let _ = SetWindowPos(hwnd.inner(), HWND::default(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                // Initialize the layered state
+                let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
             }
 
             let mut rect = RECT::default();
             let mut current_alpha: u8 = 255;
+            // Best effort to get current alpha, but if it fails, assume 255
             let _ = GetLayeredWindowAttributes(hwnd.inner(), None, Some(&mut current_alpha), None);
             let _ = GetWindowRect(hwnd.inner(), &mut rect);
 
@@ -327,7 +332,12 @@ pub fn restore_window_visibility(config: &Config) {
         println!("DEBUG: Found window HWND: {:?}, is_target_visible={}", hwnd, is_target_visible);
 
         unsafe {
-            // 1. Ensure Opacity is 255 (Opaque)
+            // 1. Ensure Layered Style & Opacity is 255 (Opaque)
+            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            if (ex_style & WS_EX_LAYERED.0 as i32) == 0 {
+                SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+                let _ = SetWindowPos(hwnd, HWND::default(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            }
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
             // 2. Determine if we need to move the window
