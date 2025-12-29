@@ -10,40 +10,57 @@ struct KWinState {
     target_visible: bool,
     last_script_id: String,
     previous_window_id: String, // Window UUID for precise targeting
+    ruake_window_id: String,    // Cache Ruake's own UUID
 }
 
 static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
     target_visible: false,
     last_script_id: String::new(),
     previous_window_id: String::new(),
+    ruake_window_id: String::new(),
 });
 
-/// Get the current active window's UUID using kdotool
-fn get_active_window_id(exclude_class: &str) -> String {
-    // First check if active window is the quake terminal - if so, don't capture it
-    let class_output = Command::new("kdotool")
-        .args(["getactivewindow", "getwindowclassname"])
-        .output();
-
-    if let Ok(output) = class_output {
-        if output.status.success() {
-            let class_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if class_name.eq_ignore_ascii_case(exclude_class) {
-                return String::new();
-            }
-        }
-    }
-
-    // Get the window ID (UUID)
+/// Update focus state (capture previous window if not Ruake)
+/// Returns true if focus was updated
+fn update_focus_state(state: &mut KWinState, ruake_class: &str) {
+    // 1. Get current active window ID
     let id_output = Command::new("kdotool")
         .arg("getactivewindow")
         .output();
 
-    match id_output {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
+    let current_id = match id_output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        _ => return, // No active window or error
+    };
+
+    if current_id.is_empty() { return; }
+
+    // 2. Optimization: If ID matches cached Ruake ID, we are focusing Ruake -> Don't capture
+    if !state.ruake_window_id.is_empty() && current_id == state.ruake_window_id {
+        return;
+    }
+
+    // 3. Slow path: Check class name to see if it IS Ruake (and we need to update cache)
+    // or if it's another window we should capture.
+    let class_output = Command::new("kdotool")
+        .args(["getwindowclassname", &current_id])
+        .output();
+
+    match class_output {
+        Ok(o) if o.status.success() => {
+            let class_name = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if class_name.eq_ignore_ascii_case(ruake_class) {
+                // It IS Ruake, update cache
+                state.ruake_window_id = current_id;
+            } else {
+                // It is NOT Ruake, capture it
+                state.previous_window_id = current_id;
+            }
+        },
+        _ => {
+            // Failed to get class, safe to assume it's valid target?
+            // Better to ignore to avoid capturing something weird.
         }
-        _ => String::new(),
     }
 }
 
@@ -75,10 +92,7 @@ pub async fn toggle_quake(config: &Config) -> Result<()> {
 
     // Capture the current active window ID (if it's not Ruake/Quake)
     // This handles both initial show (active=Previous) AND focus changes while visible (active=NewWindow)
-    let current_id = get_active_window_id(&config.general.window_class);
-    if !current_id.is_empty() {
-        state.previous_window_id = current_id;
-    }
+    update_focus_state(&mut state, &config.general.window_class);
 
     let prev_window_id_to_pass = if visible {
         String::new() // Don't restore focus when showing

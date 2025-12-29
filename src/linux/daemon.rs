@@ -23,6 +23,7 @@ impl QuakeDaemon {
 
 struct StatusNotifierItem {
     config: Arc<RwLock<Config>>,
+    icon_cache: IconPixmap,
 }
 
 type IconPixmap = Vec<(i32, i32, Vec<u8>)>;
@@ -57,29 +58,7 @@ impl StatusNotifierItem {
     fn icon_name(&self) -> String { "ruake".to_string() }
     #[zbus(property)]
     fn icon_pixmap(&self) -> IconPixmap {
-        if let Ok(img) = image::load_from_memory(include_bytes!("../../icon.png")) {
-             let mut pixmaps = Vec::new();
-
-             // Provide multiple sizes for the tray to choose from
-             for size in [64, 32, 22] {
-                 let resized = img.resize(size, size, image::imageops::FilterType::Lanczos3);
-                 let (w, h) = resized.dimensions();
-                 let data = resized.to_rgba8().into_raw();
-
-                 // Convert RGBA to ARGB for SNI protocol
-                 let mut pixels = Vec::with_capacity(data.len());
-                 for chunk in data.chunks(4) {
-                     pixels.push(chunk[3]); // A
-                     pixels.push(chunk[0]); // R
-                     pixels.push(chunk[1]); // G
-                     pixels.push(chunk[2]); // B
-                 }
-                 pixmaps.push((w as i32, h as i32, pixels));
-             }
-             pixmaps
-        } else {
-             vec![]
-        }
+        self.icon_cache.clone()
     }
     #[zbus(property)]
     fn item_is_menu(&self) -> bool { false }
@@ -102,7 +81,25 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
     conn.object_server().at("/dev/nabaxo/ruake", daemon).await?;
     conn.request_name("dev.nabaxo.ruake").await?;
 
-    let sni = StatusNotifierItem { config: config.clone() };
+    // Precompute icon
+    let icon_cache = if let Ok(img) = image::load_from_memory(include_bytes!("../../icon.png")) {
+         let mut pixmaps = Vec::new();
+         for size in [64, 32, 22] {
+             let resized = img.resize(size, size, image::imageops::FilterType::Lanczos3);
+             let (w, h) = resized.dimensions();
+             let data = resized.to_rgba8().into_raw();
+             let mut pixels = Vec::with_capacity(data.len());
+             for chunk in data.chunks(4) {
+                 pixels.push(chunk[3]); pixels.push(chunk[0]); pixels.push(chunk[1]); pixels.push(chunk[2]);
+             }
+             pixmaps.push((w as i32, h as i32, pixels));
+         }
+         pixmaps
+    } else {
+         vec![]
+    };
+
+    let sni = StatusNotifierItem { config: config.clone(), icon_cache };
     conn.object_server().at("/StatusNotifierItem", sni).await?;
 
     // Register with Watcher
