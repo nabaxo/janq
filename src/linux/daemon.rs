@@ -177,7 +177,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
             sleep(Duration::from_secs(2)).await;
             let (target_class, cfg_clone) = {
                 let c = config_clone2.read().unwrap();
-                (c.window_class.clone(), c.clone())
+                (c.general.window_class.clone(), c.clone())
             };
 
             if !check_process_running(&target_class) {

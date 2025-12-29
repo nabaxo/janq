@@ -11,7 +11,7 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     // Loop to acquire lock or check existing window
     loop {
         // 1. Check if window already exists
-        if find_window_by_process(&config.window_class).is_some() {
+        if find_window_by_process(&config.general.window_class).is_some() {
             return false; // Already running and has window
         }
 
@@ -30,21 +30,21 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     println!("DEBUG: Acquired spawn lock. spawning...");
 
     // Double check (in case window appeared just before lock)
-    if find_window_by_process(&config.window_class).is_some() {
+    if find_window_by_process(&config.general.window_class).is_some() {
          IS_SPAWNING.store(false, Ordering::SeqCst);
          return false;
     }
 
-    if config.start_command.is_empty() {
+    if config.general.start_command.is_empty() {
         IS_SPAWNING.store(false, Ordering::SeqCst);
         return false;
     }
 
-    println!("Starting terminal: {}", config.start_command);
+    println!("Starting terminal: {}", config.general.start_command);
 
     // On Windows, start_command might need cmd /C or just running executable
     // Split command
-    let parts: Vec<&str> = config.start_command.split_whitespace().collect();
+    let parts: Vec<&str> = config.general.start_command.split_whitespace().collect();
     if parts.is_empty() {
         IS_SPAWNING.store(false, Ordering::SeqCst);
         return false;
@@ -59,9 +59,9 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     // WezTerm global flags must appear BEFORE the subcommand (e.g. 'start')
     if cmd.contains("wezterm") {
         final_args.push("--config".to_string());
-        final_args.push(format!("initial_rows={}", config.height_rows));
+        final_args.push(format!("initial_rows={}", config.window.height_rows));
         final_args.push("--config".to_string());
-        final_args.push(format!("initial_cols={}", config.width_cols));
+        final_args.push(format!("initial_cols={}", config.window.width_cols));
     }
 
     // Append original arguments (e.g. "start --class wezquake")
@@ -93,7 +93,7 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     let mut found = false;
     for _ in 0..40 { // Wait up to 8s (200ms * 40)
         tokio::time::sleep(Duration::from_millis(200)).await;
-        if find_window_by_process(&config.window_class).is_some() {
+        if find_window_by_process(&config.general.window_class).is_some() {
             println!("Terminal window detected.");
             found = true;
             break;

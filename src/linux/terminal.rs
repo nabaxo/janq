@@ -6,28 +6,28 @@ use crate::config::Config;
 
 pub async fn ensure_terminal_running(config: &Config) -> bool {
     // 1. Precise process + class check
-    if check_process_running(&config.window_class) {
+    if check_process_running(&config.general.window_class) {
         return false;
     }
 
-    if config.start_command.is_empty() {
+    if config.general.start_command.is_empty() {
         return false;
     }
 
-    let mut full_cmd = config.start_command.clone();
+    let mut full_cmd = config.general.start_command.clone();
     let lower_cmd = full_cmd.to_lowercase();
 
     // Logic to inject flags
     if lower_cmd.contains("wezterm") {
         let mut flags = String::new();
         if !full_cmd.contains("--class") {
-            flags.push_str(&format!(" --class {}", config.window_class));
+            flags.push_str(&format!(" --class {}", config.general.window_class));
         }
-        if config.width_cols > 0 {
-            flags.push_str(&format!(" --config initial_cols={}", config.width_cols));
+        if config.window.width_cols > 0 {
+            flags.push_str(&format!(" --config initial_cols={}", config.window.width_cols));
         }
-        if config.height_rows > 0 {
-            flags.push_str(&format!(" --config initial_rows={}", config.height_rows));
+        if config.window.height_rows > 0 {
+            flags.push_str(&format!(" --config initial_rows={}", config.window.height_rows));
         }
 
         if !flags.is_empty() {
@@ -47,7 +47,7 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
              }
         }
     } else if !full_cmd.contains("--class") {
-        full_cmd.push_str(&format!(" --class {}", config.window_class));
+        full_cmd.push_str(&format!(" --class {}", config.general.window_class));
     }
 
     println!("Starting terminal: {}", full_cmd);
@@ -69,7 +69,7 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
 
     // Wait for process to appear
     for _ in 0..20 {
-        if check_process_running(&config.window_class) {
+        if check_process_running(&config.general.window_class) {
             println!("Terminal process detected.");
             // Give it time to map the window
             thread::sleep(Duration::from_secs(1));

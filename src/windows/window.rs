@@ -145,10 +145,10 @@ pub async fn toggle_window(config: &Config) {
 
     println!("Toggling window...");
 
-    let hwnd = match find_window_by_process(&config.window_class) {
+    let hwnd = match find_window_by_process(&config.general.window_class) {
         Some(h) => SendHwnd(h),
         None => {
-            println!("Window not found for process: {}", config.window_class);
+            println!("Window not found for process: {}", config.general.window_class);
             return;
         }
     };
@@ -168,12 +168,12 @@ pub async fn toggle_window(config: &Config) {
             }
 
             // Determine target monitor based on config
-            match config.display_mode.as_str() {
+            match config.window.display_mode.as_str() {
                 "specific" => {
                     let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
                     let _ = EnumDisplayMonitors(None, None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
-                    if (config.display_index as usize) < ctx.monitors.len() {
-                         ctx.monitors[config.display_index as usize]
+                    if (config.window.display_index as usize) < ctx.monitors.len() {
+                         ctx.monitors[config.window.display_index as usize]
                     } else {
                          // Fallback to primary/mouse
                          let mut cursor_pos = POINT { x: 0, y: 0 };
@@ -214,8 +214,8 @@ pub async fn toggle_window(config: &Config) {
         let screen_w = work_area.right - work_area.left;
         let screen_h = work_area.bottom - work_area.top;
 
-        let width_pct = (screen_w as f64 * (config.width_percent as f64 / 100.0)) as i32;
-        let height_pct = (screen_h as f64 * (config.height_percent as f64 / 100.0)) as i32;
+        let width_pct = (screen_w as f64 * (config.window.width_percent as f64 / 100.0)) as i32;
+        let height_pct = (screen_h as f64 * (config.window.height_percent as f64 / 100.0)) as i32;
 
         // Check if window has existing dimensions (user might have resized it)
         let mut rect = RECT::default();
@@ -244,13 +244,13 @@ pub async fn toggle_window(config: &Config) {
              SetWindowLongW(hwnd.0, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
         }
 
-        let duration_ms = if is_visible { config.hide_duration } else { config.show_duration } as u64;
-        let easing_type = if is_visible { &config.hide_easing } else { &config.show_easing };
-        let opacity_point = if is_visible { config.hide_opacity_point } else { config.show_opacity_point };
-        let animate_opacity = config.animate_opacity;
+        let duration_ms = if is_visible { config.animation.hide_duration } else { config.animation.show_duration } as u64;
+        let easing_type = if is_visible { &config.animation.hide_easing } else { &config.animation.show_easing };
+        let opacity_point = if is_visible { config.animation.hide_opacity_point } else { config.animation.show_opacity_point };
+        let animate_opacity = config.animation.animate_opacity;
 
         // Determine Z-Order flag
-        let z_flag = SendHwnd(if config.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
+        let z_flag = SendHwnd(if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
 
         let start_time = Instant::now();
         let mut interval = interval(Duration::from_millis(16)); // ~60 FPS
@@ -337,7 +337,7 @@ pub fn restore_window_visibility(config: &Config) {
     println!("DEBUG: restore_window_visibility started");
     let start = std::time::Instant::now();
 
-    if let Some(hwnd) = find_window_by_process(&config.window_class) {
+    if let Some(hwnd) = find_window_by_process(&config.general.window_class) {
         println!("DEBUG: Found window HWND: {:?}, finding monitor...", hwnd);
 
         unsafe {

@@ -68,7 +68,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
     {
         let cfg = config.read().unwrap();
-        for hk_str in &cfg.hotkey {
+        for hk_str in &cfg.general.hotkey {
             match parse_hotkey(hk_str) {
                 Ok(key) => {
                     if let Err(e) = manager.register(key) {

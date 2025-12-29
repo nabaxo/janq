@@ -5,13 +5,46 @@ use std::fs;
 #[derive(Clone, Debug, Deserialize)]
 #[allow(dead_code)]
 pub struct Config {
+    #[serde(default)]
+    pub general: GeneralConfig,
+    #[serde(default)]
+    pub window: WindowConfig,
+    #[serde(default)]
+    pub animation: AnimationConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            general: GeneralConfig::default(),
+            window: WindowConfig::default(),
+            animation: AnimationConfig::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct GeneralConfig {
     #[serde(default = "default_window_class")]
     pub window_class: String,
     #[serde(default = "default_start_command")]
     pub start_command: String,
     #[serde(default = "default_hotkeys", deserialize_with = "deserialize_hotkeys")]
-    #[allow(dead_code)]
     pub hotkey: Vec<String>,
+}
+
+impl Default for GeneralConfig {
+    fn default() -> Self {
+        Self {
+            window_class: default_window_class(),
+            start_command: default_start_command(),
+            hotkey: default_hotkeys(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct WindowConfig {
     #[serde(default = "default_display_mode")]
     pub display_mode: String,
     #[serde(default)]
@@ -20,6 +53,30 @@ pub struct Config {
     pub width_percent: i32,
     #[serde(default = "default_height_percent")]
     pub height_percent: i32,
+    #[serde(default = "default_width_cols")]
+    pub width_cols: i32,
+    #[serde(default = "default_height_rows")]
+    pub height_rows: i32,
+    #[serde(default)]
+    pub keep_above: bool,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            display_mode: default_display_mode(),
+            display_index: 0,
+            width_percent: default_width_percent(),
+            height_percent: default_height_percent(),
+            width_cols: default_width_cols(),
+            height_rows: default_height_rows(),
+            keep_above: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AnimationConfig {
     #[serde(default = "default_duration")]
     pub show_duration: i32,
     #[serde(default = "default_duration")]
@@ -34,12 +91,20 @@ pub struct Config {
     pub show_opacity_point: f64,
     #[serde(default = "default_hide_opacity")]
     pub hide_opacity_point: f64,
-    #[serde(default = "default_width_cols")]
-    pub width_cols: i32,
-    #[serde(default = "default_height_rows")]
-    pub height_rows: i32,
-    #[serde(default)]
-    pub keep_above: bool,
+}
+
+impl Default for AnimationConfig {
+    fn default() -> Self {
+        Self {
+            show_duration: default_duration(),
+            hide_duration: default_duration(),
+            show_easing: default_show_easing(),
+            hide_easing: default_hide_easing(),
+            animate_opacity: default_true(),
+            show_opacity_point: default_show_opacity(),
+            hide_opacity_point: default_hide_opacity(),
+        }
+    }
 }
 
 fn default_window_class() -> String { "wezquake".to_string() }
@@ -56,30 +121,6 @@ fn default_show_opacity() -> f64 { 0.2 }
 fn default_hide_opacity() -> f64 { 0.8 }
 fn default_width_cols() -> i32 { 120 }
 fn default_height_rows() -> i32 { 40 }
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            window_class: default_window_class(),
-            start_command: default_start_command(),
-            hotkey: default_hotkeys(),
-            display_mode: default_display_mode(),
-            display_index: 0,
-            width_percent: default_width_percent(),
-            height_percent: default_height_percent(),
-            show_duration: default_duration(),
-            hide_duration: default_duration(),
-            show_easing: default_show_easing(),
-            hide_easing: default_hide_easing(),
-            animate_opacity: default_true(),
-            show_opacity_point: default_show_opacity(),
-            hide_opacity_point: default_hide_opacity(),
-            width_cols: default_width_cols(),
-            height_rows: default_height_rows(),
-            keep_above: false,
-        }
-    }
-}
 
 pub fn load_config() -> (Config, Option<PathBuf>) {
     let mut config_paths = vec![PathBuf::from(".ruake.toml"), PathBuf::from(".goake.toml")];

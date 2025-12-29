@@ -462,35 +462,35 @@ pub async fn toggle_quake(config: &Config) -> Result<()> {
     // 2. Toggle state
     state.target_visible = !state.target_visible;
     let visible = state.target_visible;
-    let keep_above = config.keep_above;
+    let keep_above = config.window.keep_above;
 
     // Choose params based on state
-    let duration = if visible { config.show_duration } else { config.hide_duration };
-    let easing = if visible { &config.show_easing } else { &config.hide_easing };
-    let opacity_point = if visible { config.show_opacity_point } else { config.hide_opacity_point };
+    let duration = if visible { config.animation.show_duration } else { config.animation.hide_duration };
+    let easing = if visible { &config.animation.show_easing } else { &config.animation.hide_easing };
+    let opacity_point = if visible { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
 
     let prev_window_id_to_pass: String;
     if visible {
         // Capture the current active window ID before we show the terminal
-        state.previous_window_id = get_active_window_id(&config.window_class);
+        state.previous_window_id = get_active_window_id(&config.general.window_class);
         prev_window_id_to_pass = String::new(); // Don't restore focus when showing
     } else {
         prev_window_id_to_pass = state.previous_window_id.clone(); // Pass the captured window for focus restoration
     }
 
     let script = KWIN_SCRIPT_TEMPLATE
-        .replace("__WINDOW_CLASS__", &config.window_class)
-        .replace("__DISPLAY_MODE__", &config.display_mode)
-        .replace("__DISPLAY_INDEX__", &config.display_index.to_string())
-        .replace("__WIDTH_PERCENT__", &config.width_percent.to_string())
-        .replace("__HEIGHT_PERCENT__", &config.height_percent.to_string())
-        .replace("__WIDTH_COLS__", &config.width_cols.to_string())
-        .replace("__HEIGHT_ROWS__", &config.height_rows.to_string())
+        .replace("__WINDOW_CLASS__", &config.general.window_class)
+        .replace("__DISPLAY_MODE__", &config.window.display_mode)
+        .replace("__DISPLAY_INDEX__", &config.window.display_index.to_string())
+        .replace("__WIDTH_PERCENT__", &config.window.width_percent.to_string())
+        .replace("__HEIGHT_PERCENT__", &config.window.height_percent.to_string())
+        .replace("__WIDTH_COLS__", &config.window.width_cols.to_string())
+        .replace("__HEIGHT_ROWS__", &config.window.height_rows.to_string())
         .replace("__DURATION__", &duration.to_string())
         .replace("__EASING__", easing)
         .replace("__SHOULD_SHOW__", &visible.to_string())
         .replace("__KEEP_ABOVE__", &keep_above.to_string())
-        .replace("__ANIMATE_OPACITY__", &config.animate_opacity.to_string())
+        .replace("__ANIMATE_OPACITY__", &config.animation.animate_opacity.to_string())
         .replace("__OPACITY_POINT__", &opacity_point.to_string())
         .replace("__PREV_WINDOW_ID__", &prev_window_id_to_pass);
 
@@ -534,14 +534,14 @@ pub async fn ensure_grabbed(config: &Config) -> Result<()> {
     let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
     let script = INIT_SCRIPT_TEMPLATE
-        .replace("__WINDOW_CLASS__", &config.window_class)
-        .replace("__DISPLAY_MODE__", &config.display_mode)
-        .replace("__DISPLAY_INDEX__", &config.display_index.to_string())
-        .replace("__WIDTH_PERCENT__", &config.width_percent.to_string())
-        .replace("__HEIGHT_PERCENT__", &config.height_percent.to_string())
-        .replace("__WIDTH_COLS__", &config.width_cols.to_string())
-        .replace("__HEIGHT_ROWS__", &config.height_rows.to_string())
-        .replace("__KEEP_ABOVE__", &config.keep_above.to_string());
+        .replace("__WINDOW_CLASS__", &config.general.window_class)
+        .replace("__DISPLAY_MODE__", &config.window.display_mode)
+        .replace("__DISPLAY_INDEX__", &config.window.display_index.to_string())
+        .replace("__WIDTH_PERCENT__", &config.window.width_percent.to_string())
+        .replace("__HEIGHT_PERCENT__", &config.window.height_percent.to_string())
+        .replace("__WIDTH_COLS__", &config.window.width_cols.to_string())
+        .replace("__HEIGHT_ROWS__", &config.window.height_rows.to_string())
+        .replace("__KEEP_ABOVE__", &config.window.keep_above.to_string());
 
     let unique_name = "quake_init";
     let tmp_path = std::env::temp_dir().join("quake_init.js");
@@ -568,7 +568,7 @@ pub async fn restore_quake(config: &Config) -> Result<()> {
     let conn = Connection::session().await?;
     let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
-    let script = RESTORE_SCRIPT.replace("__WINDOW_CLASS__", &config.window_class);
+    let script = RESTORE_SCRIPT.replace("__WINDOW_CLASS__", &config.general.window_class);
     let unique_name = format!("goake_restore_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
     let tmp_path = std::env::temp_dir().join(format!("{}.js", unique_name));
     fs::write(&tmp_path, script).expect("Failed to write restore script");
@@ -577,7 +577,7 @@ pub async fn restore_quake(config: &Config) -> Result<()> {
     let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name.as_str())).await?;
     let script_id: i32 = reply.body().deserialize()?;
 
-     if script_id >= 0 {
+    if script_id >= 0 {
         let script_obj_path = format!("/Scripting/Script{}", script_id);
         let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
         script_proxy.call_method("run", &()).await?;
