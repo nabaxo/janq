@@ -324,7 +324,11 @@ pub async fn toggle_window(config: &Config) {
              // SHOWN
              let _ = SetLayeredWindowAttributes(hwnd.0, COLORREF(0), 255, LWA_ALPHA);
              let _ = SetWindowPos(hwnd.0, z_flag.0, x, target_y, width, height, SWP_SHOWWINDOW);
-             let _ = SetForegroundWindow(hwnd.0);
+             if !SetForegroundWindow(hwnd.0).as_bool() {
+                  println!("ERROR: SetForegroundWindow failed! Error: {:?}", windows::core::Error::from_win32());
+             } else {
+                  println!("DEBUG: SetForegroundWindow success");
+             }
         }
     }
 }

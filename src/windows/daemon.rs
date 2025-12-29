@@ -214,6 +214,10 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                             if button_state == MouseButtonState::Up {
                                 if button == MouseButton::Left {
                                     println!("Left Click (Up): Toggling...");
+                                    unsafe {
+                                         use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+                                         let _ = AllowSetForegroundWindow(ASFW_ANY);
+                                    }
                                     let cfg = config_clone_loop.read().unwrap().clone();
                                     rt.spawn(async move {
                                         crate::windows::terminal::ensure_terminal_running(&cfg).await;
