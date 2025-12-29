@@ -79,6 +79,12 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
             match parse_hotkey(hk_str) {
                 Ok(key) => {
                     println!("  Parsed successfully: {:?}", key);
+                    use std::io::Write;
+                    let _ = std::io::stdout().flush();
+
+                    println!("  Calling manager.register()...");
+                    let _ = std::io::stdout().flush();
+
                     match manager.register(key) {
                         Ok(_) => {
                             println!("  ✓ Registered: {}", hk_str);
@@ -89,10 +95,12 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                             eprintln!("    This might be because the key code is not supported on Windows.");
                         }
                     }
+                    let _ = std::io::stdout().flush();
                 },
                 Err(e) => eprintln!("  ✗ Failed to parse '{}': {}", hk_str, e),
             }
         }
+        println!("Hotkey registration complete. Total registered: {}", current_hotkeys.len());
     }
 
     // 5. Tray Icon
