@@ -282,16 +282,32 @@ pub async fn toggle_window(config: &Config) {
                     let new_y = start_y + (dist_y as f64 * ease_val) as i32;
 
                     if config.animation.animate_opacity {
-                        // Clamp opacity_point to prevent division by zero
-                        let safe_opacity_point = opacity_point.clamp(0.01, 0.99);
+                        // Opacity points control when opacity animation completes relative to position animation
+                        // 0.0 = opacity completes immediately (no fade)
+                        // 1.0 = opacity completes at end (fade throughout entire animation)
+                        // Clamp to prevent extreme values but allow full range
+                        let safe_opacity_point = opacity_point.clamp(0.0, 1.0);
 
                         let opacity_progress = if should_show {
-                            (progress / safe_opacity_point).min(1.0)
-                        } else {
-                            if progress <= safe_opacity_point {
-                                0.0
+                            // When showing: fade in proportionally to progress
+                            // If opacity_point = 1.0, fade matches position animation
+                            // If opacity_point = 0.5, fade completes at 50% of animation
+                            if safe_opacity_point > 0.0 {
+                                (progress / safe_opacity_point).min(1.0)
                             } else {
-                                ((progress - safe_opacity_point) / (1.0 - safe_opacity_point)).min(1.0)
+                                1.0 // Instant fade if opacity_point is 0
+                            }
+                        } else {
+                            // When hiding: fade out proportionally
+                            // If opacity_point = 1.0, fade matches position animation
+                            // If opacity_point = 0.5, fade starts at 50% of animation
+                            let fade_start = 1.0 - safe_opacity_point;
+                            if progress <= fade_start {
+                                0.0 // No fade yet
+                            } else if safe_opacity_point > 0.0 {
+                                ((progress - fade_start) / safe_opacity_point).min(1.0)
+                            } else {
+                                1.0 // Instant fade if opacity_point is 0
                             }
                         };
 
