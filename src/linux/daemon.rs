@@ -58,17 +58,25 @@ impl StatusNotifierItem {
     #[zbus(property)]
     fn icon_pixmap(&self) -> IconPixmap {
         if let Ok(img) = image::load_from_memory(include_bytes!("../../icon.png")) {
-             let (w, h) = img.dimensions();
-             let data = img.to_rgba8().into_raw();
-             // Convert RGBA to ARGB
-             let mut pixels = Vec::with_capacity(data.len());
-             for chunk in data.chunks(4) {
-                 pixels.push(chunk[3]); // A
-                 pixels.push(chunk[0]); // R
-                 pixels.push(chunk[1]); // G
-                 pixels.push(chunk[2]); // B
+             let mut pixmaps = Vec::new();
+
+             // Provide multiple sizes for the tray to choose from
+             for size in [64, 32, 22] {
+                 let resized = img.resize(size, size, image::imageops::FilterType::Lanczos3);
+                 let (w, h) = resized.dimensions();
+                 let data = resized.to_rgba8().into_raw();
+
+                 // Convert RGBA to ARGB for SNI protocol
+                 let mut pixels = Vec::with_capacity(data.len());
+                 for chunk in data.chunks(4) {
+                     pixels.push(chunk[3]); // A
+                     pixels.push(chunk[0]); // R
+                     pixels.push(chunk[1]); // G
+                     pixels.push(chunk[2]); // B
+                 }
+                 pixmaps.push((w as i32, h as i32, pixels));
              }
-             vec![(w as i32, h as i32, pixels)]
+             pixmaps
         } else {
              vec![]
         }
