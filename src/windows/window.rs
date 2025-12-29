@@ -156,12 +156,11 @@ pub async fn toggle_window(config: &Config) {
 
             // Immediately activate (steal focus)
             let _ = SetForegroundWindow(hwnd.inner());
-            // Ensure visible (but maybe at old position, swiftly moved by animation loop?)
-            // We need it visible to be focused.
-            // If we SetWindowPos here, we might jump.
-            // Best to let the animation loop handle position, but SetForegroundWindow might fail if hidden?
-            // Actually ShowWindow(SW_SHOW) is needed if it was hidden.
-            let _ = ShowWindow(hwnd.inner(), SW_SHOW);
+
+            // Only ShowWindow if it's not already visible to reduce flicker
+            if !IsWindowVisible(hwnd.inner()).as_bool() {
+                let _ = ShowWindow(hwnd.inner(), SW_SHOW);
+            }
         } else {
              // Immediately surrender focus
              let mut prev = PREVIOUS_FOCUS.lock().unwrap();
@@ -318,6 +317,15 @@ pub async fn toggle_window(config: &Config) {
             loop {
                 // Synchronize with DWM VSync for perfectly smooth animation
                 let _ = DwmFlush();
+
+                // Allow tokio to abort this task at each frame
+                tokio::task::yield_now().await;
+
+                // Secondary check: if the world moved on, stop this animation
+                if *TARGET_VISIBLE.lock().unwrap() != should_show {
+                    return;
+                }
+
                 let elapsed = start_time.elapsed().as_millis() as f64;
                 let progress = (elapsed / duration_ms as f64).min(1.0);
 

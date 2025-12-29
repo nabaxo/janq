@@ -208,6 +208,10 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         if event.state == global_hotkey::HotKeyState::Released {
                              if current_hotkeys.iter().any(|hk| hk.id() == event.id) {
                                   // println!("Hotkey Pressed! Toggling...");
+                                  unsafe {
+                                       use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+                                       let _ = AllowSetForegroundWindow(ASFW_ANY);
+                                  }
                                   let cfg = config_clone_loop.read().unwrap().clone();
                                   rt.spawn(async move {
                                       crate::windows::terminal::ensure_terminal_running(&cfg).await;
