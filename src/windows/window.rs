@@ -326,7 +326,7 @@ pub async fn toggle_window(config: &Config) {
             } else {
                 // IMPORTANT: Capture current foreground window BEFORE hiding
                 // This ensures we restore to whatever window has focus NOW, not what had focus when we showed
-                let fg_window = unsafe { GetForegroundWindow() };
+                let fg_window = GetForegroundWindow();
                 if fg_window.0 != std::ptr::null_mut() && fg_window != hwnd.inner() {
                     let mut prev = PREVIOUS_FOCUS.lock().unwrap();
                     *prev = Some(SendHwnd(fg_window));
