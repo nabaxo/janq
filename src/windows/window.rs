@@ -367,17 +367,38 @@ pub fn restore_window_visibility(config: &Config) {
     let start = std::time::Instant::now();
 
     if let Some(hwnd) = find_window_by_process(&config.general.window_class) {
-        println!("DEBUG: Found window HWND: {:?}, restoring visibility (no move)...", hwnd);
+        let is_ruake_visible = *TARGET_VISIBLE.lock().unwrap();
+        println!("DEBUG: Found window HWND: {:?}, ruake_visible={}", hwnd, is_ruake_visible);
 
         unsafe {
-            // 1. Ensure Opacity is 255 (Opaque)
+            // Ensure Opacity is 255 (Opaque)
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
-            // 2. Ensure visible and restore if iconic, but convert to NOTOPMOST so it behaves normally.
-            // DO NOT MOVE: passing SWP_NOMOVE | SWP_NOSIZE
-            let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
-                windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE
-            );
+            let mut flags = SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE;
+            let (mut x, mut y) = (0, 0);
+
+            if !is_ruake_visible {
+                // Determine monitor to restore to
+                let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+
+                if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                    x = mi.rcWork.left;
+                    y = mi.rcWork.top;
+                    println!("DEBUG: Restoring to visible area at x={}, y={}", x, y);
+                } else {
+                    flags |= windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE;
+                }
+            } else {
+                println!("DEBUG: Terminal is currently visible, keeping in place.");
+                flags |= windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE;
+            }
+
+            // Apply Z-order and position/visibility
+            let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
 
             // Ensure not minimized
             if IsIconic(hwnd).as_bool() {
@@ -386,7 +407,7 @@ pub fn restore_window_visibility(config: &Config) {
                  let _ = ShowWindow(hwnd, SW_SHOW);
             }
 
-             let _ = SetForegroundWindow(hwnd);
+            let _ = SetForegroundWindow(hwnd);
         }
     } else {
         println!("DEBUG: No window found to restore!");
