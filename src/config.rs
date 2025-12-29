@@ -82,11 +82,14 @@ impl Default for Config {
 }
 
 pub fn load_config() -> (Config, Option<PathBuf>) {
-    let mut config_paths = vec![PathBuf::from(".goake.toml")];
+    let mut config_paths = vec![PathBuf::from(".ruake.toml"), PathBuf::from(".goake.toml")];
 
     if let Some(home) = dirs::home_dir() {
+        config_paths.push(home.join(".ruake.toml"));
         config_paths.push(home.join(".goake.toml"));
         if let Some(xdg_config) = dirs::config_dir() {
+             config_paths.push(xdg_config.join("ruake").join("ruake.toml"));
+             config_paths.push(xdg_config.join("ruake").join(".ruake.toml"));
              config_paths.push(xdg_config.join("ruake").join(".goake.toml"));
              config_paths.push(xdg_config.join("goake").join(".goake.toml"));
         }

@@ -1,7 +1,6 @@
-# Rustake - Quake-Style Terminal Manager
+# Ruake - Quake-Style Terminal Manager
 
-A standalone Rust tool to manage a terminal window (like WezTerm) as a quake-style dropdown terminal.
-Rewritten from Goake (Go) to Rust for better performance and safety.
+**Ruake** (formerly Rustake/Goake) is a lightweight, high-performance Quake-style terminal wrapper written in Rust. It manages your favorite terminal emulator (WezTerm, Alacritty, Kitty, etc.), allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
 ## Supported Platforms
 
@@ -67,10 +66,9 @@ Rewritten from Goake (Go) to Rust for better performance and safety.
 
 ## Configuration
 
-Create `.goake.toml` in your home directory (`~` or `%USERPROFILE%`).
+Create `.ruake.toml` (or `.goake.toml`) in your home directory (`~` or `%USERPROFILE%`).
 
 ```toml
-# Terminal settings
 # Terminal settings
 window_class = "wezquake"      # Linux: Window Class | Windows: Process Name (e.g. "wezterm-gui" or "wezquake")
 start_command = "wezterm start --class wezquake" # On Windows, if using default `wezterm-gui`, change window_class above.
