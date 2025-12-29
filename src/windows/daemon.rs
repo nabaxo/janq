@@ -213,10 +213,19 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                        let _ = AllowSetForegroundWindow(ASFW_ANY);
                                   }
                                   let cfg = config_clone_loop.read().unwrap().clone();
-                                  rt.spawn(async move {
-                                      crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                                      toggle_window(&cfg).await;
-                                  });
+
+                                  // Fast path: if window exists, toggle immediately without spawning check
+                                  if crate::windows::window::find_window_by_process(&cfg.general.window_class).is_some() {
+                                      rt.spawn(async move {
+                                          toggle_window(&cfg).await;
+                                      });
+                                  } else {
+                                      // Slow path: ensure terminal is running first
+                                      rt.spawn(async move {
+                                          crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                                          toggle_window(&cfg).await;
+                                      });
+                                  }
                              }
                         }
                     }
@@ -234,10 +243,19 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                          let _ = AllowSetForegroundWindow(ASFW_ANY);
                                     }
                                     let cfg = config_clone_loop.read().unwrap().clone();
-                                    rt.spawn(async move {
-                                        crate::windows::terminal::ensure_terminal_running(&cfg).await;
-                                        toggle_window(&cfg).await;
-                                    });
+
+                                    // Fast path: if window exists, toggle immediately
+                                    if crate::windows::window::find_window_by_process(&cfg.general.window_class).is_some() {
+                                        rt.spawn(async move {
+                                            toggle_window(&cfg).await;
+                                        });
+                                    } else {
+                                        // Slow path: ensure terminal is running first
+                                        rt.spawn(async move {
+                                            crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                                            toggle_window(&cfg).await;
+                                        });
+                                    }
                                 }
                             }
                         }
