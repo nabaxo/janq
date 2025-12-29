@@ -207,7 +207,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
                 // Check Tray Icon Events (Clicks)
                 while let Ok(event) = tray_receiver.try_recv() {
-                    // println!("DEBUG: Tray Event Raw: {:?}", event);
+                    println!("DEBUG: Tray Event: {:?}", event);
 
                     match event {
                         TrayIconEvent::Click { button, button_state, .. } => {
@@ -219,23 +219,17 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                         crate::windows::terminal::ensure_terminal_running(&cfg).await;
                                         toggle_window(&cfg).await;
                                     });
-                                } else if button == MouseButton::Middle {
-                                    println!("Middle Click (Up): Exiting...");
-                                    let cfg = config_clone_loop.read().unwrap().clone();
-                                    crate::windows::window::restore_window_visibility(&cfg);
-                                    std::process::exit(0);
                                 }
                             }
                         }
                         _ => {
-                             // Print unhandled for debug
                              println!("Unhandled Tray Event: {:?}", event);
                         }
                     }
                 }
 
                 // Check Menu
-                if let Ok(event) = menu_receiver.try_recv() {
+                while let Ok(event) = menu_receiver.try_recv() {
                      if event.id == quit_i.id() {
                           println!("Quit requested via tray menu. Exiting...");
                           let cfg = config_clone_loop.read().unwrap().clone();
@@ -247,8 +241,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                crate::windows::terminal::ensure_terminal_running(&cfg).await;
                                toggle_window(&cfg).await;
                           });
-                         }
-                    }
+                     }
+                }
                 }
             }
             _ => ()

@@ -20,6 +20,12 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use ::windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+
     let args = Args::parse();
     let (config, config_path) = config::load_config();
 
