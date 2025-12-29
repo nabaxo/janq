@@ -282,10 +282,17 @@ pub async fn toggle_window(config: &Config) {
                     let new_y = start_y + (dist_y as f64 * ease_val) as i32;
 
                     if config.animation.animate_opacity {
+                        // Clamp opacity_point to prevent division by zero
+                        let safe_opacity_point = opacity_point.clamp(0.01, 0.99);
+
                         let opacity_progress = if should_show {
-                            (progress / opacity_point).min(1.0)
+                            (progress / safe_opacity_point).min(1.0)
                         } else {
-                            ((progress - opacity_point) / (1.0 - opacity_point)).max(0.0)
+                            if progress <= safe_opacity_point {
+                                0.0
+                            } else {
+                                ((progress - safe_opacity_point) / (1.0 - safe_opacity_point)).min(1.0)
+                            }
                         };
 
                         let new_alpha = if should_show {
