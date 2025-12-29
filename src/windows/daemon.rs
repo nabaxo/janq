@@ -74,6 +74,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
     {
         let cfg = config.read().unwrap();
+        println!("Attempting to register {} hotkey(s)...", cfg.general.hotkey.len());
+
         for hk_str in &cfg.general.hotkey {
             println!("Attempting to register hotkey: {}", hk_str);
             match parse_hotkey(hk_str) {
@@ -82,8 +84,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                     use std::io::Write;
                     let _ = std::io::stdout().flush();
 
-                    println!("  Calling manager.register()...");
-                    let _ = std::io::stdout().flush();
+                    let before_count = current_hotkeys.len();
 
                     match manager.register(key) {
                         Ok(_) => {
@@ -92,15 +93,30 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         }
                         Err(e) => {
                             eprintln!("  ✗ Failed to register '{}': {}", hk_str, e);
-                            eprintln!("    This might be because the key code is not supported on Windows.");
+                            eprintln!("    This key code is not supported on Windows.");
                         }
                     }
+
+                    // Detect silent failures (register returned Ok but hotkey doesn't actually work)
+                    if current_hotkeys.len() == before_count {
+                        eprintln!("  ⚠ WARNING: '{}' may have failed to register (silent failure)", hk_str);
+                        eprintln!("    The key code '{:?}' is likely not supported by Windows global hotkey system.", key.key);
+                        eprintln!("    Please use an alternative hotkey.");
+                    }
+
                     let _ = std::io::stdout().flush();
                 },
                 Err(e) => eprintln!("  ✗ Failed to parse '{}': {}", hk_str, e),
             }
         }
-        println!("Hotkey registration complete. Total registered: {}", current_hotkeys.len());
+        println!("\nHotkey registration complete. Successfully registered: {}/{}",
+                 current_hotkeys.len(), cfg.general.hotkey.len());
+
+        if current_hotkeys.len() < cfg.general.hotkey.len() {
+            eprintln!("\n❌ Some hotkeys failed to register. See warnings above.");
+            eprintln!("   Known unsupported keys on Windows: Section (§), IntlBackslash");
+            eprintln!("   Suggestion: Use function keys (F1-F12) or letter keys instead.");
+        }
     }
 
     // 5. Tray Icon
