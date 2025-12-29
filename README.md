@@ -10,58 +10,59 @@ Rewritten from Goake (Go) to Rust for better performance and safety.
 
 ## Features
 
-- **Dropdown Animations**: Smooth sliding toggle with configurable easing and duration
-- **Opacity Animation**: Optional fade in/out effect with adjustable timing
-- **Multi-Monitor Support**: Follows mouse cursor across displays with smooth transitions
-- **Configurable**: Managed via `.goake.toml`
-- **Lightweight**: Zero-runtime dependencies other than OS APIs
-- **Pure Rust**: Blazing fast, safe, and efficient
-- **Smart Start**: Running `rustake` starts the daemon or toggles the window automatically
-- **Interruptible Animations**: Toggle mid-animation for instant reversal
-- **Auto-Respawn**: Automatically restarts the terminal if closed while daemon is running
-- **Hot-Reloading**: Config changes are applied instantly in real-time
-- **Native IPC**: Uses D-Bus (Linux) and Named Pipes (Windows)
-- **Global Hotkeys**: Built-in hotkey daemon on Windows (Linux relies on system shortcuts)
-- **System Tray**: Native tray icon for management (Windows only)
-
-## Prerequisites
-
-- **Linux**: KDE Plasma (Wayland session), `wezterm` (or any terminal)
-- **Windows**: `pwsh`, `cmd`, or `wezterm`, Windows 10/11
-- Rust (Cargo) environment (if building from source)
+- **Fast & Lightweight**: Written in Rust for minimal resource usage.
+- **Cross-Platform**: Works on **Linux** (X11/Wayland via KWin/XDO) and **Windows** (Native Win32).
+- **Smooth Animations**: Hardware-accelerated slide animations (ease-out-quart).
+- **Focus Restoration**: Remembers your previous window and restores focus instantly when the terminal hides.
+- **Smart Start**: Running `ruake` starts the daemon or toggles the window automatically.
+- **DPI Aware**: Correctly handles multi-monitor setups with mixed DPIs.
 
 ## Installation
 
+### Prerequisites
+
+- **Rust**: Ensure you have `cargo` installed.
+- **Terminal**: WezTerm is the default, but you can configure any supported terminal.
+- **Linux**: `libxdo-dev` (if using X11/XDO), `kdotool` (for Wayland/KWin).
+
+### Build from Source
+
 1. Clone the repository:
    ```bash
-   git clone <repo-url>
-   cd rustake
+   git clone https://github.com/nabaxo/ruake.git
+   cd ruake
    ```
-2. Build the binary:
-   ```bash
-   make
-   # Or manually:
-   cargo build --release
-   ```
-3. The binary will be at `target/release/rustake`.
+
+2. Build for your platform:
+   - **Linux**:
+     ```bash
+     make build-linux
+     ```
+   - **Windows** (MinGW):
+     ```bash
+     make build-windows
+     ```
+
+3. The binary will be at `target/release/ruake` (Linux) or `target/release/ruake.exe` (Windows).
 
 ## Usage
 
 ### Windows
-1. Run `rustake.exe`. It will start in the background and show a tray icon.
-2. Use the hotkey configured in `.goake.toml` (default `Meta+Grave`) to toggle.
-3. Managing: Right-click the tray icon to Quit.
+
+1. Run `ruake.exe`. It will start in the background and show a tray icon.
+2. Press **F12** (default) to toggle the terminal.
+3. Right-click the tray icon to Quit or Toggle.
 
 ### Linux
-1. **Toggle/Start**:
-   Simply run the binary. It handles everything.
+
+1. Run the binary:
    ```bash
-   ./target/release/rustake
+   ./target/release/ruake
    ```
 2. **Global Shortcut Setup**:
    - Open **KDE System Settings**
    - Go to **Shortcuts** → **Commands**
-   - Add legacy command: `/path/to/rustake` (absolute path recommended)
+   - Add legacy command: `/path/to/ruake` (absolute path recommended)
    - Assign `Meta+Grave` (or your preferred key)
 
 ## Configuration

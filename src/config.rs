@@ -87,7 +87,7 @@ pub fn load_config() -> (Config, Option<PathBuf>) {
     if let Some(home) = dirs::home_dir() {
         config_paths.push(home.join(".goake.toml"));
         if let Some(xdg_config) = dirs::config_dir() {
-             config_paths.push(xdg_config.join("rustake").join(".goake.toml"));
+             config_paths.push(xdg_config.join("ruake").join(".goake.toml"));
              config_paths.push(xdg_config.join("goake").join(".goake.toml"));
         }
     }

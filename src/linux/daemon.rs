@@ -13,7 +13,7 @@ struct QuakeDaemon {
     config: Arc<RwLock<Config>>,
 }
 
-#[interface(name = "dev.nabaxo.rustake")]
+#[interface(name = "dev.nabaxo.ruake")]
 impl QuakeDaemon {
     async fn toggle(&self) {
         let config = { self.config.read().unwrap().clone() };
@@ -48,13 +48,13 @@ impl StatusNotifierItem {
     #[zbus(property)]
     fn category(&self) -> String { "ApplicationStatus".to_string() }
     #[zbus(property)]
-    fn id(&self) -> String { "rustake".to_string() }
+    fn id(&self) -> String { "ruake".to_string() }
     #[zbus(property)]
-    fn title(&self) -> String { "Rustake".to_string() }
+    fn title(&self) -> String { "Ruake".to_string() }
     #[zbus(property)]
     fn status(&self) -> String { "Active".to_string() }
     #[zbus(property)]
-    fn icon_name(&self) -> String { "rustake".to_string() }
+    fn icon_name(&self) -> String { "ruake".to_string() }
     #[zbus(property)]
     fn icon_pixmap(&self) -> IconPixmap {
         if let Ok(img) = image::load_from_memory(include_bytes!("../../icon.png")) {
@@ -84,15 +84,15 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
 
     // Request name for SNI
     let pid = std::process::id();
-    let sni_name = format!("org.kde.StatusNotifierItem-rustake-{}", pid);
+    let sni_name = format!("org.kde.StatusNotifierItem-ruake-{}", pid);
     // Note: zbus request_name is usually done via connection builder or manually
     // But SNI protocol often requires unique name then registration
     conn.request_name(sni_name.clone()).await?;
 
     // Export interfaces
     let daemon = QuakeDaemon { config: config.clone() };
-    conn.object_server().at("/dev/nabaxo/rustake", daemon).await?;
-    conn.request_name("dev.nabaxo.rustake").await?;
+    conn.object_server().at("/dev/nabaxo/ruake", daemon).await?;
+    conn.request_name("dev.nabaxo.ruake").await?;
 
     let sni = StatusNotifierItem { config: config.clone() };
     conn.object_server().at("/StatusNotifierItem", sni).await?;
@@ -207,9 +207,9 @@ pub async fn send_toggle() -> anyhow::Result<()> {
     let conn = Connection::session().await?;
     let proxy = zbus::Proxy::new(
         &conn,
-        "dev.nabaxo.rustake",
-        "/dev/nabaxo/rustake",
-        "dev.nabaxo.rustake"
+        "dev.nabaxo.ruake",
+        "/dev/nabaxo/ruake",
+        "dev.nabaxo.ruake"
     ).await?;
 
     proxy.call_method("Toggle", &()).await?;

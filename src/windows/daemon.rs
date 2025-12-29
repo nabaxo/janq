@@ -13,7 +13,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::event::{Event, StartCause};
 use tokio::runtime::Runtime;
 
-const PIPE_NAME: &str = r"\\.\pipe\rustake";
+const PIPE_NAME: &str = r"\\.\pipe\ruake";
 
 fn load_icon() -> tray_icon::Icon {
     let bytes = include_bytes!("../../icon.ico");
@@ -92,7 +92,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
     let _tray_icon = TrayIconBuilder::new()
         .with_menu(Box::new(tray_menu))
-        .with_tooltip("Rustake")
+        .with_tooltip("Ruake")
         .with_icon(load_icon())
         .build()
         .unwrap();
@@ -132,7 +132,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         }
     });
 
-    println!("Rustake (Windows) daemon running...");
+    println!("Ruake (Windows) daemon running...");
 
     // 7. Event Loop (Main Thread)
     let hotkey_receiver = global_hotkey::GlobalHotKeyEvent::receiver();

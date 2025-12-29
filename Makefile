@@ -7,11 +7,11 @@ prepare-dist:
 
 build-linux: prepare-dist
 	cargo build --release --target x86_64-unknown-linux-gnu
-	cp target/x86_64-unknown-linux-gnu/release/rustake $(DIST_DIR)/rustake
+	cp target/x86_64-unknown-linux-gnu/release/ruake $(DIST_DIR)/ruake
 
 build-windows: prepare-dist
 	cargo build --release --target x86_64-pc-windows-gnu
-	cp target/x86_64-pc-windows-gnu/release/rustake.exe $(DIST_DIR)/rustake.exe
+	cp target/x86_64-pc-windows-gnu/release/ruake.exe $(DIST_DIR)/ruake.exe
 
 build-all: build-linux build-windows
 
