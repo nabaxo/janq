@@ -142,46 +142,93 @@ pub async fn toggle_window(config: &Config) {
         }
     };
 
+    // Synchronously handle Focus and Initial Visibility
+    unsafe {
+        if should_show {
+            let fg_window = GetForegroundWindow();
+            if fg_window.0 != std::ptr::null_mut() && fg_window.0 != hwnd.inner().0 {
+                let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+                if prev.is_none() {
+                    *prev = Some(SendHwnd(fg_window));
+                }
+            }
+
+            // Immediately activate (steal focus)
+            let _ = SetForegroundWindow(hwnd.inner());
+            // Ensure visible (but maybe at old position, swiftly moved by animation loop?)
+            // We need it visible to be focused.
+            // If we SetWindowPos here, we might jump.
+            // Best to let the animation loop handle position, but SetForegroundWindow might fail if hidden?
+            // Actually ShowWindow(SW_SHOW) is needed if it was hidden.
+            let _ = ShowWindow(hwnd.inner(), SW_SHOW);
+        } else {
+             // Immediately surrender focus
+             let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+             if let Some(h) = *prev {
+                 if IsWindowVisible(h.0).as_bool() {
+                     let _ = SetForegroundWindow(h.0);
+                 }
+                 *prev = None;
+             }
+        }
+    }
+
     let config = config.clone();
 
     let handle = tokio::spawn(async move {
         // Use the SendHwnd wrapper inside the async block
-
+        // Animation Loop logic...
         unsafe {
-            // Determine current state/position
-            let monitor = if should_show {
-                 let fg_window = GetForegroundWindow();
-                 if fg_window.0 != std::ptr::null_mut() && fg_window.0 != hwnd.inner().0 {
-                      let mut prev = PREVIOUS_FOCUS.lock().unwrap();
-                      if prev.is_none() {
-                          *prev = Some(SendHwnd(fg_window));
-                      }
-                 }
+            // Determine current state
+             // ... [Logic similar to before but without SetForegroundWindow at end/start]
 
-                // Determine target monitor based on config
-                match config.window.display_mode.as_str() {
-                    "specific" => {
+             // Determine target monitor based on config...
+            let monitor = {
+                 // Re-use logic to find monitor.
+                 // Note: We can't use GetForegroundWindow logic for "active" display mode easily if we just stole focus!
+                 // BUT we already stole focus if showing.
+                 // So we should rely on where the mouse is or where it was?
+                 // If display_mode = "active", and we just became active, we are on the active monitor.
+                 // If we were hidden, we were not active.
+                 // So we need to match the logic:
+                 match config.window.display_mode.as_str() {
+                     "specific" => {
                         let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
                         let _ = EnumDisplayMonitors(None, None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
                         if (config.window.display_index as usize) < ctx.monitors.len() {
                              ctx.monitors[config.window.display_index as usize]
                         } else {
-                             // Fallback to primary/mouse
                              let mut cursor_pos = POINT { x: 0, y: 0 };
                              let _ = GetCursorPos(&mut cursor_pos);
                              MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
                         }
                     },
                     "active" => {
-                        let fg_window = GetForegroundWindow();
-                        if fg_window.0 != std::ptr::null_mut() {
-                            MonitorFromWindow(fg_window, MONITOR_DEFAULTTONEAREST)
-                        } else {
-                             // Fallback
-                            let mut cursor_pos = POINT { x: 0, y: 0 };
-                            let _ = GetCursorPos(&mut cursor_pos);
-                            MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
-                        }
+                         // We are now the foreground window if showing.
+                         // But we want to spawn on the monitor where the USER WAS.
+                         // Previous logic: "activeWin != target".
+                         // Our PREVIOUS_FOCUS has the window where the user was.
+                         // If PREVIOUS_FOCUS is set, use that.
+                         // If not, use mouse.
+
+                         // BUT we are inside the thread, PREVIOUS_FOCUS is locked/unlocked briefly.
+                         // We can check PREVIOUS_FOCUS again? No, we cleared it if hiding.
+
+                         // If Showing: PREVIOUS_FOCUS should be set.
+                         // If Hiding: We don't care about monitor really, just animate out.
+                         if should_show {
+                             let prev = PREVIOUS_FOCUS.lock().unwrap();
+                             if let Some(h) = *prev {
+                                 MonitorFromWindow(h.0, MONITOR_DEFAULTTONEAREST)
+                             } else {
+                                  let mut cursor_pos = POINT { x: 0, y: 0 };
+                                  let _ = GetCursorPos(&mut cursor_pos);
+                                  MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+                             }
+                         } else {
+                             // Hiding: Use current monitor
+                             MonitorFromWindow(hwnd.inner(), MONITOR_DEFAULTTONEAREST)
+                         }
                     },
                     _ => {
                         // "follow-mouse" or default
@@ -189,10 +236,7 @@ pub async fn toggle_window(config: &Config) {
                         let _ = GetCursorPos(&mut cursor_pos);
                         MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
                     }
-                }
-            } else {
-                // If HIDING: Stay on current monitor
-                MonitorFromWindow(hwnd.inner(), MONITOR_DEFAULTTONEAREST)
+                 }
             };
 
             let mut mi = MONITORINFO {
@@ -213,10 +257,7 @@ pub async fn toggle_window(config: &Config) {
 
             // Target dimensions
             let (target_w, target_h) = if config.window.width_cols > 0 && config.window.height_rows > 0 {
-                // We trust the terminal to have these dimensions roughly, or we force it?
-                // Actually if we just resize the window rect it might work but terminals handle resize events.
-                // Let's stick to using current window dims if they exist and are reasonable?
-                // For now use pct or existing
+                  // Use existing logic
                  let mut r = RECT::default();
                  if GetWindowRect(hwnd.inner(), &mut r).is_ok() {
                       (r.right - r.left, r.bottom - r.top)
@@ -227,57 +268,52 @@ pub async fn toggle_window(config: &Config) {
                  (width_pct, height_pct)
             };
 
-            // Re-calculate target W/H if we want to enforce config
-            // But usually we respect current size if it's already open.
             let width = target_w;
             let height = target_h;
-
             let target_x = work_area.left + (screen_w - width) / 2;
-
-            // Target Y (Show) vs Hidden Y
             let shown_y = work_area.top;
             let hidden_y = work_area.top - height;
 
             let target_y = if should_show { shown_y } else { hidden_y };
 
-            // Ensure window styles
+            // Ensure styles
             let ex_style = GetWindowLongW(hwnd.inner(), GWL_EXSTYLE);
             if (ex_style & WS_EX_LAYERED.0 as i32) == 0 {
                  SetWindowLongW(hwnd.inner(), GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
             }
 
-            // Get Current Position
+            // Current Pos
             let mut rect = RECT::default();
-            let current_y = if GetWindowRect(hwnd.0, &mut rect).is_ok() {
+            let current_y = if GetWindowRect(hwnd.inner(), &mut rect).is_ok() {
                  rect.top
             } else {
                  if should_show { hidden_y } else { shown_y }
             };
 
-            // If we are showing but we are way off (e.g. user moved monitor), prevent jumping?
-            // If rect.top is far away, rely on hidden_y
-            // But if we are interrupting, current_y should be valid.
+            // If we are showing and current_y is far off (different monitor maybe?), snap to hidden_y on target monitor
+            let start_y = if should_show {
+                // If rect.left isn't close to target_x, we moved monitors.
+                // Snap to hidden_y.
+                if (rect.left - target_x).abs() > 500 {
+                    hidden_y
+                } else {
+                    current_y
+                }
+            } else {
+                current_y
+            };
 
-            // Animation Params
+            let dist_y = target_y - start_y;
+
             let duration_ms = if should_show { config.animation.show_duration } else { config.animation.hide_duration } as u64;
             let easing_type = if should_show { &config.animation.show_easing } else { &config.animation.hide_easing };
             let opacity_point = if should_show { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
             let animate_opacity = config.animation.animate_opacity;
 
-            // Determine Z-Order flag
             let z_flag = SendHwnd(if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
 
-            // Ensure window is visible initially if we are showing
-            if should_show {
-                 let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, current_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
-            }
-            // If hiding, we are already visible, just moving.
-
-            let start_y = current_y;
-            let dist_y = target_y - start_y; // Can be positive (down) or negative (up)
-
             let start_time = Instant::now();
-            let mut interval = interval(Duration::from_millis(16)); // ~60 FPS
+            let mut interval = interval(Duration::from_millis(16));
 
             loop {
                 interval.tick().await;
@@ -287,17 +323,12 @@ pub async fn toggle_window(config: &Config) {
                 let ease_val = get_easing(progress, easing_type);
                 let new_y = start_y + (dist_y as f64 * ease_val) as i32;
 
-                // Opacity Calculation
                  let mut alpha = 255;
                  if animate_opacity {
-                     // We need to map position to opacity roughly? Or just time?
-                     // Currently mapping time.
                      let opacity_progress = if should_show {
-                          // Fade In
                           (progress / opacity_point).min(1.0)
                      } else {
-                          // Fade Out
-                           if progress < opacity_point { 0.0 } else { (progress - opacity_point) / (1.0 - opacity_point) }
+                          if progress < opacity_point { 0.0 } else { (progress - opacity_point) / (1.0 - opacity_point) }
                      };
 
                      let opacity_val = if should_show {
@@ -308,39 +339,23 @@ pub async fn toggle_window(config: &Config) {
                      alpha = (opacity_val * 255.0) as u8;
                  }
 
-
                 let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), alpha, LWA_ALPHA);
-                let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, width, height, SWP_NOACTIVATE);
+                let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, new_y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
-                if progress >= 1.0 {
-                     break;
-                }
+                if progress >= 1.0 { break; }
             }
 
-            // Finalize State
+            // Finalize
             if should_show {
-                 // Fully Shown
                  let _ = SetLayeredWindowAttributes(hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
-                 let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW);
-                 if !SetForegroundWindow(hwnd.inner()).as_bool() {
-                      println!("ERROR: SetForegroundWindow failed! Error: {:?}", windows::core::Error::from_win32());
-                 }
+                 let _ = SetWindowPos(hwnd.inner(), z_flag.0, target_x, target_y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
             } else {
-                 // Fully Hidden
                  let _ = ShowWindow(hwnd.inner(), SW_HIDE);
-                 // Restore Focus
-                 let mut prev = PREVIOUS_FOCUS.lock().unwrap();
-                 if let Some(h) = *prev {
-                     if IsWindowVisible(h.0).as_bool() {
-                         let _ = SetForegroundWindow(h.0);
-                     }
-                     *prev = None;
-                 }
+                 // Focus already restored synchronously at start for speed.
             }
         }
     });
 
-    // Store handle
     {
         let mut task_handle = ANIMATION_TASK.lock().unwrap();
         *task_handle = Some(handle.abort_handle());
@@ -352,40 +367,16 @@ pub fn restore_window_visibility(config: &Config) {
     let start = std::time::Instant::now();
 
     if let Some(hwnd) = find_window_by_process(&config.general.window_class) {
-        println!("DEBUG: Found window HWND: {:?}, finding monitor...", hwnd);
+        println!("DEBUG: Found window HWND: {:?}, restoring visibility (no move)...", hwnd);
 
         unsafe {
-            // 2. Find Monitor to restore to (Primary or current)
-            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            let mut mi = MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
-
-            let (x, y) = if GetMonitorInfoW(monitor, &mut mi).as_bool() {
-                // Restore to top-left of work area to ensure visibility
-                (mi.rcWork.left, mi.rcWork.top)
-            } else {
-                (0, 0) // Fallback
-            };
-
-            println!("DEBUG: Restoring to x={}, y={}", x, y);
-
             // 1. Ensure Opacity is 255 (Opaque)
-            // Note: GWL_EXSTYLE must have WS_EX_LAYERED for this to work, but if we want to be safe,
-            // maybe we REMOVE WS_EX_LAYERED to force opacity?
-            // Actually, setting 255 is safe if LAYERED is set.
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
-            // 3. Force Move to visual area and Show
-            // Use SW_SHOW (5) instead of SW_RESTORE (9) to force visibility without "restoring" min/max animation if possible?
-            // Actually SW_RESTORE is good if it was minimized. SW_SHOW doesn't restore from Minimize.
-            // Let's use ShowWindowAsync if we want to be fast? No, we want to ensure it happens before we exit.
-
-            // 3. Force Move to visual area and Show
-            // We use HWND_NOTOPMOST so it doesn't get stuck on top of everything after we quit.
-            let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0,
-                SWP_NOSIZE | SWP_SHOWWINDOW
+            // 2. Ensure visible and restore if iconic, but convert to NOTOPMOST so it behaves normally.
+            // DO NOT MOVE: passing SWP_NOMOVE | SWP_NOSIZE
+            let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE
             );
 
             // Ensure not minimized
@@ -395,7 +386,7 @@ pub fn restore_window_visibility(config: &Config) {
                  let _ = ShowWindow(hwnd, SW_SHOW);
             }
 
-            let _ = SetForegroundWindow(hwnd);
+             let _ = SetForegroundWindow(hwnd);
         }
     } else {
         println!("DEBUG: No window found to restore!");
