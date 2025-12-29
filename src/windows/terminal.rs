@@ -33,11 +33,11 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     }
 
     use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const DETACHED_PROCESS: u32 = 0x00000008;
 
     match Command::new(cmd)
         .args(&args)
-        .creation_flags(CREATE_NO_WINDOW)
+        .creation_flags(DETACHED_PROCESS)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
