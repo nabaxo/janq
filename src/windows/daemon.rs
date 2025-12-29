@@ -221,7 +221,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                 });
                             } else if button == MouseButton::Middle {
                                 println!("Middle Click on Tray: Exiting...");
-                                elwt.exit();
+                                let cfg = config_clone_loop.read().unwrap().clone();
+                                crate::windows::window::restore_window_visibility(&cfg);
+                                std::process::exit(0);
                             } else {
                                 println!("Other click on tray: {:?}", button);
                             }
@@ -234,7 +236,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                 if let Ok(event) = menu_receiver.try_recv() {
                      if event.id == quit_i.id() {
                           println!("Quit requested via tray menu. Exiting...");
-                          elwt.exit();
+                          let cfg = config_clone_loop.read().unwrap().clone();
+                          crate::windows::window::restore_window_visibility(&cfg);
+                          std::process::exit(0);
                      } else if event.id == toggle_i.id() {
                           let cfg = config_clone_loop.read().unwrap().clone();
                           rt.spawn(async move {
