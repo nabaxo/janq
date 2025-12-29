@@ -27,6 +27,13 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     // 1. Setup Runtime for async tasks (IPC, Animation, Watcher)
     let rt = Runtime::new()?;
     let _guard = rt.enter(); // Keep runtime context active for this thread
+
+    // Enable DPI Awareness (Per Monitor V2) to ensure correct coordinates
+    use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+
     let config = Arc::new(RwLock::new(initial_config));
 
     // 2. Setup Winit EventLoop (Must be on main thread)
