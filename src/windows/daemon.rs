@@ -8,7 +8,7 @@ use tokio::io::AsyncWriteExt;
 use anyhow::Result;
 use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
 use notify::{Watcher, RecursiveMode, RecommendedWatcher, Config as NotifyConfig};
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}};
+use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}, TrayIconEvent, MouseButton, MouseButtonState};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::event::{Event, StartCause};
 use tokio::runtime::Runtime;
@@ -144,6 +144,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     // 7. Event Loop (Main Thread)
     let hotkey_receiver = global_hotkey::GlobalHotKeyEvent::receiver();
     let menu_receiver = MenuEvent::receiver();
+    let tray_receiver = TrayIconEvent::receiver();
     let config_clone_loop = config.clone();
 
     // Initial check (Start terminal if missing, optionally toggle)
@@ -213,10 +214,28 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                     }
                 }
 
+                // Check Tray Icon Events (Clicks)
+                if let Ok(event) = tray_receiver.try_recv() {
+                    // Check for Left Click Toggle
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        println!("Left Click on Tray: Toggling...");
+                        let cfg = config_clone_loop.read().unwrap().clone();
+                        rt.spawn(async move {
+                             crate::windows::terminal::ensure_terminal_running(&cfg).await;
+                             toggle_window(&cfg).await;
+                        });
+                    }
+                    // Check for Middle Click Quit
+                    else if let TrayIconEvent::Click { button: MouseButton::Middle, button_state: MouseButtonState::Up, .. } = event {
+                        println!("Middle Click on Tray: Exiting...");
+                        elwt.exit();
+                    }
+                }
+
                 // Check Menu
                 if let Ok(event) = menu_receiver.try_recv() {
                      if event.id == quit_i.id() {
-                          println!("Quit requested via tray. Exiting...");
+                          println!("Quit requested via tray menu. Exiting...");
                           elwt.exit();
                      } else if event.id == toggle_i.id() {
                           let cfg = config_clone_loop.read().unwrap().clone();
