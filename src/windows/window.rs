@@ -368,7 +368,9 @@ pub fn restore_window_visibility(config: &Config) {
             // Actually SW_RESTORE is good if it was minimized. SW_SHOW doesn't restore from Minimize.
             // Let's use ShowWindowAsync if we want to be fast? No, we want to ensure it happens before we exit.
 
-            let _ = SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0,
+            // 3. Force Move to visual area and Show
+            // We use HWND_NOTOPMOST so it doesn't get stuck on top of everything after we quit.
+            let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0,
                 SWP_NOSIZE | SWP_SHOWWINDOW
             );
 
