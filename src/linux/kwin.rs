@@ -244,6 +244,96 @@ if (target) {
 }
 "#;
 
+const ENSURE_GRABBED_SCRIPT_BODY: &str = r#"
+var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+var target = null;
+
+for (var i = 0; i < clients.length; i++) {
+  var c = clients[i];
+  var match = false;
+  if (c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) match = true;
+  else if (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase()) match = true;
+  else if (c.caption && c.caption.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) match = true;
+  if (match) { target = c; break; }
+}
+
+if (target) {
+  var area = null;
+  var screens = workspace.screens;
+  if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) {
+    area = screens[displayIndex].geometry;
+  } else if (displayMode === "active") {
+    var activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
+    if (activeWin && activeWin !== target) {
+      area = workspace.clientArea(KWin.PlacementArea, activeWin);
+    } else {
+      area = workspace.activeScreen.geometry;
+    }
+  } else {
+    var cursorPos = workspace.cursorPos;
+    for (var i = 0; i < screens.length; i++) {
+      var geo = screens[i].geometry;
+      if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
+        cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
+        area = geo;
+        break;
+      }
+    }
+    if (!area) area = workspace.activeScreen.geometry;
+  }
+
+  var finalWidth = ( widthPct > 0 ) ? area.width * widthPct : target.frameGeometry.width;
+  var finalHeight = ( heightPct > 0 ) ? area.height * heightPct : target.frameGeometry.height;
+  var finalX = area.x + (area.width - finalWidth) / 2;
+  var finalY = area.y;
+
+  target.keepAbove = keepAbove;
+  target.onAllDesktops = true;
+  target.noBorder = true;
+  target.skipTaskbar = true;
+
+  target.frameGeometry = {
+    x: finalX,
+    y: finalY - finalHeight,
+    width: finalWidth,
+    height: finalHeight
+  };
+}
+"#;
+
+const RESTORE_SCRIPT_BODY: &str = r#"
+var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+var target = null;
+
+for (var i = 0; i < clients.length; i++) {
+  var c = clients[i];
+  if ((c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) ||
+    (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase())) {
+    target = c;
+    break;
+  }
+}
+if (target) {
+  target.minimized = false;
+  target.keepAbove = false;
+  target.onAllDesktops = false;
+  target.noBorder = false;
+  target.opacity = 1.0;
+
+  var geo = target.frameGeometry;
+  var area = workspace.clientArea(KWin.PlacementArea, target);
+
+  if (geo.y + geo.height <= area.y + 50) {
+    target.frameGeometry = {
+      x: geo.x,
+      y: area.y + 100,
+      width: geo.width,
+      height: geo.height
+    };
+  }
+}
+"#;
+
 /// Update focus state (capture previous window if not Ruake)
 /// Returns true if focus was updated
 fn update_focus_state(state: &mut KWinState, ruake_class: &str) {
@@ -373,83 +463,24 @@ pub async fn ensure_grabbed(config: &Config) -> Result<()> {
     let conn = Connection::session().await?;
     let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
-    let script = format!(
-        r#"
-var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-var target = null;
-var windowClass = "{window_class}";
-
-for (var i = 0; i < clients.length; i++) {{
-  var c = clients[i];
-  var match = false;
-  if (c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) match = true;
-  else if (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase()) match = true;
-  else if (c.caption && c.caption.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) match = true;
-  if (match) {{ target = c; break; }}
-}}
-
-if (target) {{
-  var displayMode = "{display_mode}";
-  var displayIndex = {display_index};
-  var widthPct = {width_percent} / 100.0;
-  var heightPct = {height_percent} / 100.0;
-
-  var keepAbove = {keep_above};
-
-  var area = null;
-  var screens = workspace.screens;
-  if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) {{
-    area = screens[displayIndex].geometry;
-  }} else if (displayMode === "active") {{
-    var activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
-    if (activeWin && activeWin !== target) {{
-      area = workspace.clientArea(KWin.PlacementArea, activeWin);
-    }} else {{
-      area = workspace.activeScreen.geometry;
-    }}
-  }} else {{
-    var cursorPos = workspace.cursorPos;
-    for (var i = 0; i < screens.length; i++) {{
-      var geo = screens[i].geometry;
-      if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
-        cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {{
-        area = geo;
-        break;
-      }}
-    }}
-    if (!area) area = workspace.activeScreen.geometry;
-  }}
-
-  var finalWidth = ( widthPct > 0 ) ? area.width * widthPct : target.frameGeometry.width;
-  var finalHeight = ( heightPct > 0 ) ? area.height * heightPct : target.frameGeometry.height;
-  var finalX = area.x + (area.width - finalWidth) / 2;
-  var finalY = area.y;
-
-  target.keepAbove = keepAbove;
-  target.onAllDesktops = true;
-  target.noBorder = true;
-  target.skipTaskbar = true;
-
-  target.frameGeometry = {{
-    x: finalX,
-    y: finalY - finalHeight,
-    width: finalWidth,
-    height: finalHeight
-  }};
-}}
-"#,
-        window_class = config.general.window_class,
-        display_mode = config.window.display_mode,
-        display_index = config.window.display_index,
-        width_percent = config.window.width_percent,
-        height_percent = config.window.height_percent,
-
-        keep_above = config.window.keep_above
-    );
-
     let unique_name = "quake_init";
     let tmp_path = std::env::temp_dir().join("quake_init.js");
-    fs::write(&tmp_path, script).expect("Failed to write init script");
+    {
+        use std::io::Write;
+        let file = std::fs::File::create(&tmp_path).expect("Failed to create init script");
+        let mut writer = std::io::BufWriter::new(file);
+
+        // Write config variables
+        writeln!(writer, "var windowClass = \"{}\";", config.general.window_class).unwrap();
+        writeln!(writer, "var displayMode = \"{}\";", config.window.display_mode).unwrap();
+        writeln!(writer, "var displayIndex = {};", config.window.display_index).unwrap();
+        writeln!(writer, "var widthPct = {} / 100.0;", config.window.width_percent).unwrap();
+        writeln!(writer, "var heightPct = {} / 100.0;", config.window.height_percent).unwrap();
+        writeln!(writer, "var keepAbove = {};", config.window.keep_above).unwrap();
+
+        // Write static script body
+        writer.write_all(ENSURE_GRABBED_SCRIPT_BODY.as_bytes()).unwrap();
+    }
     let tmp_path_str = tmp_path.to_string_lossy().to_string();
 
     let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name)).await?;
@@ -472,45 +503,19 @@ pub async fn restore_quake(config: &Config) -> Result<()> {
     let conn = Connection::session().await?;
     let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
-    let script = format!(
-        r#"
-var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-var target = null;
-var windowClass = "{window_class}";
-for (var i = 0; i < clients.length; i++) {{
-  var c = clients[i];
-  if ((c.resourceClass && c.resourceClass.toLowerCase() == windowClass.toLowerCase()) ||
-    (c.resourceName && c.resourceName.toLowerCase() == windowClass.toLowerCase())) {{
-    target = c;
-    break;
-  }}
-}}
-if (target) {{
-  target.minimized = false;
-  target.keepAbove = false;
-  target.onAllDesktops = false;
-  target.noBorder = false;
-  target.opacity = 1.0;
-
-  var geo = target.frameGeometry;
-  var area = workspace.clientArea(KWin.PlacementArea, target);
-
-  if (geo.y + geo.height <= area.y + 50) {{
-    target.frameGeometry = {{
-      x: geo.x,
-      y: area.y + 100,
-      width: geo.width,
-      height: geo.height
-    }};
-  }}
-}}
-"#,
-        window_class = config.general.window_class
-    );
-
     let unique_name = format!("goake_restore_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
     let tmp_path = std::env::temp_dir().join(format!("{}.js", unique_name));
-    fs::write(&tmp_path, script).expect("Failed to write restore script");
+    {
+        use std::io::Write;
+        let file = std::fs::File::create(&tmp_path).expect("Failed to create restore script");
+        let mut writer = std::io::BufWriter::new(file);
+
+        // Write config variable
+        writeln!(writer, "var windowClass = \"{}\";", config.general.window_class).unwrap();
+
+        // Write static script body
+        writer.write_all(RESTORE_SCRIPT_BODY.as_bytes()).unwrap();
+    }
     let tmp_path_str = tmp_path.to_string_lossy().to_string();
 
     let reply = proxy.call_method("loadScript", &(tmp_path_str, unique_name.as_str())).await?;

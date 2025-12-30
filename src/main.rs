@@ -1,4 +1,11 @@
 #![windows_subsystem = "windows"]
+
+// Use jemalloc as global allocator on Linux when feature is enabled
+// Improves memory performance for long-running daemons
+#[cfg(all(target_os = "linux", feature = "jemalloc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use clap::Parser;
 
 mod config;

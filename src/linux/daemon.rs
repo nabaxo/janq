@@ -120,10 +120,11 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
         }
     }
 
-    // Config Watcher (Thread)
+    // Config Watcher (Thread) - capture runtime handle to avoid creating new runtimes
     let config_clone = config.clone();
     // Clone path for thread
     let path_to_watch = config_path.clone();
+    let rt_handle = tokio::runtime::Handle::current();
 
     std::thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -164,9 +165,8 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
                         let mut w = config_clone.write().unwrap();
                         *w = Arc::new(new_config.clone());
                     }
-                    // Apply changes
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
+                    // Apply changes using captured runtime handle instead of creating new runtime
+                    rt_handle.block_on(async {
                         let _ = ensure_grabbed(&new_config).await;
                     });
                 },

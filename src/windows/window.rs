@@ -30,12 +30,28 @@ impl SendHwnd {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref ANIMATION_TASK: std::sync::Mutex<Option<tokio::task::AbortHandle>> = std::sync::Mutex::new(None);
-    static ref TARGET_VISIBLE: AtomicBool = AtomicBool::new(false);
-    static ref PREVIOUS_FOCUS: std::sync::Mutex<Option<SendHwnd>> = std::sync::Mutex::new(None);
-    static ref LAST_MONITOR: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
-    static ref CACHED_RUAKE_HWND: std::sync::Mutex<Option<SendHwnd>> = std::sync::Mutex::new(None);
+use std::sync::OnceLock;
+
+static ANIMATION_TASK: OnceLock<std::sync::Mutex<Option<tokio::task::AbortHandle>>> = OnceLock::new();
+static TARGET_VISIBLE: AtomicBool = AtomicBool::new(false);
+static PREVIOUS_FOCUS: OnceLock<std::sync::Mutex<Option<SendHwnd>>> = OnceLock::new();
+static LAST_MONITOR: OnceLock<std::sync::Mutex<Option<isize>>> = OnceLock::new();
+static CACHED_RUAKE_HWND: OnceLock<std::sync::Mutex<Option<SendHwnd>>> = OnceLock::new();
+
+fn get_animation_task() -> &'static std::sync::Mutex<Option<tokio::task::AbortHandle>> {
+    ANIMATION_TASK.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn get_previous_focus() -> &'static std::sync::Mutex<Option<SendHwnd>> {
+    PREVIOUS_FOCUS.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn get_last_monitor() -> &'static std::sync::Mutex<Option<isize>> {
+    LAST_MONITOR.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn get_cached_ruake_hwnd() -> &'static std::sync::Mutex<Option<SendHwnd>> {
+    CACHED_RUAKE_HWND.get_or_init(|| std::sync::Mutex::new(None))
 }
 
 // ... (helpers omitted for brevity if unchanged, but for replace_file_content we need context)
@@ -128,7 +144,7 @@ pub async fn toggle_window(config: &Config) -> bool {
     TARGET_VISIBLE.store(should_show, Ordering::Relaxed);
 
     {
-        let mut task_handle = ANIMATION_TASK.lock().unwrap();
+        let mut task_handle = get_animation_task().lock().unwrap();
         if let Some(handle) = task_handle.take() {
             handle.abort();
         }
@@ -138,7 +154,7 @@ pub async fn toggle_window(config: &Config) -> bool {
     // Check cache first
     let mut cached_hwnd = None;
     {
-        let cache = CACHED_RUAKE_HWND.lock().unwrap();
+        let cache = get_cached_ruake_hwnd().lock().unwrap();
         if let Some(h) = *cache {
              unsafe {
                  if windows::Win32::UI::WindowsAndMessaging::IsWindow(h.inner()).as_bool() {
@@ -153,7 +169,7 @@ pub async fn toggle_window(config: &Config) -> bool {
     } else {
         match find_window_by_process(&config.general.window_class) {
             Some(h) => {
-                let mut cache = CACHED_RUAKE_HWND.lock().unwrap();
+                let mut cache = get_cached_ruake_hwnd().lock().unwrap();
                 let wrapper = SendHwnd(h);
                 *cache = Some(wrapper);
                 wrapper
@@ -173,7 +189,7 @@ pub async fn toggle_window(config: &Config) -> bool {
     unsafe {
         let fg_window = GetForegroundWindow();
         if fg_window.0 != std::ptr::null_mut() && fg_window != hwnd.inner() {
-            let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+            let mut prev = get_previous_focus().lock().unwrap();
             *prev = Some(SendHwnd(fg_window));
         }
     }
@@ -212,7 +228,7 @@ pub async fn toggle_window(config: &Config) -> bool {
                         }
                     },
                     "active" => {
-                        let prev = PREVIOUS_FOCUS.lock().unwrap();
+                        let prev = get_previous_focus().lock().unwrap();
                         if let Some(h) = *prev {
                             MonitorFromWindow(h.0, MONITOR_DEFAULTTONEAREST)
                         } else {
@@ -235,11 +251,11 @@ pub async fn toggle_window(config: &Config) -> bool {
             // 1. If Showing: Update LAST_MONITOR and use current choice.
             // 2. If Hiding: Use LAST_MONITOR if available (ignore mouse).
             let final_monitor = if should_show {
-                let mut last = LAST_MONITOR.lock().unwrap();
+                let mut last = get_last_monitor().lock().unwrap();
                 *last = Some(monitor.0 as isize);
                 monitor
             } else {
-                let last = LAST_MONITOR.lock().unwrap();
+                let last = get_last_monitor().lock().unwrap();
                 if let Some(h) = *last {
                     HMONITOR(h as *mut std::ffi::c_void)
                 } else {
@@ -395,7 +411,7 @@ pub async fn toggle_window(config: &Config) -> bool {
 
 
                 let _ = ShowWindow(hwnd.inner(), SW_HIDE);
-                let mut prev = PREVIOUS_FOCUS.lock().unwrap();
+                let mut prev = get_previous_focus().lock().unwrap();
                 if let Some(h) = *prev {
                     if IsWindowVisible(h.0).as_bool() {
                         let _ = SetForegroundWindow(h.0);
@@ -407,7 +423,7 @@ pub async fn toggle_window(config: &Config) -> bool {
     });
 
     {
-        let mut task_handle = ANIMATION_TASK.lock().unwrap();
+        let mut task_handle = get_animation_task().lock().unwrap();
         *task_handle = Some(handle.abort_handle());
     }
     true

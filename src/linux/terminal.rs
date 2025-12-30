@@ -54,12 +54,16 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     false
 }
 
-lazy_static::lazy_static! {
-    static ref CACHED_PID: std::sync::Mutex<Option<(u32, String)>> = std::sync::Mutex::new(None);
+use std::sync::OnceLock;
+
+static CACHED_PID: OnceLock<std::sync::Mutex<Option<(u32, String)>>> = OnceLock::new();
+
+fn get_cached_pid() -> &'static std::sync::Mutex<Option<(u32, String)>> {
+    CACHED_PID.get_or_init(|| std::sync::Mutex::new(None))
 }
 
 pub fn check_process_running(target_class: &str) -> bool {
-    let mut cache = CACHED_PID.lock().unwrap();
+    let mut cache = get_cached_pid().lock().unwrap();
 
     // 1. Fast path: Check cached PID
     if let Some((pid, class)) = &*cache {
