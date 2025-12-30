@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::fs;
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize)]
 #[allow(dead_code)]
 pub struct Config {
     #[serde(default)]
@@ -11,6 +11,16 @@ pub struct Config {
     pub window: WindowConfig,
     #[serde(default)]
     pub animation: AnimationConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            general: GeneralConfig::default(),
+            window: WindowConfig::default(),
+            animation: AnimationConfig::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -22,8 +32,6 @@ pub struct GeneralConfig {
     #[serde(default = "default_hotkeys", deserialize_with = "deserialize_hotkeys")]
     #[allow(dead_code)]
     pub hotkey: Vec<String>,
-    #[serde(default)]
-    pub process_match: String,
 }
 
 impl Default for GeneralConfig {
@@ -32,7 +40,6 @@ impl Default for GeneralConfig {
             window_class: default_window_class(),
             start_command: default_start_command(),
             hotkey: default_hotkeys(),
-            process_match: String::new(),
         }
     }
 }
