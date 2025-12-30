@@ -4,6 +4,7 @@ use std::fs;
 
 #[derive(Clone, Debug, Deserialize)]
 #[allow(dead_code)]
+#[derive(Default)]
 pub struct Config {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -13,15 +14,6 @@ pub struct Config {
     pub animation: AnimationConfig,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            window: WindowConfig::default(),
-            animation: AnimationConfig::default(),
-        }
-    }
-}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct GeneralConfig {

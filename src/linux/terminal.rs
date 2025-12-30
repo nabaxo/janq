@@ -1,10 +1,11 @@
 use std::fs;
 use std::process::{Command, Stdio};
-use std::thread;
+use tokio;
 use std::time::Duration;
+use zbus::Connection;
 use crate::config::Config;
 
-pub async fn ensure_terminal_running(config: &Config) -> bool {
+pub async fn ensure_terminal_running(config: &Config, conn: &Connection) -> bool {
     // 1. Precise process + class check
     if check_process_running(&config.general.window_class) {
         return false;
@@ -44,12 +45,12 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
         if check_process_running(&config.general.window_class) {
             println!("Terminal process detected.");
             // Give it time to map the window
-            thread::sleep(Duration::from_secs(1));
+            tokio::time::sleep(Duration::from_secs(1)).await;
             // Call ensure_grabbed (async)
-            let _ = crate::linux::kwin::ensure_grabbed(config).await;
+            let _ = crate::linux::kwin::ensure_grabbed(config, conn).await;
             return true;
         }
-        thread::sleep(Duration::from_millis(300));
+        tokio::time::sleep(Duration::from_millis(300)).await;
     }
     false
 }

@@ -378,17 +378,17 @@ fn update_focus_state(state: &mut KWinState, ruake_class: &str) {
     }
 }
 
-pub async fn toggle_quake(config: &Config) -> Result<()> {
+pub async fn toggle_quake(config: &Config, conn: &Connection) -> Result<()> {
     // Acquire lock (ASYNC)
     let mut state = STATE.lock().await;
 
     // 0. Ensure Terminal
-    if crate::terminal::ensure_terminal_running(config).await {
+    if crate::terminal::ensure_terminal_running(config, conn).await {
         state.target_visible = false;
     }
 
-    let conn = Connection::session().await?;
-    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+    // let conn = Connection::session().await?; // Reusing passed connection
+    let proxy = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
     let script_name = "ruake_toggle";
     // 1. Unload previous script if exists
@@ -446,7 +446,7 @@ pub async fn toggle_quake(config: &Config) -> Result<()> {
 
     if script_id >= 0 {
         let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+        let script_proxy = zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
         script_proxy.call_method("run", &()).await?;
 
         // Spawn async task to remove temp file, but no longer unloads (we unload at start of next toggle)
@@ -459,9 +459,9 @@ pub async fn toggle_quake(config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub async fn ensure_grabbed(config: &Config) -> Result<()> {
-    let conn = Connection::session().await?;
-    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+pub async fn ensure_grabbed(config: &Config, conn: &Connection) -> Result<()> {
+    // let conn = Connection::session().await?;
+    let proxy = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
     let unique_name = "quake_init";
     let tmp_path = std::env::temp_dir().join("quake_init.js");
@@ -488,7 +488,7 @@ pub async fn ensure_grabbed(config: &Config) -> Result<()> {
 
     if script_id >= 0 {
         let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+        let script_proxy = zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
         script_proxy.call_method("run", &()).await?;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -499,9 +499,9 @@ pub async fn ensure_grabbed(config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub async fn restore_quake(config: &Config) -> Result<()> {
-    let conn = Connection::session().await?;
-    let proxy = zbus::Proxy::new(&conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+pub async fn restore_quake(config: &Config, conn: &Connection) -> Result<()> {
+    // let conn = Connection::session().await?;
+    let proxy = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
 
     let unique_name = format!("goake_restore_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
     let tmp_path = std::env::temp_dir().join(format!("{}.js", unique_name));
@@ -523,7 +523,7 @@ pub async fn restore_quake(config: &Config) -> Result<()> {
 
     if script_id >= 0 {
         let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(&conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+        let script_proxy = zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
         script_proxy.call_method("run", &()).await?;
 
         tokio::time::sleep(Duration::from_millis(300)).await;

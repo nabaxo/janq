@@ -1,10 +1,6 @@
 #![windows_subsystem = "windows"]
 
-// Use jemalloc as global allocator on Linux when feature is enabled
-// Improves memory performance for long-running daemons
-#[cfg(all(target_os = "linux", feature = "jemalloc"))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 
 use clap::Parser;
 
@@ -38,7 +34,9 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        let rt = tokio::runtime::Runtime::new()?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
         rt.block_on(async {
             if args.daemon {
                 daemon::run_daemon(config, config_path, false).await?;

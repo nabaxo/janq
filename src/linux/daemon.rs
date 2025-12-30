@@ -11,19 +11,21 @@ use image::GenericImageView;
 
 struct QuakeDaemon {
     config: Arc<RwLock<Arc<Config>>>,
+    conn: Connection,
 }
 
 #[interface(name = "dev.nabaxo.ruake")]
 impl QuakeDaemon {
     async fn toggle(&self) {
         let config = { self.config.read().unwrap().clone() };
-        let _ = toggle_quake(&config).await;
+        let _ = toggle_quake(&config, &self.conn).await;
     }
 }
 
 struct StatusNotifierItem {
     config: Arc<RwLock<Arc<Config>>>,
     icon_cache: IconPixmap,
+    conn: Connection,
 }
 
 type IconPixmap = Vec<(i32, i32, Vec<u8>)>;
@@ -32,16 +34,18 @@ type IconPixmap = Vec<(i32, i32, Vec<u8>)>;
 impl StatusNotifierItem {
     fn activate(&self, _x: i32, _y: i32) {
         let config = { self.config.read().unwrap().clone() };
+        let conn = self.conn.clone();
         tokio::spawn(async move {
-            let _ = toggle_quake(&config).await;
+            let _ = toggle_quake(&config, &conn).await;
         });
     }
 
     fn secondary_activate(&self, _x: i32, _y: i32) {
         println!("Quit requested via tray icon...");
         let config = { self.config.read().unwrap().clone() };
+        let conn = self.conn.clone();
         tokio::spawn(async move {
-            let _ = restore_quake(&config).await;
+            let _ = restore_quake(&config, &conn).await;
             std::process::exit(0);
         });
     }
@@ -77,7 +81,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
     conn.request_name(sni_name.clone()).await?;
 
     // Export interfaces
-    let daemon = QuakeDaemon { config: config.clone() };
+    let daemon = QuakeDaemon { config: config.clone(), conn: conn.clone() };
     conn.object_server().at("/dev/nabaxo/ruake", daemon).await?;
     conn.request_name("dev.nabaxo.ruake").await?;
 
@@ -99,7 +103,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
          vec![]
     };
 
-    let sni = StatusNotifierItem { config: config.clone(), icon_cache };
+    let sni = StatusNotifierItem { config: config.clone(), icon_cache, conn: conn.clone() };
     conn.object_server().at("/StatusNotifierItem", sni).await?;
 
     // Register with Watcher
@@ -111,17 +115,18 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
     // Initial setup
     {
         let cfg = config.read().unwrap().clone();
-        ensure_terminal_running(&cfg).await;
-        let _ = ensure_grabbed(&cfg).await;
+        ensure_terminal_running(&cfg, &conn).await;
+        let _ = ensure_grabbed(&cfg, &conn).await;
 
         if auto_show {
             sleep(Duration::from_millis(500)).await;
-            let _ = toggle_quake(&cfg).await;
+            let _ = toggle_quake(&cfg, &conn).await;
         }
     }
 
     // Config Watcher (Thread) - capture runtime handle to avoid creating new runtimes
     let config_clone = config.clone();
+    let conn_clone = conn.clone();
     // Clone path for thread
     let path_to_watch = config_path.clone();
     let rt_handle = tokio::runtime::Handle::current();
@@ -167,7 +172,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
                     }
                     // Apply changes using captured runtime handle instead of creating new runtime
                     rt_handle.block_on(async {
-                        let _ = ensure_grabbed(&new_config).await;
+                        let _ = ensure_grabbed(&new_config, &conn_clone).await;
                     });
                 },
                 Err(e) => println!("Watch error: {:?}", e),
@@ -177,6 +182,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
 
     // Respawn Loop
     let config_clone2 = config.clone();
+    let conn_clone2 = conn.clone();
     tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(2)).await;
@@ -187,11 +193,11 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
 
             if !check_process_running(&target_class) {
                 println!("Terminal process closed. Respawning...");
-                if ensure_terminal_running(&cfg_clone).await {
+                if ensure_terminal_running(&cfg_clone, &conn_clone2).await {
                     println!("Respawn successful.");
                     reset_visibility().await;
                     sleep(Duration::from_millis(500)).await;
-                    let _ = toggle_quake(&cfg_clone).await;
+                    let _ = toggle_quake(&cfg_clone, &conn_clone2).await;
                 }
             }
         }
@@ -202,7 +208,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
         Ok(()) => {
              println!("Shutting down...");
              let cfg = config.read().unwrap().clone();
-             let _ = restore_quake(&cfg).await;
+             let _ = restore_quake(&cfg, &conn).await;
         },
         Err(err) => {
              eprintln!("Unable to listen for shutdown signal: {}", err);
