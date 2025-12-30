@@ -8,9 +8,15 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     // 1. Precise process + class check
     // Extract binary name from start command as a hint (e.g. "zed" from "zed --new")
     let cmd_parts: Vec<&str> = config.general.start_command.split_whitespace().collect();
-    let process_hint = cmd_parts.first().map(|s| *s);
+    let process_hint = cmd_parts.first().copied();
 
-    if check_process_running(&config.general.window_class, process_hint) {
+    let process_match = if config.general.process_match.is_empty() {
+        None
+    } else {
+        Some(config.general.process_match.as_str())
+    };
+
+    if check_process_running(&config.general.window_class, process_hint, process_match) {
         return false;
     }
 
@@ -43,7 +49,7 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
 
     // Wait for process to appear
     for _ in 0..20 {
-        if check_process_running(&config.general.window_class, process_hint) {
+        if check_process_running(&config.general.window_class, process_hint, process_match) {
             println!("Terminal process detected.");
             // Give it time to map the window
             thread::sleep(Duration::from_secs(1));
@@ -64,14 +70,14 @@ fn get_cached_pid() -> &'static std::sync::Mutex<Option<(u32, String)>> {
     CACHED_PID.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-pub fn check_process_running(target_class: &str, process_name_hint: Option<&str>) -> bool {
+pub fn check_process_running(target_class: &str, process_name_hint: Option<&str>, process_match: Option<&str>) -> bool {
     let mut cache = get_cached_pid().lock().unwrap();
 
     // 1. Fast path: Check cached PID
     if let Some((pid, class)) = &*cache {
          if class == target_class {
              // Verify if process still exists and verify identity
-             if verify_pid_matches(*pid, target_class, process_name_hint) {
+             if verify_pid_matches(*pid, target_class, process_name_hint, process_match) {
                  return true;
              }
          }
@@ -92,7 +98,7 @@ pub fn check_process_running(target_class: &str, process_name_hint: Option<&str>
             if let Ok(pid) = name.parse::<u32>() {
                 if pid == my_pid { continue; }
 
-                if verify_pid_matches(pid, target_class, process_name_hint) {
+                if verify_pid_matches(pid, target_class, process_name_hint, process_match) {
                     *cache = Some((pid, target_class.to_string()));
                     return true;
                 }
@@ -102,7 +108,21 @@ pub fn check_process_running(target_class: &str, process_name_hint: Option<&str>
     false
 }
 
-fn verify_pid_matches(pid: u32, target_class: &str, process_name_hint: Option<&str>) -> bool {
+fn verify_pid_matches(pid: u32, target_class: &str, process_name_hint: Option<&str>, process_match: Option<&str>) -> bool {
+    // Priority 0: Explicit Process Match (Configured Loophole)
+    if let Some(pm) = process_match {
+        if let Ok(exe) = fs::read_link(format!("/proc/{}/exe", pid)) {
+            let exe_str = exe.to_string_lossy().to_lowercase();
+            if exe_str.contains(&pm.to_lowercase()) {
+                return true;
+            }
+        }
+        // If process_match is set, we ONLY check that? Or do we allow fallbacks?
+        // Let's allow fallbacks, but usually if this is set, it's the intended way.
+        // Actually, if the user set this, they likely rely on it. But falling back corrects misconfiguration?
+        // Let's safe fallback to other methods just in case.
+    }
+
     let cmdline_path = format!("/proc/{}/cmdline", pid);
     if let Ok(cmdline) = fs::read(cmdline_path) {
         // Split by null byte
