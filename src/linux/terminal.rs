@@ -6,7 +6,11 @@ use crate::config::Config;
 
 pub async fn ensure_terminal_running(config: &Config) -> bool {
     // 1. Precise process + class check
-    if check_process_running(&config.general.window_class) {
+    // Extract binary name from start command as a hint (e.g. "zed" from "zed --new")
+    let cmd_parts: Vec<&str> = config.general.start_command.split_whitespace().collect();
+    let process_hint = cmd_parts.first().map(|s| *s);
+
+    if check_process_running(&config.general.window_class, process_hint) {
         return false;
     }
 
@@ -14,13 +18,11 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
         return false;
     }
 
-    let mut full_cmd = config.general.start_command.clone();
+    let full_cmd = config.general.start_command.clone();
 
-
-    // Logic to inject flags
-    if !full_cmd.contains("--class") {
-        full_cmd.push_str(&format!(" --class {}", config.general.window_class));
-    }
+    // Logic to inject flags - REMOVED
+    // We do NOT want to inject --class automatically because many apps (like Zed) don't support it.
+    // If the user wants --class, they should add it to start_command.
 
     println!("Starting terminal: {}", full_cmd);
 
@@ -41,7 +43,7 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
 
     // Wait for process to appear
     for _ in 0..20 {
-        if check_process_running(&config.general.window_class) {
+        if check_process_running(&config.general.window_class, process_hint) {
             println!("Terminal process detected.");
             // Give it time to map the window
             thread::sleep(Duration::from_secs(1));
@@ -62,14 +64,14 @@ fn get_cached_pid() -> &'static std::sync::Mutex<Option<(u32, String)>> {
     CACHED_PID.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-pub fn check_process_running(target_class: &str) -> bool {
+pub fn check_process_running(target_class: &str, process_name_hint: Option<&str>) -> bool {
     let mut cache = get_cached_pid().lock().unwrap();
 
     // 1. Fast path: Check cached PID
     if let Some((pid, class)) = &*cache {
          if class == target_class {
              // Verify if process still exists and verify identity
-             if verify_pid_matches(*pid, target_class) {
+             if verify_pid_matches(*pid, target_class, process_name_hint) {
                  return true;
              }
          }
@@ -90,7 +92,7 @@ pub fn check_process_running(target_class: &str) -> bool {
             if let Ok(pid) = name.parse::<u32>() {
                 if pid == my_pid { continue; }
 
-                if verify_pid_matches(pid, target_class) {
+                if verify_pid_matches(pid, target_class, process_name_hint) {
                     *cache = Some((pid, target_class.to_string()));
                     return true;
                 }
@@ -100,7 +102,7 @@ pub fn check_process_running(target_class: &str) -> bool {
     false
 }
 
-fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
+fn verify_pid_matches(pid: u32, target_class: &str, process_name_hint: Option<&str>) -> bool {
     let cmdline_path = format!("/proc/{}/cmdline", pid);
     if let Ok(cmdline) = fs::read(cmdline_path) {
         // Split by null byte
@@ -126,13 +128,31 @@ fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
         let full_cmd_binding = cmdline.iter().map(|&b| if b == 0 { 32 } else { b }).collect::<Vec<u8>>();
         let full_cmd = String::from_utf8_lossy(&full_cmd_binding);
 
+        // Check 1: If command line contains class, verify via EXE
         if full_cmd.contains(target_class) {
             // Check exe
             if let Ok(exe) = fs::read_link(format!("/proc/{}/exe", pid)) {
                 let exe_str = exe.to_string_lossy().to_lowercase();
-                if exe_str.contains("wezterm") || exe_str.contains("alacritty") || exe_str.contains("kitty") {
+
+                // If the executable name contains the target class (e.g. "zed" contains "zed"), it's a match.
+                if exe_str.contains(&target_class.to_lowercase())
+                   || exe_str.contains("wezterm")
+                   || exe_str.contains("alacritty")
+                   || exe_str.contains("kitty") {
                     return true;
                 }
+            }
+        }
+
+        // Check 2: If we have a hint (binary name), check EXE directly
+        // This handles cases where command line doesn't ANYWHERE mention the class (e.g. "zed" vs "dev.zed.zed")
+        if let Some(hint) = process_name_hint {
+            if let Ok(exe) = fs::read_link(format!("/proc/{}/exe", pid)) {
+                 let exe_str = exe.to_string_lossy().to_lowercase();
+                 // Matches if exe path contains the simplified hint (e.g. "/usr/bin/zed" contains "zed")
+                 if exe_str.contains(&hint.to_lowercase()) {
+                     return true;
+                 }
             }
         }
     }

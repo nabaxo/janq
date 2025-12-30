@@ -180,12 +180,16 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
     tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(2)).await;
-            let (target_class, cfg_clone) = {
+            let (target_class, start_cmd, cfg_clone) = {
                 let c = config_clone2.read().unwrap();
-                (c.general.window_class.clone(), c.clone())
+                (c.general.window_class.clone(), c.general.start_command.clone(), c.clone())
             };
 
-            if !check_process_running(&target_class) {
+            // Extract hint
+            let cmd_parts: Vec<&str> = start_cmd.split_whitespace().collect();
+            let process_hint = cmd_parts.first().map(|s| *s);
+
+            if !check_process_running(&target_class, process_hint) {
                 println!("Terminal process closed. Respawning...");
                 if ensure_terminal_running(&cfg_clone).await {
                     println!("Respawn successful.");
