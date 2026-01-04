@@ -152,18 +152,43 @@ impl ShortcutFile {
             String::new()
         };
 
-        let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        let mut sf = Self {
+            path,
+            lines: content.lines().map(|s| s.to_string()).collect(),
+            modified: false,
+        };
 
-        // Cleanup legacy section if exists
-        if let Some(legacy_idx) = lines.iter().position(|l| l == "[dev.nabaxo.ruake.desktop]") {
-            let mut end_idx = legacy_idx + 1;
-            while end_idx < lines.len() && !lines[end_idx].starts_with('[') {
-                end_idx += 1;
+        sf.scrub()?;
+
+        Ok(sf)
+    }
+
+    pub fn scrub(&mut self) -> Result<()> {
+        let section_header = "[services][dev.nabaxo.ruake.desktop]";
+        let mut new_lines = Vec::new();
+        let mut in_section = false;
+        let original_count = self.lines.len();
+
+        for line in &self.lines {
+            if line.trim() == section_header {
+                in_section = true;
+                continue; // Skip the section header itself
             }
-            lines.drain(legacy_idx..end_idx);
+            if in_section && line.trim().starts_with('[') {
+                in_section = false; // End of the target section
+            }
+            if !in_section { // If not inside the target section, keep the line
+                new_lines.push(line.clone());
+            }
         }
 
-        Ok(Self { path, lines, modified: false })
+        if original_count != new_lines.len() {
+            println!("Hotkey: Removed {} lines from Ruake section in kglobalshortcutsrc", original_count - new_lines.len());
+            self.lines = new_lines;
+            self.modified = true;
+        }
+
+        Ok(())
     }
 
     fn upsert(&mut self, app_name: &str, value: &str) {
@@ -198,7 +223,7 @@ impl ShortcutFile {
                 self.modified = true;
             }
         } else {
-            if !self.lines.is_empty() && !self.lines.last().is_none_or(|s| s.is_empty()) {
+            if !self.lines.is_empty() && !self.lines.last().is_some_and(|s| s.is_empty()) {
                 self.lines.push(String::new());
             }
             self.lines.push(section_header.to_string());
@@ -233,42 +258,56 @@ impl ShortcutFile {
     }
 }
 
-pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> Result<()> {
+pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) -> Result<()> {
     let component = "dev.nabaxo.ruake.desktop";
     let conn = zbus::Connection::session().await?;
     let proxy = KGlobalAccelProxy::new(&conn).await?;
 
     let mut sf = ShortcutFile::load()?;
 
-    // SAFEGUARD: Collect actions to unregister first, then process with delays
+    // 1. D-BUS UNREGISTER: Release all shortcuts first to avoid clobbering kglobalshortcutsrc
     // This avoids rapid-fire D-Bus calls that can trigger KWin race conditions
     let mut actions_to_remove = Vec::new();
+    let components_to_clean = ["dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
 
-    if let Ok(all_actions) = proxy.all_actions_for_component(vec![component.to_string()]).await {
-        for action_info in all_actions {
-            if action_info.len() >= 2 {
-                let action_name = &action_info[1];
-                if !config.app.contains_key(action_name) {
-                    actions_to_remove.push(action_name.clone());
+    println!("Hotkey: Collecting actions to unregister...");
+    for comp in components_to_clean {
+        if let Ok(all_actions) = proxy.all_actions_for_component(vec![comp.to_string()]).await {
+            for action_info in all_actions {
+                if action_info.len() >= 2 {
+                    let action_name = &action_info[1];
+                    actions_to_remove.push((comp.to_string(), action_name.clone()));
                 }
             }
         }
     }
 
-    // SAFEGUARD: Process removals with delays between each operation
-    for action_name in &actions_to_remove {
-        println!("✓ Releasing shortcut for removed app: {}", action_name);
-        // Delay BEFORE unregister to let KWin stabilize
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let _ = proxy.unregister(component, action_name).await;
-        sf.remove(action_name);
+    // Add current apps to the list just in case they aren't listed
+    for app_name in &config.app_order {
+        if !actions_to_remove.iter().any(|(c, a)| c == component && a == app_name) {
+            actions_to_remove.push((component.to_string(), app_name.clone()));
+        }
     }
 
-    // SAFEGUARD: Wait after all removals before proceeding
+    println!("Hotkey: Found {} actions to unregister.", actions_to_remove.len());
+
+    // Process removals with delays
+    for (comp, action_name) in &actions_to_remove {
+        println!("Hotkey: Releasing shortcut '{}' from component '{}'", action_name, comp);
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+        let _ = proxy.unregister(comp, action_name).await;
+        if comp == component {
+            sf.remove(action_name);
+        }
+    }
+
     if !actions_to_remove.is_empty() {
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        println!("Hotkey: Finished unregistering actions. Waiting for KWin to settle...");
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     }
 
+    // 3. Update kglobalshortcutsrc file with current configuration
+    println!("Hotkey: Updating kglobalshortcutsrc file...");
     for app_name in &config.app_order {
         if let Some(app_cfg) = config.app.get(app_name) {
             let hotkeys = app_cfg.hotkey.as_vec();
@@ -281,73 +320,71 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
             sf.upsert(app_name, &val);
         }
     }
-
     sf.save()?;
+    println!("Hotkey: kglobalshortcutsrc file updated.");
 
-    // Sync only once after all file updates
-    let _ = tokio::process::Command::new("kbuildsycoca6").arg("--noincremental").status().await;
+    // 4. Force KDE to reload desktop files
+    println!("Hotkey: Forcing KDE to reload desktop files with kbuildsycoca6...");
+    let status = tokio::process::Command::new("kbuildsycoca6").arg("--noincremental").status().await;
+    match status {
+        Ok(s) if s.success() => println!("Hotkey: kbuildsycoca6 completed successfully."),
+        Ok(s) => eprintln!("WARN: kbuildsycoca6 failed with status: {}", s),
+        Err(e) => eprintln!("WARN: Failed to execute kbuildsycoca6: {}", e),
+    }
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await; // Solid 1s delay
 
-    // SAFEGUARD: Longer delay after kbuildsycoca6 to let KDE fully process changes
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
+    // 5. Register actions and set shortcuts via D-Bus
+    println!("Hotkey: Registering and setting shortcuts via D-Bus...");
     for app_name in &config.app_order {
         if let Some(app_cfg) = config.app.get(app_name) {
             let hotkeys = app_cfg.hotkey.as_vec();
-
-            // SAFEGUARD: Check if we even need to touch this app's registration
-            let mut needs_registration = true;
-            let mut needs_shortcut_update = true;
-
-            if let Some(old) = old_config {
-                if let Some(old_app) = old.app.get(app_name) {
-                    needs_registration = false; // Already registered
-                    if old_app.hotkey == app_cfg.hotkey {
-                        needs_shortcut_update = false; // Same keys
-                    }
-                }
-            }
-
-            if !needs_registration && !needs_shortcut_update {
-                continue; // Skip entirely for this app
-            }
+            if hotkeys.is_empty() { continue; }
 
             let display_name = format!("Toggle {}", app_name);
             let action_id = vec![
                 component.to_string(),
                 app_name.to_string(),
-                "Ruake".to_string(), // Group/Category?
-                display_name.clone(), // Display Name
+                "Ruake".to_string(),
+                display_name.clone(),
             ];
 
-            if needs_registration || needs_shortcut_update {
-                let _ = proxy.unregister(component, app_name).await;
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                let _ = proxy.do_register(action_id.clone()).await;
+            println!("Hotkey: Syncing app '{}'...", app_name);
+
+            if let Err(e) = proxy.do_register(action_id.clone()).await {
+                 eprintln!("WARN: doRegister failed for '{}': {}", app_name, e);
+            } else {
+                println!("Hotkey: Registered action for '{}'.", app_name);
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+            let mut key_seq = vec![0; 4];
+            for (i, hk) in hotkeys.iter().enumerate().take(4) {
+                key_seq[i] = shortcut_to_keycode(hk);
             }
 
-            if needs_shortcut_update {
-                let mut key_seq = vec![0; 4];
-                for (i, hk) in hotkeys.iter().enumerate().take(4) {
-                    key_seq[i] = shortcut_to_keycode(hk);
+            if key_seq[0] != 0 {
+                println!("Hotkey: Setting keys for '{}': {:?}", app_name, hotkeys);
+                match proxy.set_shortcut(action_id.clone(), key_seq.clone(), 3).await {
+                    Ok(res) => {
+                        if res.is_empty() {
+                             eprintln!("WARN: KGlobalAccel REJECTED shortcuts for '{}'. Conflict or KDE limit.", app_name);
+                        } else if res.len() < hotkeys.len() {
+                             eprintln!("WARN: KGlobalAccel partially accepted shortcuts for '{}' ({}/{}).", app_name, res.len(), hotkeys.len());
+                        } else {
+                            println!("Hotkey: Successfully set shortcuts for '{}'.", app_name);
+                        }
+                    },
+                    Err(e) => eprintln!("WARN: setShortcut failed for '{}': {}", app_name, e),
                 }
-
-                if key_seq[0] != 0 {
-                    println!("Hotkey: Updating shortcuts for '{}'...", app_name);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                    match proxy.set_shortcut(action_id, key_seq.clone(), 3).await {
-                        Ok(res) => {
-                            if res.len() < hotkeys.len() || (res.len() >= hotkeys.len() && res != key_seq) {
-                                 eprintln!("WARN: KGlobalAccel rejected some shortcuts for '{}'. Conflict or KDE limit.", app_name);
-                            }
-                        },
-                        Err(e) => eprintln!("WARN: setShortcut failed for '{}': {}", app_name, e),
-                    }
-                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            } else {
+                println!("Hotkey: No valid key sequence for '{}', skipping setShortcut.", app_name);
             }
         }
     }
+    println!("Hotkey: All applications synced.");
 
-    // SAFEGUARD: Final delay to let KWin fully stabilize before returning
+    // 6. Final safety delay
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     Ok(())

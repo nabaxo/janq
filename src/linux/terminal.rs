@@ -100,7 +100,11 @@ fn run_kdotool_search(pattern: &str) -> Option<String> {
         Ok(out) if out.status.success() => {
             let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !s.is_empty() {
-                return s.lines().next().map(|l| l.to_string());
+                let lines: Vec<&str> = s.lines().collect();
+                if lines.len() > 1 {
+                    println!("Ruake: Warning: Multiple windows ({}) found for pattern '{}'. Picking the first one ({}). Ensure each app has a unique window_class for best results.", lines.len(), pattern, lines[0]);
+                }
+                return Some(lines[0].to_string());
             }
         }
         _ => {}

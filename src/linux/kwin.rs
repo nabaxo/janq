@@ -211,11 +211,15 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
     var area = shouldShow ? targetArea : currentArea;
 
+    var startX = target.frameGeometry.x;
     var startY = target.frameGeometry.y;
     var startOpacity = target.opacity;
     var areaTop = area.y;
     var isMostlyHidden = (startY + target.frameGeometry.height <= areaTop + 50) || (target.opacity < 0.1);
-    var needsReposition = isMostlyHidden || (startY > areaTop + 50 || startY < areaTop - 50);
+
+    // MONITOR AWARENESS: Check if we are on the wrong monitor horizontally
+    var onWrongMonitor = (startX < area.x - 10) || (startX > area.x + area.width + 10);
+    var needsReposition = isMostlyHidden || (startY > areaTop + 50 || startY < areaTop - 50) || onWrongMonitor;
 
     var finalWidth = target.frameGeometry.width;
     var finalHeight = target.frameGeometry.height;
@@ -242,84 +246,114 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
     if (shouldShow) {
-        target.fullScreen = true;
+        target.keepAbove = true;
         if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
         else workspace.activeClient = target;
 
-        if (needsReposition) {
-             startY = areaTop - finalHeight;
-             if (animateOpacity) startOpacity = 0.0;
-             else startOpacity = 1.0;
-             target.opacity = startOpacity;
-             target.frameGeometry = { x: finalX, y: startY, width: finalWidth, height: finalHeight };
-        }
+        // Defined inside the scope to capture variables (startX, startY, finalX, finalY, etc.)
+        function startAnimation() {
+            target.keepAbove = true;
 
-        if (duration > 0) {
-          var startTime = new Date().getTime();
-          var diff = finalY - startY;
-          var siblingDatas = [];
-          for (var s = 0; s < siblingsToHide.length; s++) {
-              var sib = siblingsToHide[s];
-              siblingDatas.push({
-                  client: sib,
-                  startY: sib.frameGeometry.y,
-                  startOpacity: sib.opacity,
-                  endY: area.y - sib.frameGeometry.height
+            if (duration > 0) {
+              var startTime = Date.now();
+              var diff = finalY - startY;
+              var siblingDatas = [];
+              for (var s = 0; s < siblingsToHide.length; s++) {
+                  var sib = siblingsToHide[s];
+                  siblingDatas.push({
+                      client: sib,
+                      startY: sib.frameGeometry.y,
+                      startOpacity: sib.opacity,
+                      endY: area.y - sib.frameGeometry.height
+                  });
+              }
+
+              var firstFrame = true;
+              var timer = new QTimer();
+              timer.interval = 16;
+              timer.timeout.connect(function() {
+                var now = Date.now();
+                var elapsed = now - startTime;
+                var progress = Math.min(elapsed / duration, 1.0);
+                var ease = getEasing(progress, easingType);
+
+                if (firstFrame) {
+                    // Restore visibility and fullscreen only on the first frame to ensure teleport has finished
+                    target.fullScreen = true;
+                    if (animateOpacity) target.opacity = 0.0;
+                    else target.opacity = 1.0;
+                    firstFrame = false;
+                }
+
+                var currentY = startY + diff * ease;
+                if (animateOpacity) {
+                    target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * progress);
+                } else {
+                    target.opacity = 1.0;
+                }
+                target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
+
+                for (var d = 0; d < siblingDatas.length; d++) {
+                    var data = siblingDatas[d];
+                    var sibY = data.startY + (data.endY - data.startY) * ease;
+                    data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+                    if (animateOpacity) data.client.opacity = Math.max(0, data.startOpacity * (1.0 - progress));
+                }
+
+                if (progress >= 1.0) {
+                  timer.stop();
+                  target.opacity = 1.0;
+                  target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+                  if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
+                  else workspace.activeClient = target;
+                  for (var d = 0; d < siblingDatas.length; d++) {
+                      var data = siblingDatas[d];
+                      data.client.opacity = 0.0;
+                      data.client.frameGeometry = { x: data.client.frameGeometry.x, y: area.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+                  }
+                }
               });
-          }
-
-          var timer = new QTimer();
-          timer.interval = 16;
-          timer.timeout.connect(function() {
-            var now = new Date().getTime();
-            var elapsed = now - startTime;
-            var progress = Math.min(elapsed / duration, 1.0);
-            var ease = getEasing(progress, easingType);
-
-            var currentY = startY + diff * ease;
-            if (animateOpacity) {
-                target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * progress);
+              timer.start();
             } else {
-                target.opacity = 1.0;
-            }
-            target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
-
-            for (var d = 0; d < siblingDatas.length; d++) {
-                var data = siblingDatas[d];
-                var sibY = data.startY + (data.endY - data.startY) * ease;
-                data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-                if (animateOpacity) data.client.opacity = Math.max(0, data.startOpacity * (1.0 - progress));
-            }
-
-            if (progress >= 1.0) {
-              timer.stop();
               target.opacity = 1.0;
               target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
-              if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
-              else workspace.activeClient = target;
-              for (var d = 0; d < siblingDatas.length; d++) {
-                  var data = siblingDatas[d];
-                  data.client.opacity = 0.0;
-                  data.client.frameGeometry = { x: data.client.frameGeometry.x, y: area.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-              }
             }
-          });
-          timer.start();
+        }
+
+        if (needsReposition) {
+             target.opacity = 0.0;
+             target.fullScreen = false; // MUST be false to move between screens
+             var jumpY = areaTop - finalHeight;
+             target.frameGeometry = { x: finalX, y: jumpY, width: finalWidth, height: finalHeight };
+
+             // Ground truth update: use the values we just set!
+             startX = finalX;
+             startY = jumpY;
+
+             if (animateOpacity) startOpacity = 0.0;
+             else startOpacity = 1.0;
+
+             // Sync delay: Wait for KWin to process the geometry change before starting animation
+             var delayTimer = new QTimer();
+             delayTimer.interval = 100;
+             delayTimer.singleShot = true;
+             delayTimer.timeout.connect(startAnimation);
+             delayTimer.start();
         } else {
-          target.opacity = 1.0;
-          target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+             // No reposition needed, start immediately
+             startAnimation();
         }
     } else {
         var endY = area.y - finalHeight;
         wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
 
         if (duration > 0) {
-          var startTime = new Date().getTime();
+          var startTime = Date.now();
           var diff = endY - startY;
           var timer = new QTimer();
           timer.interval = 16;
           timer.timeout.connect(function() {
-            var now = new Date().getTime();
+            var now = Date.now();
             var elapsed = now - startTime;
             var progress = Math.min(elapsed / duration, 1.0);
             var ease = getEasing(progress, easingType);
@@ -336,9 +370,6 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               target.opacity = 0.0;
               target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
               target.fullScreen = false;
-              target.keepAbove = keepAbove;
-              target.skipTaskbar = true;
-              target.skipPager = true;
               if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
               if (wasActive && prevWindowId && prevWindowId !== "") {
@@ -359,74 +390,74 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
           target.opacity = 0.0;
           target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
           target.fullScreen = false;
-          target.keepAbove = keepAbove;
-          target.skipTaskbar = true;
-          target.skipPager = true;
           if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
         }
     }
 })"#;
 
-const ENSURE_GRABBED_TEMPLATE: &str = r#"
-(function(
-    windowClass, displayMode, displayIndex, width, height,
-    keepAbove, targetWindowId, targetPid
-){
+const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
+(function(apps) {
     var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-    var target = null;
-    var bestScore = -1;
 
     function normalizeId(id) {
         if (!id) return "";
         return id.toString().replace(/[{}]/g, "");
     }
-    var cleanTargetId = normalizeId(targetWindowId);
 
-    for (var i = 0; i < clients.length; i++) {
-        var c = clients[i];
-        var score = 0;
-        var cClass = (c.resourceClass || "").toLowerCase();
-        var cName = (c.resourceName || "").toLowerCase();
+    for (var a = 0; a < apps.length; a++) {
+        var app = apps[a];
+        var target = null;
+        var bestScore = -1;
+        var cleanTargetId = normalizeId(app.targetWindowId);
 
-        if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) score += 1000;
-        if (targetPid > 0 && c.pid == targetPid) score += 500;
-        if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) score += 100;
+        for (var i = 0; i < clients.length; i++) {
+            var c = clients[i];
+            var score = 0;
+            var cClass = (c.resourceClass || "").toLowerCase();
+            var cName = (c.resourceName || "").toLowerCase();
 
-        if (score > 0) {
-            if (c.normalWindow) score += 2000;
-            if (score > bestScore) {
-                bestScore = score;
-                target = c;
+            if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) score += 1000;
+            if (app.targetPid > 0 && c.pid == app.targetPid) score += 500;
+            if (cClass.indexOf(app.windowClass.toLowerCase()) !== -1 || cName.indexOf(app.windowClass.toLowerCase()) !== -1) score += 100;
+
+            if (score > 0) {
+                if (c.normalWindow) score += 2000;
+                if (score > bestScore) {
+                    bestScore = score;
+                    target = c;
+                }
             }
         }
-    }
 
-    if (target) {
-      target.onAllDesktops = true;
-      target.keepAbove = keepAbove;
-      target.noBorder = true;
-      target.skipTaskbar = true;
-      target.skipPager = true;
-      if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+        if (target) {
+          console.log("Ruake: Grabbing window for " + app.windowClass + " (id: " + target.internalId + ", pid: " + target.pid + ")");
+          target.onAllDesktops = true;
+          target.keepAbove = app.keepAbove;
+          target.noBorder = true;
+          target.skipTaskbar = true;
+          target.skipPager = true;
+          if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
-      var screens = workspace.screens;
-      var area = null;
-      if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) area = screens[displayIndex].geometry;
-      else if (displayMode === "active") area = (workspace.activeWindow ? workspace.clientArea(KWin.PlacementArea, workspace.activeWindow) : workspace.activeScreen.geometry);
-      else area = workspace.activeScreen.geometry;
+          var screens = workspace.screens;
+          var area = null;
+          if (app.displayMode === "specific" && app.displayIndex >= 0 && app.displayIndex < screens.length) area = screens[app.displayIndex].geometry;
+          else if (app.displayMode === "active") area = (workspace.activeWindow ? workspace.clientArea(KWin.PlacementArea, workspace.activeWindow) : workspace.activeScreen.geometry);
+          else area = workspace.activeScreen.geometry;
 
-      var finalWidth = width > 0 ? (width <= 1.0 ? area.width * width : width) : target.frameGeometry.width;
-      var finalHeight = height > 0 ? (height <= 1.0 ? area.height * height : height) : target.frameGeometry.height;
-      var finalX = area.x + (area.width - finalWidth) / 2;
-      var finalY = area.y;
+          var finalWidth = app.width > 0 ? (app.width <= 1.0 ? area.width * app.width : app.width) : target.frameGeometry.width;
+          var finalHeight = app.height > 0 ? (app.height <= 1.0 ? area.height * app.height : app.height) : target.frameGeometry.height;
+          var finalX = area.x + (area.width - finalWidth) / 2;
 
-      var isHiddenOffscreen = (target.frameGeometry.y + target.frameGeometry.height <= area.y + 50);
-      var isVisibleQuake = (target.frameGeometry.y >= area.y - 10 && target.frameGeometry.y <= area.y + 100);
-
-      if (!isHiddenOffscreen && !isVisibleQuake) {
-          target.opacity = 0.0;
-          target.frameGeometry = { x: finalX, y: area.y - finalHeight, width: finalWidth, height: finalHeight };
-      }
+          if (!app.isVisible) {
+              console.log("Ruake: Parking " + app.windowClass + " offscreen.");
+              target.frameGeometry = { x: finalX, y: area.y - finalHeight - 10, width: finalWidth, height: finalHeight };
+          } else {
+              console.log("Ruake: Skipping parking for " + app.windowClass + " (already visible).");
+              target.frameGeometry = { x: finalX, y: area.y, width: finalWidth, height: finalHeight };
+          }
+        } else {
+          console.log("Ruake: FAILED to find window for " + app.windowClass);
+        }
     }
 })"#;
 
@@ -436,19 +467,22 @@ const RESTORE_TEMPLATE: &str = r#"
     for (var i = 0; i < clients.length; i++) {
       var c = clients[i];
       var cClass = (c.resourceClass || "").toLowerCase();
-      if (cClass.indexOf(windowClass.toLowerCase()) !== -1) {
+      var cName = (c.resourceName || "").toLowerCase();
+      if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) {
+          console.log("Ruake: Restoring window " + cClass);
           c.keepAbove = false;
           c.onAllDesktops = false;
           c.noBorder = false;
           c.skipTaskbar = false;
           c.skipPager = false;
+          if (c.skipSwitcher !== undefined) c.skipSwitcher = false;
           c.opacity = 1.0;
 
           var area = workspace.clientArea(KWin.PlacementArea, c);
           var geo = c.frameGeometry;
 
-          // If it was hidden offscreen, move it to center of screen
-          if (geo.y + geo.height <= area.y + 50) {
+          // If it was hidden offscreen or mostly invisible, move it to center of screen
+          if (geo.y + geo.height <= area.y + 50 || c.opacity < 0.1) {
             c.frameGeometry = {
               x: area.x + (area.width - geo.width) / 2,
               y: area.y + 100,
@@ -560,14 +594,35 @@ async fn run_toggle_script(app_cfg: &AppConfig, config: &Config, conn: &Connecti
 }
 
 pub async fn ensure_grabbed(app_cfg: &AppConfig, config: &Config, conn: &Connection) -> Result<()> {
-    let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
-    let (width, height) = app_cfg.resolve_dimensions(&config.window);
+    grab_apps(&[(app_cfg.clone(), config.clone())], conn).await
+}
+
+pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Result<()> {
+    if apps.is_empty() { return Ok(()); }
+    let state = STATE.lock().await;
+
+    let mut apps_json = Vec::new();
+    for (app_cfg, config) in apps {
+        let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
+        let (width, height) = app_cfg.resolve_dimensions(&config.window);
+
+        let app_name = config.app.iter()
+            .find(|(_, cfg)| cfg.window_class == app_cfg.window_class)
+            .map(|(name, _)| name.as_str())
+            .unwrap_or("");
+
+        let is_visible = state.visible_app.as_deref() == Some(app_name);
+        apps_json.push(format!(
+            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, height: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {} }}",
+            app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height,
+            config.window.keep_above, target_id, target_pid, is_visible
+        ));
+    }
 
     let script_content = format!(
-        "{}(\n  \"{}\", \"{}\", {}, {}, {},\n  {}, \"{}\", {}\n);",
-        ENSURE_GRABBED_TEMPLATE,
-        app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height,
-        config.window.keep_above, target_id, target_pid
+        "{}([\n  {}\n]);",
+        ENSURE_GRABBED_BATCH_TEMPLATE,
+        apps_json.join(",\n  ")
     );
 
     run_kwin_script(conn, "ruake_init_script", &script_content, Some(Duration::ZERO)).await
@@ -585,7 +640,12 @@ pub async fn restore_quake(config: &Config, conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub async fn reset_visibility() {
+pub async fn reset_visibility(config: &Config) {
     let mut state = STATE.lock().await;
-    state.visible_app = None;
+    if let Some(app) = &state.visible_app {
+        if !config.app.contains_key(app) {
+            println!("Visibility: Currently visible app '{}' removed from config, resetting state.", app);
+            state.visible_app = None;
+        }
+    }
 }

@@ -1,5 +1,5 @@
 use crate::config::{Config, load_config};
-use crate::linux::kwin::{toggle_quake, restore_quake, ensure_grabbed};
+use crate::linux::kwin::{toggle_quake, restore_quake, reset_visibility, grab_apps};
 use crate::terminal::{ensure_terminal_running};
 use zbus::{interface, Connection};
 use std::sync::{Arc, RwLock};
@@ -28,7 +28,7 @@ impl QuakeApplication {
         _parameter: Vec<zbus::zvariant::OwnedValue>,
         _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>
     ) {
-        println!("D-Bus: Action activated: {}", action_name);
+        println!("D-Bus: Action activated! (name: '{}')", action_name);
         let daemon = QuakeDaemon { config: self.config.clone(), conn: self.conn.clone() };
         daemon.toggle_app(action_name).await;
     }
@@ -193,30 +193,29 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
     // Initial setup (Parallel)
     {
         let cfg = config.read().unwrap().clone();
-        let app_names: Vec<_> = cfg.app.keys().cloned().collect();
         let app_order = cfg.app_order.clone();
-        println!("Ruake: Found {} apps in config: {}", cfg.app.len(), app_names.join(", "));
+        let mut terminal_tasks = Vec::new();
+        let mut apps_for_grabbing = Vec::new();
 
-        let mut startup_tasks = Vec::new();
-
-        for name in app_order {
-            if let Some(app_cfg) = cfg.app.get(&name) {
-                let app_cfg = app_cfg.clone();
+        for name in &app_order {
+            if let Some(app_cfg) = cfg.app.get(name) {
+                let app_cfg_owned = app_cfg.clone();
+                let app_cfg_for_spawn = app_cfg_owned.clone();
                 let cfg_clone = (*cfg).clone();
                 let conn_clone = conn.clone();
 
-                startup_tasks.push(tokio::spawn(async move {
-                    let _ = ensure_terminal_running(&app_cfg, &cfg_clone, &conn_clone).await;
-                    let _ = crate::linux::kwin::ensure_grabbed(&app_cfg, &cfg_clone, &conn_clone).await;
+                terminal_tasks.push(tokio::spawn(async move {
+                    let _ = ensure_terminal_running(&app_cfg_for_spawn, &cfg_clone, &conn_clone).await;
                 }));
+                apps_for_grabbing.push((app_cfg_owned, (*cfg).clone()));
             }
         }
 
-        // We don't necessarily need to wait for all of them to finish before starting the watcher,
-        // but it's cleaner to wait for the initial batch.
-        for task in startup_tasks {
+        for task in terminal_tasks {
             let _ = task.await;
         }
+
+        let _ = grab_apps(&apps_for_grabbing, &conn).await;
 
         if auto_show {
             let app_to_show = target_app.as_ref();
@@ -314,28 +313,48 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
                         let new_config_in_async = new_config.clone();
 
                         rt_handle.block_on(async move {
+                            println!("Watcher: Starting/Restoring apps as needed...");
+
+                            // 1. Restore removed apps
                             for (name, app_cfg) in &old_config.app {
                                 if !new_config_in_async.app.contains_key(name) {
+                                    println!("Watcher: Restoring app '{}' (removed from config)", name);
                                     let _ = crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
                                 }
                             }
 
-                            crate::linux::kwin::reset_visibility().await;
-                            for app_cfg in new_config_in_async.app.values() {
-                                let _ = ensure_grabbed(app_cfg, &new_config_in_async, &conn_in_async).await;
+                            println!("Watcher: Restoring visibility state...");
+                            reset_visibility(&new_config_in_async).await;
+
+                            // 2. Ensure all terminals are running and grabbed
+                            let mut apps_for_grabbing = Vec::new();
+                            for (name, app_cfg) in &new_config_in_async.app {
+                                if !old_config.app.contains_key(name) {
+                                    println!("Watcher: New app detected: {}. Starting terminal...", name);
+                                }
+                                // We ensure terminal is running for ALL apps (in case one crashed)
+                                let _ = ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
+                                apps_for_grabbing.push((app_cfg.clone(), new_config_in_async.clone()));
                             }
+                            let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
 
-                            let _ = crate::linux::desktop::generate_desktop_file(&new_config_in_async);
-                            tokio::time::sleep(Duration::from_millis(300)).await;
+                            // 3. Update desktop file (don't run kbuild inside, we'll do it last)
+                            let desktop_changed = match crate::linux::desktop::generate_desktop_file_headless(&new_config_in_async) {
+                                Ok(changed) => changed,
+                                Err(e) => {
+                                    eprintln!("Watcher: Desktop file generation failed: {}", e);
+                                    false
+                                }
+                            };
 
-                            // SAFEGUARD: Only sync shortcuts if they actually changed
+                            // 4. Check if hotkeys changed
                             let mut hotkeys_changed = false;
-                            if old_config.app.len() != new_config_in_async.app.len() {
+                            if old_config.app.len() != new_config_in_async.app.len() || old_config.app_order != new_config_in_async.app_order {
                                 hotkeys_changed = true;
                             } else {
                                 for (name, old_app) in &old_config.app {
                                     if let Some(new_app) = new_config_in_async.app.get(name) {
-                                        if old_app.hotkey != new_app.hotkey {
+                                        if old_app.hotkey != new_app.hotkey || old_app.window_class != new_app.window_class {
                                             hotkeys_changed = true;
                                             break;
                                         }
@@ -344,18 +363,15 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
                                         break;
                                     }
                                 }
-                                if !hotkeys_changed && old_config.app.len() < new_config_in_async.app.len() {
-                                     hotkeys_changed = true;
-                                }
                             }
 
-                            if hotkeys_changed {
-                                println!("Config: Hotkeys changed, synchronizing with KDE...");
+                            if hotkeys_changed || desktop_changed {
+                                println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
                                 if let Err(e) = crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await {
                                      eprintln!("Watcher: Failed to sync shortcuts: {}", e);
                                 }
                             } else {
-                                println!("Config: Hotkeys unchanged, skipping shortcut sync.");
+                                println!("Config: No shortcut/desktop changes detected.");
                             }
                         });
                     }

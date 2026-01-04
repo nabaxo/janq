@@ -4,6 +4,15 @@ use std::path::PathBuf;
 use anyhow::{Result, Context};
 
 pub fn generate_desktop_file(config: &Config) -> Result<()> {
+    let _ = generate_desktop_file_impl(config, true)?;
+    Ok(())
+}
+
+pub fn generate_desktop_file_headless(config: &Config) -> Result<bool> {
+    generate_desktop_file_impl(config, false)
+}
+
+fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool> {
     let current_exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
         .unwrap_or_else(|_| PathBuf::from("ruake"));
@@ -112,21 +121,27 @@ pub fn generate_desktop_file(config: &Config) -> Result<()> {
         fs::write(&service_path, service_content)?;
     }
 
+    let modified = changed || service_changed;
+
     // 4. Update KDE Sycoca if anything changed
-    if changed || service_changed {
-        match std::process::Command::new("kbuildsycoca6").arg("--noincremental").status() {
-            Ok(status) => {
-                if !status.success() {
-                    eprintln!("kbuildsycoca6 exited with status: {}", status);
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to run kbuildsycoca6: {} (This is normal on non-KDE)", e);
-            }
-        }
+    if modified && run_kbuild {
+        run_kbuildsycoca6();
     }
 
-    Ok(())
+    Ok(modified)
+}
+
+fn run_kbuildsycoca6() {
+    match std::process::Command::new("kbuildsycoca6").arg("--noincremental").status() {
+        Ok(status) => {
+            if !status.success() {
+                eprintln!("kbuildsycoca6 exited with status: {}", status);
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to run kbuildsycoca6: {} (This is normal on non-KDE)", e);
+        }
+    }
 }
 
 fn install_icon() -> Result<()> {
