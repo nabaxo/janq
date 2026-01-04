@@ -73,10 +73,28 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn:
 }
 
 pub fn check_window_exists(target_class: &str) -> Option<String> {
-    // We use kdotool to search for windows with this class
+    // Stage 1: Exact match (case sensitive)
+    if let Some(id) = run_kdotool_search(&format!("^{}$", target_class)) {
+        return Some(id);
+    }
+
+    // Stage 2: Exact match (case-insensitive) - Many users might get casing wrong
+    if let Some(id) = run_kdotool_search(&format!("^(?i){}$", target_class)) {
+        return Some(id);
+    }
+
+    // Stage 3: Partial match (contains) - Last resort, with a warning
+    if let Some(id) = run_kdotool_search(target_class) {
+        return Some(id);
+    }
+
+    None
+}
+
+fn run_kdotool_search(pattern: &str) -> Option<String> {
     let output = Command::new("sh")
         .arg("-c")
-        .arg(format!("kdotool search --class '{}'", target_class))
+        .arg(format!("kdotool search --class '{}'", pattern))
         .output();
 
     match output {
@@ -86,14 +104,7 @@ pub fn check_window_exists(target_class: &str) -> Option<String> {
                 return s.lines().next().map(|l| l.to_string());
             }
         }
-        _ => {
-            // Check if kdotool is installed
-            if Command::new("kdotool").arg("--version").output().is_err() {
-                 let msg = "CRITICAL: 'kdotool' is missing!\nRuake requires 'kdotool' for window detection and management.\nPlease install it (e.g. 'sudo pacman -S kdotool' or 'sudo apt install kdotool').";
-                 eprintln!("Ruake: {}", msg);
-                 crate::linux::show_error(msg);
-            }
-        }
+        _ => {}
     }
     None
 }

@@ -410,22 +410,14 @@ fn update_focus_state(state: &mut KWinState, ruake_classes: &[String]) {
 }
 
 fn get_window_id_and_pid(class: &str) -> Option<(String, u32)> {
-    if let Ok(output) = Command::new("sh").arg("-c").arg(format!("kdotool search --class '{}'", class)).output() {
-        if output.status.success() {
-             let stdout = String::from_utf8_lossy(&output.stdout);
-             if let Some(line) = stdout.lines().next() {
-                let id = line.trim().to_string();
-                if !id.is_empty() {
-                     if let Ok(pid_out) = Command::new("kdotool").args(["getwindowpid", &id]).output() {
-                        if pid_out.status.success() {
-                            let pid_str = String::from_utf8_lossy(&pid_out.stdout).trim().to_string();
-                            if let Ok(pid) = pid_str.parse::<u32>() { return Some((id, pid)); }
-                        }
-                     }
-                     return Some((id, 0));
-                }
-             }
+    if let Some(id) = crate::linux::terminal::check_window_exists(class) {
+        if let Ok(pid_out) = Command::new("kdotool").args(["getwindowpid", &id]).output() {
+            if pid_out.status.success() {
+                let pid_str = String::from_utf8_lossy(&pid_out.stdout).trim().to_string();
+                if let Ok(pid) = pid_str.parse::<u32>() { return Some((id, pid)); }
+            }
         }
+        return Some((id, 0));
     }
     None
 }
@@ -449,10 +441,12 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
             update_focus_state(&mut state, &ruake_classes);
         }
         let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
+
         run_toggle_script(app_cfg, config, conn, true, "", &target_id, target_pid, &classes_string).await?;
         state.visible_app = Some(app_name.to_string());
     } else {
         let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
+
         let prev_id = state.previous_window_id.clone();
         run_toggle_script(app_cfg, config, conn, false, &prev_id, &target_id, target_pid, &classes_string).await?;
         state.visible_app = None;

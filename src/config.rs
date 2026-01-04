@@ -222,11 +222,10 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
                             println!("Loaded config from: {:?}", path);
 
                             // Heuristic to preserve order: Scan lines for [app.NAME], [apps.NAME] or [general.NAME]
-                            let capacity = c.app.len();
-                            let mut order = Vec::with_capacity(capacity);
+                            let mut order = Vec::with_capacity(c.app.len());
                             for line in content.lines() {
                                 let trimmed = line.trim();
-                                if trimmed.is_empty() { continue; }
+                                if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
 
                                 let name = if trimmed == "[app]" || trimmed == "[apps]" || trimmed == "[general]" {
                                     if c.app.contains_key("default") {
@@ -240,12 +239,13 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
                                         }).map(|s| s.as_str())
                                     }
                                 } else if trimmed.ends_with(']') {
-                                     if let Some(rest) = trimmed.strip_prefix("[app.") {
-                                         Some(rest.trim_end_matches(']'))
-                                     } else if let Some(rest) = trimmed.strip_prefix("[apps.") {
-                                         Some(rest.trim_end_matches(']'))
-                                     } else if let Some(rest) = trimmed.strip_prefix("[general.") {
-                                         Some(rest.trim_end_matches(']'))
+                                     let content = trimmed.trim_start_matches('[').trim_end_matches(']');
+                                     if let Some(rest) = content.strip_prefix("app.") {
+                                         Some(rest)
+                                     } else if let Some(rest) = content.strip_prefix("apps.") {
+                                         Some(rest)
+                                     } else if let Some(rest) = content.strip_prefix("general.") {
+                                         Some(rest)
                                      } else {
                                          None
                                      }
@@ -254,8 +254,9 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
                                 };
 
                                 if let Some(name) = name {
-                                    if c.app.contains_key(name) && !order.contains(&name.to_string()) {
-                                        order.push(name.to_string());
+                                    let name_s = name.to_string();
+                                    if c.app.contains_key(&name_s) && !order.contains(&name_s) {
+                                        order.push(name_s);
                                     }
                                 }
                             }

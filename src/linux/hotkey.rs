@@ -259,14 +259,14 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
     for action_name in &actions_to_remove {
         println!("✓ Releasing shortcut for removed app: {}", action_name);
         // Delay BEFORE unregister to let KWin stabilize
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let _ = proxy.unregister(component, action_name).await;
         sf.remove(action_name);
     }
 
     // SAFEGUARD: Wait after all removals before proceeding
     if !actions_to_remove.is_empty() {
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
 
     for app_name in &config.app_order {
@@ -276,8 +276,8 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
             for hk in &hotkeys {
                 normalized_parts.push(normalize_shortcut_for_kde(hk));
             }
-            let normalized_joined = normalized_parts.join(",");
-            let val = format!("{}\t{}\tToggle {}", normalized_joined, normalized_joined, app_name);
+            let normalized_joined = normalized_parts.join("\t");
+            let val = format!("{},{},Toggle {}", normalized_joined, normalized_joined, app_name);
             sf.upsert(app_name, &val);
         }
     }
@@ -288,7 +288,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
     let _ = tokio::process::Command::new("kbuildsycoca6").arg("--noincremental").status().await;
 
     // SAFEGUARD: Longer delay after kbuildsycoca6 to let KDE fully process changes
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     for app_name in &config.app_order {
         if let Some(app_cfg) = config.app.get(app_name) {
@@ -311,19 +311,17 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
                 continue; // Skip entirely for this app
             }
 
+            let display_name = format!("Toggle {}", app_name);
             let action_id = vec![
                 component.to_string(),
                 app_name.to_string(),
-                "Ruake".to_string(),
-                format!("Toggle {}", app_name),
+                "Ruake".to_string(), // Group/Category?
+                display_name.clone(), // Display Name
             ];
 
-            if needs_registration {
-                println!("✓ Registering new app action: {}", app_name);
-                // SAFEGUARD: Delay between unregister and register to avoid state corruption
-                tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+            if needs_registration || needs_shortcut_update {
                 let _ = proxy.unregister(component, app_name).await;
-                tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                 let _ = proxy.do_register(action_id.clone()).await;
             }
 
@@ -334,11 +332,15 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
                 }
 
                 if key_seq[0] != 0 {
-                    // SAFEGUARD: Delay before setting shortcut
+                    println!("Hotkey: Updating shortcuts for '{}'...", app_name);
                     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                    match proxy.set_shortcut(action_id, key_seq, 3).await {
-                        Ok(_) => println!("✓ Updated hotkeys for {}: '{}'", app_name, hotkeys.join(", ")),
-                        Err(e) => eprintln!("WARN: setShortcut failed for {}: {}", app_name, e),
+                    match proxy.set_shortcut(action_id, key_seq.clone(), 3).await {
+                        Ok(res) => {
+                            if res.len() < hotkeys.len() || (res.len() >= hotkeys.len() && res != key_seq) {
+                                 eprintln!("WARN: KGlobalAccel rejected some shortcuts for '{}'. Conflict or KDE limit.", app_name);
+                            }
+                        },
+                        Err(e) => eprintln!("WARN: setShortcut failed for '{}': {}", app_name, e),
                     }
                 }
             }
@@ -354,6 +356,6 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
 pub async fn sync_kde_shortcuts(config: &Config, old_config: Option<&Config>) -> Result<()> {
     // SAFEGUARD: Debounce delay before syncing shortcuts
     // This helps avoid rapid successive calls from config reloads
-    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     register_via_dbus(config, old_config).await
 }
