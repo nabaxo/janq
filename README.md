@@ -99,27 +99,39 @@ show_easing = "windows"
 animate_opacity = true
 ```
 
+### Default Values
+
+| Section | Option | Default | Description | Per-App |
+| :--- | :--- | :--- | :--- | :--- |
+| `[app]` | `window_class` | `"wezquake"` | Window class/name to match for toggling | — |
+| | `start_command` | `"wezterm-gui start --class wezquake"` | Command to launch the application | — |
+| | `hotkey` | `"Meta+Grave"` | Global hotkey(s) to toggle the app | — |
+| `[window]` | `display_mode` | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific` | ✗ no |
+| | `display_index` | `0` | Monitor index when `display_mode = "specific"` | ✗ no |
+| | `width` | — | Window width (`%` or `px`) | ✓ yes |
+| | `height` | — | Window height (`%` or `px`) | ✓ yes |
+| | `keep_above` | `false` | Keep window above all others | ✗ no |
+| `[animation]` | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
+| | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |
+| | `show_easing` | `"ease-out-cubic"` | Easing curve for showing | ✗ no |
+| | `hide_easing` | `"ease-in-quart"` | Easing curve for hiding | ✗ no |
+| | `animate_opacity` | `false` | Fade opacity during animations | ✓ yes |
+| | `show_opacity_point` | `0.2` | Animation progress (0-1) when fade-in starts | ✗ no |
+| | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
+
 ### Easing Modes
 
-| Mode | Short Name | Description |
-| :--- | :--- | :--- |
-| `windows` | - | (Default) High-end cubic-bezier curve matching modern Windows 11 animations. |
-| `linear` | - | Direct, constant movement. |
-| `ease-in-out` | `ease` | Smooth acceleration and deceleration. |
-| `sine-in-out` | `sine` | Subtler version of `ease-out`. |
-| `cubic-in-out` | `cubic` | Sharper deceleration. |
-| `quart-in-out` | `quart` | Very sharp deceleration (popular for UI). |
-| `back-in-out` | `back` | Slightly overshoots before settling. |
-| `ease-in` | - | Starts slow, accelerates at the end. |
-| `ease-out` | - | Starts fast, decelerates to a stop. |
-| `back-in` | - | Anticipates movement by pulling back slightly before sliding. |
-| `back-out` | - | Slightly overshoots before settling. |
+| Mode | Description |
+| :--- | :--- |
+| `windows` | High-end cubic-bezier curve matching modern Windows 11 animations. |
+| `linear` | Direct, constant movement. |
+| `ease`* | Smooth acceleration and deceleration. |
+| `sine`* | Subtler sine-wave curve. |
+| `cubic`* | Sharper deceleration. |
+| `quart`* | Very sharp deceleration (popular for UI). |
+| `back`* | Overshoots slightly before settling. |
 
-> [!TIP]
-> **Shortcuts**: You can use short names (e.g., `back`, `quart`) as a shortcut for the `-in-out` variant.
-
-> [!NOTE]
-> All `*-in`, `*-out`, and `*-in-out` variants (e.g. `quart-in-out`) are supported.
+\* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`.
 
 ## Related Projects
 - **kdotool**: Powering the Wayland window management on Linux.

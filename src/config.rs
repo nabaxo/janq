@@ -73,16 +73,11 @@ impl HotkeyConfig {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
-    #[serde(default = "default_window_class")]
     pub window_class: String,
-    #[serde(default = "default_start_command")]
     pub start_command: String,
-    #[serde(default)]
     pub hotkey: HotkeyConfig,
-    #[allow(dead_code)]
-    #[serde(default)]
-    pub disable_window_class_arg: bool,
     pub animate_opacity: Option<bool>,
     pub width: Option<Dimension>,
     pub height: Option<Dimension>,
@@ -91,10 +86,9 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            window_class: default_window_class(),
-            start_command: default_start_command(),
+            window_class: "wezquake".to_string(),
+            start_command: "wezterm-gui start --class wezquake".to_string(),
             hotkey: HotkeyConfig::default(),
-            disable_window_class_arg: false,
             animate_opacity: None,
             width: None,
             height: None,
@@ -126,22 +120,19 @@ impl AppConfig {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
 pub struct WindowConfig {
-    #[serde(default = "default_display_mode")]
     pub display_mode: String,
-    #[serde(default)]
     pub display_index: i32,
     pub width: Option<Dimension>,
     pub height: Option<Dimension>,
-
-    #[serde(default)]
     pub keep_above: bool,
 }
 
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
-            display_mode: default_display_mode(),
+            display_mode: "follow-mouse".to_string(),
             display_index: 0,
             width: None,
             height: None,
@@ -151,47 +142,32 @@ impl Default for WindowConfig {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
 pub struct AnimationConfig {
-    #[serde(default = "default_duration")]
     pub show_duration: i32,
-    #[serde(default = "default_duration")]
     pub hide_duration: i32,
-    #[serde(default = "default_show_easing")]
     pub show_easing: String,
-    #[serde(default = "default_hide_easing")]
     pub hide_easing: String,
-    #[serde(default = "default_false")]
     pub animate_opacity: bool,
-    #[serde(default = "default_show_opacity")]
     pub show_opacity_point: f64,
-    #[serde(default = "default_hide_opacity")]
     pub hide_opacity_point: f64,
 }
 
 impl Default for AnimationConfig {
     fn default() -> Self {
         Self {
-            show_duration: default_duration(),
-            hide_duration: default_duration(),
-            show_easing: default_show_easing(),
-            hide_easing: default_hide_easing(),
-            animate_opacity: default_false(),
-            show_opacity_point: default_show_opacity(),
-            hide_opacity_point: default_hide_opacity(),
+            show_duration: 350,
+            hide_duration: 350,
+            show_easing: "ease-out-cubic".to_string(),
+            hide_easing: "ease-in-quart".to_string(),
+            animate_opacity: false,
+            show_opacity_point: 0.2,
+            hide_opacity_point: 0.8,
         }
     }
 }
 
-fn default_window_class() -> String { "wezquake".to_string() }
-fn default_start_command() -> String { "wezterm-gui start".to_string() }
 fn default_hotkey() -> String { "Meta+Grave".to_string() }
-fn default_display_mode() -> String { "follow-mouse".to_string() }
-fn default_duration() -> i32 { 350 }
-fn default_show_easing() -> String { "ease-out-cubic".to_string() }
-fn default_hide_easing() -> String { "ease-in-quart".to_string() }
-fn default_false() -> bool { false }
-fn default_show_opacity() -> f64 { 0.2 }
-fn default_hide_opacity() -> f64 { 0.8 }
 
 pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
     let mut config_paths = Vec::new();
