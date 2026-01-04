@@ -160,7 +160,7 @@ pub struct AnimationConfig {
     pub show_easing: String,
     #[serde(default = "default_hide_easing")]
     pub hide_easing: String,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub animate_opacity: bool,
     #[serde(default = "default_show_opacity")]
     pub show_opacity_point: f64,
@@ -175,7 +175,7 @@ impl Default for AnimationConfig {
             hide_duration: default_duration(),
             show_easing: default_show_easing(),
             hide_easing: default_hide_easing(),
-            animate_opacity: default_true(),
+            animate_opacity: default_false(),
             show_opacity_point: default_show_opacity(),
             hide_opacity_point: default_hide_opacity(),
         }
@@ -189,7 +189,7 @@ fn default_display_mode() -> String { "follow-mouse".to_string() }
 fn default_duration() -> i32 { 350 }
 fn default_show_easing() -> String { "ease-out-cubic".to_string() }
 fn default_hide_easing() -> String { "ease-in-quart".to_string() }
-fn default_true() -> bool { true }
+fn default_false() -> bool { false }
 fn default_show_opacity() -> f64 { 0.2 }
 fn default_hide_opacity() -> f64 { 0.8 }
 
