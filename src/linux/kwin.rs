@@ -573,14 +573,14 @@ pub async fn ensure_grabbed(app_cfg: &AppConfig, config: &Config, conn: &Connect
     run_kwin_script(conn, "ruake_init_script", &script_content, Some(Duration::ZERO)).await
 }
 
-pub async fn restore_app(_app_name: &str, window_class: &str, conn: &Connection) -> Result<()> {
+pub async fn restore_app(window_class: &str, conn: &Connection) -> Result<()> {
     let script_content = format!("{}(\"{}\");", RESTORE_TEMPLATE, window_class);
     run_kwin_script(conn, "ruake_restore_script", &script_content, Some(Duration::from_millis(300))).await
 }
 
 pub async fn restore_quake(config: &Config, conn: &Connection) -> Result<()> {
     for app_cfg in config.app.values() {
-        let _ = restore_app("", &app_cfg.window_class, conn).await;
+        let _ = restore_app(&app_cfg.window_class, conn).await;
     }
     Ok(())
 }

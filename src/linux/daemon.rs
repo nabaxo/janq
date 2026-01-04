@@ -33,7 +33,7 @@ impl QuakeApplication {
         daemon.toggle_app(action_name).await;
     }
 
-    async fn open(
+    fn open(
         &self,
         _uris: Vec<String>,
         _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>
@@ -316,7 +316,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
                         rt_handle.block_on(async move {
                             for (name, app_cfg) in &old_config.app {
                                 if !new_config_in_async.app.contains_key(name) {
-                                    let _ = crate::linux::kwin::restore_app(name, &app_cfg.window_class, &conn_in_async).await;
+                                    let _ = crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
                                 }
                             }
 

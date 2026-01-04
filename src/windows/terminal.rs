@@ -48,22 +48,13 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig) -> bool {
     }
 
     let cmd = parts[0];
-    let original_args = &parts[1..];
-
-    let mut final_args: Vec<String> = Vec::new();
-
-
-
-    // Append original arguments (e.g. "start --class wezquake")
-    for arg in original_args {
-        final_args.push(arg.to_string());
-    }
+    let final_args = &parts[1..];
 
     use std::os::windows::process::CommandExt;
     const DETACHED_PROCESS: u32 = 0x00000008;
 
     let spawn_result = Command::new(cmd)
-        .args(&final_args)
+        .args(final_args)
         .creation_flags(DETACHED_PROCESS)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

@@ -16,11 +16,11 @@ impl<'de> serde::Deserialize<'de> for Dimension {
     {
         let s = String::deserialize(deserializer)?;
         let s = s.trim().to_lowercase();
-        if s.ends_with('%') {
-            let val = s.trim_end_matches('%').parse::<f64>().map_err(serde::de::Error::custom)?;
+        if let Some(rest) = s.strip_suffix('%') {
+            let val = rest.trim().parse::<f64>().map_err(serde::de::Error::custom)?;
             Ok(Dimension::Percent(val / 100.0))
-        } else if s.ends_with("px") {
-            let val = s.trim_end_matches("px").parse::<i32>().map_err(serde::de::Error::custom)?;
+        } else if let Some(rest) = s.strip_suffix("px") {
+            let val = rest.trim().parse::<i32>().map_err(serde::de::Error::custom)?;
             Ok(Dimension::Pixels(val))
         } else if s == "0" || s == "unset" {
             Ok(Dimension::Pixels(0))
@@ -166,28 +166,28 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
     let mut config_paths = Vec::new();
 
     if let Some(home) = dirs::home_dir() {
-        config_paths.push(home.join(".ruake.toml"));
-        config_paths.push(home.join(".goake.toml"));
-
-        // Explicitly check ~/.config/ruake for cross-platform consistency
-        config_paths.push(home.join(".config").join("ruake").join("ruake.toml"));
-        config_paths.push(home.join(".config").join("ruake").join(".ruake.toml"));
-        config_paths.push(home.join(".config").join("ruake").join(".goake.toml"));
-
+        config_paths.extend([
+            home.join(".ruake.toml"),
+            home.join(".goake.toml"),
+        ]);
         if let Some(xdg_config) = dirs::config_dir() {
-             config_paths.push(xdg_config.join("ruake").join("ruake.toml"));
-             config_paths.push(xdg_config.join("ruake").join(".ruake.toml"));
-             config_paths.push(xdg_config.join("ruake").join(".goake.toml"));
-             config_paths.push(xdg_config.join("goake").join(".goake.toml"));
+            let ruake_dir = xdg_config.join("ruake");
+            config_paths.extend([
+                ruake_dir.join("ruake.toml"),
+                ruake_dir.join(".ruake.toml"),
+                ruake_dir.join(".goake.toml"),
+                xdg_config.join("goake").join(".goake.toml"),
+            ]);
         }
     }
 
-    // Binary directory (Portable fallback)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            config_paths.push(parent.join("ruake.toml"));
-            config_paths.push(parent.join(".ruake.toml"));
-            config_paths.push(parent.join(".goake.toml"));
+            config_paths.extend([
+                parent.join("ruake.toml"),
+                parent.join(".ruake.toml"),
+                parent.join(".goake.toml"),
+            ]);
         }
     }
 
