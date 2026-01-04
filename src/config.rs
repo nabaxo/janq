@@ -166,21 +166,29 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
     let mut config_paths = Vec::new();
 
     if let Some(home) = dirs::home_dir() {
-        config_paths.extend([
-            home.join(".ruake.toml"),
-            home.join(".goake.toml"),
-        ]);
+        // 1. Home Directory
+        config_paths.push(home.join(".ruake.toml"));
+
+        // 2. XDG Config Directory (~/.config/ruake/)
         if let Some(xdg_config) = dirs::config_dir() {
             let ruake_dir = xdg_config.join("ruake");
             config_paths.extend([
                 ruake_dir.join("ruake.toml"),
                 ruake_dir.join(".ruake.toml"),
-                ruake_dir.join(".goake.toml"),
+            ]);
+        }
+
+        // 3. Fallback to .goake.toml in home/config
+        config_paths.push(home.join(".goake.toml"));
+        if let Some(xdg_config) = dirs::config_dir() {
+            config_paths.extend([
+                xdg_config.join("ruake").join(".goake.toml"),
                 xdg_config.join("goake").join(".goake.toml"),
             ]);
         }
     }
 
+    // 4. Current EXE Directory (Ruake variants first)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             config_paths.extend([
@@ -190,6 +198,16 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
             ]);
         }
     }
+
+    // De-duplicate while preserving order
+    let mut unique_paths = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for path in config_paths {
+        if seen.insert(path.clone()) {
+            unique_paths.push(path);
+        }
+    }
+    let config_paths = unique_paths;
 
     for path in config_paths {
         if path.exists() {

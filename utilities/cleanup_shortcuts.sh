@@ -15,7 +15,15 @@ cp ~/.config/kglobalshortcutsrc ~/.config/kglobalshortcutsrc.cleanup_backup_$(da
 # 3. D-Bus Unregister Loop
 echo "[3/5] Unregistering via D-Bus..."
 # We iterate all potential component names we might have used
-COMPONENTS=("dev.nabaxo.ruake.desktop" "dev_nabaxo_ruake_desktop" "ruake")
+COMPONENTS=(
+    "ruake-dev.nabaxo.ruake.desktop"
+    "dev.nabaxo.ruake.desktop"
+    "dev_nabaxo_ruake_desktop"
+    "ruake"
+    "dev.nabaxo.goake.desktop"
+    "dev_nabaxo_goake_desktop"
+    "goake"
+)
 
 for comp in "${COMPONENTS[@]}"; do
     if qdbus org.kde.kglobalaccel /kglobalaccel allActionsForComponent "$comp" &>/dev/null; then
@@ -28,7 +36,7 @@ for comp in "${COMPONENTS[@]}"; do
         # Try listing with simple grep
         qdbus --literal org.kde.kglobalaccel /kglobalaccel allActionsForComponent "$comp" | \
         grep -o '"[^"]*"' | \
-        grep -v "Toggle" | grep -v "Ruake" | \
+        grep -v "Toggle" | grep -v "Ruake" | grep -v "Goake" | \
         cut -d'"' -f2 | \
         while read action; do
              if [[ -n "$action" ]]; then
@@ -49,8 +57,11 @@ done
 echo "[4/5] Scrubbing kglobalshortcutsrc..."
 # Remove lines containing 'ruake' (case insensitive)
 sed -i '/ruake/Id' ~/.config/kglobalshortcutsrc
+sed -i '/goake/Id' ~/.config/kglobalshortcutsrc
 # Remove blocks for dev.nabaxo.ruake.desktop if they remain (empty headers)
+sed -i '/\[ruake-dev.nabaxo.ruake.desktop\]/d' ~/.config/kglobalshortcutsrc
 sed -i '/\[dev.nabaxo.ruake.desktop\]/d' ~/.config/kglobalshortcutsrc
+sed -i '/\[dev.nabaxo.goake.desktop\]/d' ~/.config/kglobalshortcutsrc
 # Remove ghost entries (app keys that shouldn't be in unrelated sections)
 # Don't use kwriteconfig6 as it escapes tabs incorrectly
 for key in "wezquake" "kcalc" "zed" "vscode"; do
@@ -61,6 +72,14 @@ done
 if grep -qi "ruake" ~/.config/kglobalshortcutsrc; then
     echo "WARNING: Failed to fully scrub 'ruake' from config file."
     grep -i "ruake" ~/.config/kglobalshortcutsrc
+else
+    echo "  Config file scrubbed successfully."
+fi
+
+
+if grep -qi "goake" ~/.config/kglobalshortcutsrc; then
+    echo "WARNING: Failed to fully scrub 'goake' from config file."
+    grep -i "goake" ~/.config/kglobalshortcutsrc
 else
     echo "  Config file scrubbed successfully."
 fi

@@ -164,28 +164,32 @@ impl ShortcutFile {
     }
 
     pub fn scrub(&mut self) -> Result<()> {
-        let section_header = "[services][dev.nabaxo.ruake.desktop]";
-        let mut new_lines = Vec::new();
-        let mut in_section = false;
-        let original_count = self.lines.len();
+        let sections = ["[services][ruake-dev.nabaxo.ruake.desktop]", "[services][dev.nabaxo.ruake.desktop]"];
+        let original_len = self.lines.len();
 
-        for line in &self.lines {
-            if line.trim() == section_header {
-                in_section = true;
-                continue; // Skip the section header itself
+        for section_header in sections {
+            let mut new_lines = Vec::new();
+            let mut in_section = false;
+            for line in &self.lines {
+                if line.trim() == section_header {
+                    in_section = true;
+                    continue;
+                }
+                if in_section && line.trim().starts_with('[') {
+                    in_section = false;
+                }
+                if !in_section {
+                    new_lines.push(line.clone());
+                }
             }
-            if in_section && line.trim().starts_with('[') {
-                in_section = false; // End of the target section
-            }
-            if !in_section { // If not inside the target section, keep the line
-                new_lines.push(line.clone());
+            if self.lines.len() != new_lines.len() {
+                self.modified = true;
+                self.lines = new_lines;
             }
         }
 
-        if original_count != new_lines.len() {
-            println!("Hotkey: Removed {} lines from Ruake section in kglobalshortcutsrc", original_count - new_lines.len());
-            self.lines = new_lines;
-            self.modified = true;
+        if original_len != self.lines.len() {
+            println!("Hotkey: Removed {} lines from Ruake sections in kglobalshortcutsrc", original_len - self.lines.len());
         }
 
         Ok(())
@@ -268,7 +272,7 @@ pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) ->
     // 1. D-BUS UNREGISTER: Release all shortcuts first to avoid clobbering kglobalshortcutsrc
     // This avoids rapid-fire D-Bus calls that can trigger KWin race conditions
     let mut actions_to_remove = Vec::new();
-    let components_to_clean = ["dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
+    let components_to_clean = ["ruake-dev.nabaxo.ruake.desktop", "dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
 
     println!("Hotkey: Collecting actions to unregister...");
     for comp in components_to_clean {
