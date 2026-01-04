@@ -51,7 +51,7 @@ show_duration = 350
 hide_duration = 350
 
 # Easing curves: "ease-out-cubic", "ease-in-quart", "windows", "linear"
-show_easing = "ease-out-cubic"
+show_easing = "back"
 hide_easing = "ease-in-quart"
 
 # Global opacity settings

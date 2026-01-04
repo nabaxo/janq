@@ -41,6 +41,6 @@ height = "50%"
 [animation]
 show_duration = 400
 hide_duration = 300
-show_easing = "windows"
+show_easing = "back"
 hide_easing = "windows"
 animate_opacity = true

@@ -86,19 +86,22 @@ animate_opacity = true
 
 ### Easing Modes
 
-| Mode | Description |
-| :--- | :--- |
-| `windows` | (Default) High-end cubic-bezier curve matching modern Windows 11 animations. |
-| `linear` | Direct, constant movement. |
-| `ease-in` | Starts slow, accelerates at the end. |
-| `ease-out` | Starts fast, decelerates to a stop. |
-| `ease-in-out` | Smooth acceleration and deceleration. |
-| `sine-out` | Subtler version of `ease-out`. |
-| `cubic-out` | Sharper deceleration. |
-| `quart-out` | Very sharp deceleration (popular for UI). |
-| `back-out` | Slightly overshoots before settling. |
-| `back-in` | Anticipates movement by pulling back slightly before sliding. |
-| `back-in-out` | Combines both anticipation and overshoot. |
+| Mode | Short Name | Description |
+| :--- | :--- | :--- |
+| `windows` | - | (Default) High-end cubic-bezier curve matching modern Windows 11 animations. |
+| `linear` | - | Direct, constant movement. |
+| `ease-in-out` | `ease` | Smooth acceleration and deceleration. |
+| `sine-in-out` | `sine` | Subtler version of `ease-out`. |
+| `cubic-in-out` | `cubic` | Sharper deceleration. |
+| `quart-in-out` | `quart` | Very sharp deceleration (popular for UI). |
+| `back-in-out` | `back` | Slightly overshoots before settling. |
+| `ease-in` | - | Starts slow, accelerates at the end. |
+| `ease-out` | - | Starts fast, decelerates to a stop. |
+| `back-in` | - | Anticipates movement by pulling back slightly before sliding. |
+| `back-out` | - | Slightly overshoots before settling. |
+
+> [!TIP]
+> **Shortcuts**: You can use short names (e.g., `back`, `quart`) as a shortcut for the `-in-out` variant.
 
 > [!NOTE]
 > All `*-in`, `*-out`, and `*-in-out` variants (e.g. `quart-in-out`) are supported.

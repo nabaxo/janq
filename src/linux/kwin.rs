@@ -105,18 +105,38 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
         case "linear": return progress;
         case "ease-in": return progress * progress;
         case "ease-out": return progress * (2 - progress);
+        case "ease":
         case "ease-in-out":
           return progress < .5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
         case "quart-in": case "ease-in-quart": return Math.pow(progress, 4);
         case "quart-out": case "ease-out-quart": return 1 - Math.pow(1 - progress, 4);
+        case "quart":
+        case "quart-in-out":
+        case "ease-in-out-quart":
+          return progress < 0.5 ? 8 * Math.pow(progress, 4) : 1 - Math.pow(-2 * progress + 2, 4) / 2;
+        case "cubic-in":
+        case "ease-in-cubic":
+          return Math.pow(progress, 3);
         case "cubic-out": case "ease-out-cubic": return 1 - Math.pow(1 - progress, 3);
+        case "cubic":
+        case "cubic-in-out":
+        case "ease-in-out-cubic":
+          return progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        case "sine-in":
+        case "ease-in-sine":
+          return 1 - Math.cos((progress * Math.PI) / 2);
         case "sine-out": case "ease-out-sine": return Math.sin((progress * Math.PI) / 2);
+        case "sine":
+        case "sine-in-out":
+        case "ease-in-out-sine":
+          return -(Math.cos(Math.PI * progress) - 1) / 2;
         case "back-in": case "ease-in-back":
           var c1 = 1.70158; var c3 = c1 + 1;
           return c3 * progress * progress * progress - c1 * progress * progress;
         case "back-out": case "ease-out-back":
           var c1 = 1.70158; var c3 = c1 + 1;
           return 1 + c3 * Math.pow(progress - 1, 3) + c1 * Math.pow(progress - 1, 2);
+        case "back":
         case "back-in-out": case "ease-in-out-back":
           var c1 = 1.70158; var c2 = c1 * 1.525;
           return progress < 0.5
