@@ -28,6 +28,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     var target = null;
     var bestScore = -1;
     var siblingsToHide = [];
+    var wasActive = false;
 
     var safeTargetId = targetWindowId ? targetWindowId.toString() : "";
     var safeTargetPid = targetPid || 0;
@@ -274,6 +275,8 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
         }
     } else {
         var endY = area.y - finalHeight;
+        wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
+
         if (duration > 0) {
           var startTime = new Date().getTime();
           var diff = endY - startY;
@@ -302,7 +305,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               target.skipPager = true;
               if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
-              if (prevWindowId && prevWindowId !== "") {
+              if (wasActive && prevWindowId && prevWindowId !== "") {
                 var allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
                 for (var j = 0; j < allClients.length; j++) {
                   var c = allClients[j];

@@ -225,12 +225,19 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
     };
 
     // Update visibility state
+    let mut restore_focus = false;
     {
         let mut v = get_visible_app().write().unwrap();
         if should_show {
             *v = Some(app_name.to_string());
         } else {
             *v = None;
+            unsafe {
+                let fg_window = GetForegroundWindow();
+                if fg_window == target_hwnd.inner() {
+                    restore_focus = true;
+                }
+            }
         }
     }
 
@@ -256,7 +263,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
     let app_name_clone = app_name.to_string();
 
     let handle = tokio::spawn(async move {
-        run_animation_task(&app_name_clone, &config_clone, target_hwnd, should_show, siblings).await;
+        run_animation_task(&app_name_clone, &config_clone, target_hwnd, should_show, siblings, restore_focus).await;
     });
 
     {
@@ -272,7 +279,8 @@ async fn run_animation_task(
     config: &Config,
     target_hwnd: SendHwnd,
     should_show: bool,
-    siblings: Vec<(String, SendHwnd)>
+    siblings: Vec<(String, SendHwnd)>,
+    restore_focus: bool,
 ) {
     println!("[Ruake] Starting animation for '{}' (siblings: {})", app_name, siblings.len());
     let app_cfg = match config.app.get(app_name) {
@@ -470,13 +478,15 @@ async fn run_animation_task(
             let _ = SetWindowPos(target_hwnd.inner(), z_flag.0, target_x, final_target_y, target_w, target_h, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
         } else {
             let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
-            let prev = get_previous_focus().lock().unwrap();
-            if let Some(h) = *prev {
-                if IsWindowVisible(h.0).as_bool() {
-                    let _ = SetForegroundWindow(h.0);
+            if restore_focus {
+                let prev = get_previous_focus().lock().unwrap();
+                if let Some(h) = *prev {
+                    if IsWindowVisible(h.0).as_bool() {
+                        let _ = SetForegroundWindow(h.0);
+                    }
+                    // DON'T clear previous focus here - preserve it for rapid toggle scenarios
+                    // It will be overwritten on the next show when we capture new focus
                 }
-                // DON'T clear previous focus here - preserve it for rapid toggle scenarios
-                // It will be overwritten on the next show when we capture new focus
             }
         }
 
