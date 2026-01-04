@@ -202,8 +202,13 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     target.noBorder = true;
     target.skipTaskbar = true;
     target.skipPager = true;
+    if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
     if (shouldShow) {
+        target.fullScreen = true;
+        if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
+        else workspace.activeClient = target;
+
         if (needsReposition) {
              startY = areaTop - finalHeight;
              if (animateOpacity) startOpacity = 0.0;
@@ -211,9 +216,6 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
              target.opacity = startOpacity;
              target.frameGeometry = { x: finalX, y: startY, width: finalWidth, height: finalHeight };
         }
-
-        if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
-        else workspace.activeClient = target;
 
         if (duration > 0) {
           var startTime = new Date().getTime();
@@ -256,6 +258,8 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               timer.stop();
               target.opacity = 1.0;
               target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+              if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
+              else workspace.activeClient = target;
               for (var d = 0; d < siblingDatas.length; d++) {
                   var data = siblingDatas[d];
                   data.client.opacity = 0.0;
@@ -292,6 +296,11 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               timer.stop();
               target.opacity = 0.0;
               target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
+              target.fullScreen = false;
+              target.keepAbove = keepAbove;
+              target.skipTaskbar = true;
+              target.skipPager = true;
+              if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
               if (prevWindowId && prevWindowId !== "") {
                 var allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
@@ -310,6 +319,11 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
         } else {
           target.opacity = 0.0;
           target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
+          target.fullScreen = false;
+          target.keepAbove = keepAbove;
+          target.skipTaskbar = true;
+          target.skipPager = true;
+          if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
         }
     }
 })"#;
@@ -350,9 +364,11 @@ const ENSURE_GRABBED_TEMPLATE: &str = r#"
 
     if (target) {
       target.onAllDesktops = true;
+      target.keepAbove = keepAbove;
       target.noBorder = true;
       target.skipTaskbar = true;
       target.skipPager = true;
+      if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
       var screens = workspace.screens;
       var area = null;

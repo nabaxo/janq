@@ -400,7 +400,7 @@ async fn run_animation_task(
         let duration_secs = duration_ms as f64 / 1000.0;
 
         let easing_type = if should_show { &config.animation.show_easing } else { &config.animation.hide_easing };
-        let z_flag = SendHwnd(if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
+        let z_flag = SendHwnd(if should_show || config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST });
         let opacity_point = if should_show { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
 
         let start_time = Instant::now();
