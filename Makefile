@@ -6,8 +6,8 @@ prepare-dist:
 	mkdir -p $(DIST_DIR)
 
 build-linux: prepare-dist
-	cargo build --release --target x86_64-unknown-linux-gnu
-	cp target/x86_64-unknown-linux-gnu/release/ruake $(DIST_DIR)/ruake
+	cargo build --release
+	cp target/release/ruake $(DIST_DIR)/ruake
 
 build-windows: prepare-dist
 	cargo build --release --target x86_64-pc-windows-gnu
@@ -24,4 +24,4 @@ install:
 
 clean:
 	cargo clean
-	rm -rf $(DIST_DIR)
+	if [ -d $(DIST_DIR) ]; then find $(DIST_DIR) -maxdepth 1 -type f ! -name "*.toml" -delete; fi

@@ -1,14 +1,49 @@
 use crate::config::{Config, load_config};
-use crate::linux::kwin::{toggle_quake, restore_quake, ensure_grabbed, reset_visibility};
-use crate::terminal::{ensure_terminal_running, check_process_running};
+use crate::linux::kwin::{toggle_quake, restore_quake, ensure_grabbed};
+use crate::terminal::{ensure_terminal_running};
 use zbus::{interface, Connection};
 use std::sync::{Arc, RwLock};
 use tokio::time::{sleep, Duration};
 use tokio::signal;
 use notify::{Watcher, RecursiveMode, RecommendedWatcher, Config as NotifyConfig};
 use image::GenericImageView;
+use fs2::FileExt;
 
+#[derive(Clone)]
+struct QuakeApplication {
+    config: Arc<RwLock<Arc<Config>>>,
+    conn: Connection,
+}
 
+#[interface(name = "org.freedesktop.Application")]
+impl QuakeApplication {
+    async fn activate(&self, _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>) {
+        println!("D-Bus: Application activated");
+        let daemon = QuakeDaemon { config: self.config.clone(), conn: self.conn.clone() };
+        daemon.toggle().await;
+    }
+
+    async fn activate_action(
+        &self,
+        action_name: String,
+        _parameter: Vec<zbus::zvariant::OwnedValue>,
+        _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>
+    ) {
+        println!("D-Bus: Action activated: {}", action_name);
+        let daemon = QuakeDaemon { config: self.config.clone(), conn: self.conn.clone() };
+        daemon.toggle_app(action_name).await;
+    }
+
+    async fn open(
+        &self,
+        _uris: Vec<String>,
+        _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>
+    ) {
+        // Not used
+    }
+}
+
+#[derive(Clone)]
 struct QuakeDaemon {
     config: Arc<RwLock<Arc<Config>>>,
     conn: Connection,
@@ -16,9 +51,32 @@ struct QuakeDaemon {
 
 #[interface(name = "dev.nabaxo.ruake")]
 impl QuakeDaemon {
+    #[zbus(name = "Toggle")]
     async fn toggle(&self) {
         let config = { self.config.read().unwrap().clone() };
-        let _ = toggle_quake(&config, &self.conn).await;
+        let mut apps: Vec<_> = config.app.keys().collect();
+        apps.sort_unstable();
+        if let Some(app_name) = apps.first() {
+            let _ = toggle_quake(app_name, &config, &self.conn).await;
+        }
+    }
+
+    #[zbus(name = "ToggleApp")]
+    async fn toggle_app(&self, app_name: String) {
+        let config = { self.config.read().unwrap().clone() };
+        let apps = &config.app;
+
+        let target = if apps.len() == 1 {
+            apps.keys().next().cloned()
+        } else if apps.contains_key(&app_name) {
+            Some(app_name)
+        } else {
+            None
+        };
+
+        if let Some(target_name) = target {
+            let _ = toggle_quake(&target_name, &config, &self.conn).await;
+        }
     }
 }
 
@@ -36,12 +94,14 @@ impl StatusNotifierItem {
         let config = { self.config.read().unwrap().clone() };
         let conn = self.conn.clone();
         tokio::spawn(async move {
-            let _ = toggle_quake(&config, &conn).await;
+            let app_name = config.app_order.first();
+            if let Some(name) = app_name {
+                 let _ = toggle_quake(name, &config, &conn).await;
+            }
         });
     }
 
     fn secondary_activate(&self, _x: i32, _y: i32) {
-        println!("Quit requested via tray icon...");
         let config = { self.config.read().unwrap().clone() };
         let conn = self.conn.clone();
         tokio::spawn(async move {
@@ -61,29 +121,26 @@ impl StatusNotifierItem {
     #[zbus(property)]
     fn icon_name(&self) -> String { "ruake".to_string() }
     #[zbus(property)]
-    fn icon_pixmap(&self) -> IconPixmap {
-        self.icon_cache.clone()
-    }
+    fn icon_pixmap(&self) -> IconPixmap { self.icon_cache.clone() }
     #[zbus(property)]
     fn item_is_menu(&self) -> bool { false }
 }
 
-pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::PathBuf>, auto_show: bool) -> anyhow::Result<()> {
-    let config = Arc::new(RwLock::new(Arc::new(initial_config)));
+pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::PathBuf>, auto_show: bool, target_app: Option<String>) -> anyhow::Result<()> {
+    // 0. Acquire Lock File
+    let lock_path = std::env::temp_dir().join("ruake.lock");
+    let lock_file = std::fs::File::create(&lock_path)?;
+    if lock_file.try_lock_exclusive().is_err() {
+        return Err(anyhow::anyhow!("Ruake is already running (lock file active)."));
+    }
 
+    println!("Starting Ruake daemon...");
+    let config = Arc::new(RwLock::new(Arc::new(initial_config)));
     let conn = Connection::session().await?;
 
-    // Request name for SNI
     let pid = std::process::id();
     let sni_name = format!("org.kde.StatusNotifierItem-ruake-{}", pid);
-    // Note: zbus request_name is usually done via connection builder or manually
-    // But SNI protocol often requires unique name then registration
     conn.request_name(sni_name.clone()).await?;
-
-    // Export interfaces
-    let daemon = QuakeDaemon { config: config.clone(), conn: conn.clone() };
-    conn.object_server().at("/dev/nabaxo/ruake", daemon).await?;
-    conn.request_name("dev.nabaxo.ruake").await?;
 
     // Precompute icon
     let icon_cache = if let Ok(img) = image::load_from_memory(include_bytes!("../../icon.png")) {
@@ -106,28 +163,80 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
     let sni = StatusNotifierItem { config: config.clone(), icon_cache, conn: conn.clone() };
     conn.object_server().at("/StatusNotifierItem", sni).await?;
 
-    // Register with Watcher
+    let activatable_bus = "dev.nabaxo.ruake";
+    let activatable_path = "/dev/nabaxo/ruake";
+    let xdg_path = "/org/freedesktop/Application/dev/nabaxo/ruake";
+    let daemon_path = "/dev/nabaxo/ruake/daemon";
+    let root_path = "/";
+
+    let app_instance = QuakeApplication { config: config.clone(), conn: conn.clone() };
+    let daemon_instance = QuakeDaemon { config: config.clone(), conn: conn.clone() };
+
+    for path in &[activatable_path, xdg_path, daemon_path, root_path] {
+        let _ = conn.object_server().at(*path, app_instance.clone()).await;
+        let _ = conn.object_server().at(*path, daemon_instance.clone()).await;
+    }
+
+    conn.request_name(activatable_bus).await?;
+    let _ = conn.request_name("dev.nabaxo.ruake.desktop").await;
+
     let watcher_proxy = zbus::Proxy::new(&conn, "org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher").await?;
     let _ = watcher_proxy.call_method("RegisterStatusNotifierItem", &(sni_name)).await;
 
-    println!("Rustake daemon running...");
-
-    // Initial setup
+    // --- KDE Platform Integration ---
     {
         let cfg = config.read().unwrap().clone();
-        ensure_terminal_running(&cfg, &conn).await;
-        let _ = ensure_grabbed(&cfg, &conn).await;
+        let _ = crate::linux::desktop::generate_desktop_file(&cfg);
+        let _ = crate::linux::hotkey::sync_kde_shortcuts(&cfg, None).await;
+    }
+
+
+    // Initial setup (Parallel)
+    {
+        let cfg = config.read().unwrap().clone();
+        let app_names: Vec<_> = cfg.app.keys().cloned().collect();
+        println!("Ruake: Found {} apps in config: {}", cfg.app.len(), app_names.join(", "));
+
+        let mut startup_tasks = Vec::new();
+
+        for name in &cfg.app_order {
+            if let Some(app_cfg) = cfg.app.get(name) {
+                let app_cfg = app_cfg.clone();
+                let cfg_clone = (*cfg).clone();
+                let conn_clone = conn.clone();
+
+                startup_tasks.push(tokio::spawn(async move {
+                    ensure_terminal_running(&app_cfg, &cfg_clone, &conn_clone).await;
+                    let _ = crate::linux::kwin::ensure_grabbed(&app_cfg, &cfg_clone, &conn_clone).await;
+                }));
+            }
+        }
+
+        // We don't necessarily need to wait for all of them to finish before starting the watcher,
+        // but it's cleaner to wait for the initial batch.
+        for task in startup_tasks {
+            let _ = task.await;
+        }
 
         if auto_show {
-            sleep(Duration::from_millis(500)).await;
-            let _ = toggle_quake(&cfg, &conn).await;
+            let app_to_show = target_app.as_ref();
+            if let Some(app_name) = app_to_show {
+                if let Some(_app_cfg) = cfg.app.get(app_name) {
+                    println!("Ruake: Auto-showing requested app: {}", app_name);
+                    sleep(Duration::from_millis(500)).await;
+                    let _ = toggle_quake(app_name, &cfg, &conn).await;
+                }
+            } else if let Some(first_app) = cfg.app_order.first() {
+                 println!("Ruake: Auto-showing first app: {}", first_app);
+                 sleep(Duration::from_millis(500)).await;
+                 let _ = toggle_quake(first_app, &cfg, &conn).await;
+            }
         }
     }
 
-    // Config Watcher (Thread) - capture runtime handle to avoid creating new runtimes
-    let config_clone = config.clone();
-    let conn_clone = conn.clone();
-    // Clone path for thread
+    // Config Watcher (Thread)
+    let config_for_watcher = config.clone();
+    let conn_for_watcher = conn.clone();
     let path_to_watch = config_path.clone();
     let rt_handle = tokio::runtime::Handle::current();
 
@@ -135,98 +244,113 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
 
-        // Watch the specific path if we have one
-        if let Some(path) = path_to_watch {
+        if let Some(path) = &path_to_watch {
             if path.exists() {
-                println!("Watching config file: {:?}", path);
-                let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
-            } else {
-                println!("Config file path provided but not found: {:?}", path);
-            }
-        } else {
-            // Fallback attempts if no config was loaded initially (using defaults)
-            if let Some(home) = dirs::home_dir() {
-                let paths = vec![
-                    home.join(".ruake.toml"),
-                    home.join(".goake.toml"),
-                ];
-                for path in paths {
-                    if path.exists() {
-                         println!("Watching default config file: {:?}", path);
-                         let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
-                         break;
-                    }
-                }
+                let _ = watcher.watch(path, RecursiveMode::NonRecursive);
             }
         }
 
         for res in rx {
             match res {
-                Ok(_) => {
-                    println!("Config change detected, reloading...");
-                    // Reload config (tuple return)
-                    let (new_config, _) = load_config();
-                    {
-                        let mut w = config_clone.write().unwrap();
+                Ok(event) => {
+                    let should_reload = match event.kind {
+                        notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) |
+                        notify::EventKind::Modify(notify::event::ModifyKind::Any) |
+                        notify::EventKind::Create(_) => true,
+                        _ => false,
+                    };
+
+                    if !should_reload { continue; }
+
+                    let (new_config, _) = match load_config() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            let err_msg = format!("Config reload failed: {}", e);
+                            eprintln!("Watcher: {}", err_msg);
+                            crate::linux::show_error(&err_msg);
+                            continue;
+                        }
+                    };
+
+                    let old_config = {
+                        let mut w = config_for_watcher.write().unwrap();
+                        let old = (**w).clone();
                         *w = Arc::new(new_config.clone());
-                    }
-                    // Apply changes using captured runtime handle instead of creating new runtime
-                    rt_handle.block_on(async {
-                        let _ = ensure_grabbed(&new_config, &conn_clone).await;
+                        old
+                    };
+
+                    // Clone handles for the async block to avoid moving them out of the loop
+                    let conn_in_async = conn_for_watcher.clone();
+                    let new_config_in_async = new_config.clone();
+
+                    rt_handle.block_on(async move {
+                        for (name, app_cfg) in &old_config.app {
+                            if !new_config_in_async.app.contains_key(name) {
+                                let _ = crate::linux::kwin::restore_app(name, &app_cfg.window_class, &conn_in_async).await;
+                            }
+                        }
+
+                        crate::linux::kwin::reset_visibility().await;
+                        for app_cfg in new_config_in_async.app.values() {
+                            let _ = ensure_grabbed(app_cfg, &new_config_in_async, &conn_in_async).await;
+                        }
+
+                        let _ = crate::linux::desktop::generate_desktop_file(&new_config_in_async);
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+
+                        // SAFEGUARD: Only sync shortcuts if they actually changed
+                        let mut hotkeys_changed = false;
+                        if old_config.app.len() != new_config_in_async.app.len() {
+                            hotkeys_changed = true;
+                        } else {
+                            for (name, old_app) in &old_config.app {
+                                if let Some(new_app) = new_config_in_async.app.get(name) {
+                                    if old_app.hotkey != new_app.hotkey {
+                                        hotkeys_changed = true;
+                                        break;
+                                    }
+                                } else {
+                                    hotkeys_changed = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if hotkeys_changed {
+                            println!("Config: Hotkeys changed, synchronizing with KDE...");
+                            if let Err(e) = crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await {
+                                 eprintln!("Watcher: Failed to sync shortcuts: {}", e);
+                            }
+                        } else {
+                            println!("Config: Hotkeys unchanged, skipping shortcut sync.");
+                        }
                     });
                 },
-                Err(e) => println!("Watch error: {:?}", e),
+                Err(e) => println!("Watcher error: {:?}", e),
             }
         }
     });
 
-    // Respawn Loop
-    let config_clone2 = config.clone();
-    let conn_clone2 = conn.clone();
-    tokio::spawn(async move {
-        loop {
-            sleep(Duration::from_secs(2)).await;
-            let (target_class, cfg_clone) = {
-                let c = config_clone2.read().unwrap();
-                (c.general.window_class.clone(), c.clone())
-            };
-
-            if !check_process_running(&target_class) {
-                println!("Terminal process closed. Respawning...");
-                if ensure_terminal_running(&cfg_clone, &conn_clone2).await {
-                    println!("Respawn successful.");
-                    reset_visibility().await;
-                    sleep(Duration::from_millis(500)).await;
-                    let _ = toggle_quake(&cfg_clone, &conn_clone2).await;
-                }
-            }
-        }
-    });
-
-    // Wait for signal
+    let config_for_signals = config.clone();
+    let conn_for_signals = conn.clone();
     match signal::ctrl_c().await {
         Ok(()) => {
-             println!("Shutting down...");
-             let cfg = config.read().unwrap().clone();
-             let _ = restore_quake(&cfg, &conn).await;
+             let cfg = config_for_signals.read().unwrap().clone();
+             let _ = restore_quake(&cfg, &conn_for_signals).await;
         },
-        Err(err) => {
-             eprintln!("Unable to listen for shutdown signal: {}", err);
-        },
+        Err(err) => eprintln!("Signal error: {}", err),
     }
 
     Ok(())
 }
 
-pub async fn send_toggle() -> anyhow::Result<()> {
+pub async fn send_toggle(app_name: Option<String>) -> anyhow::Result<()> {
     let conn = Connection::session().await?;
-    let proxy = zbus::Proxy::new(
-        &conn,
-        "dev.nabaxo.ruake",
-        "/dev/nabaxo/ruake",
-        "dev.nabaxo.ruake"
-    ).await?;
-
-    proxy.call_method("Toggle", &()).await?;
+    let proxy = zbus::Proxy::new(&conn, "dev.nabaxo.ruake.desktop", "/dev/nabaxo/ruake/daemon", "dev.nabaxo.ruake").await?;
+    if let Some(name) = app_name {
+        proxy.call_method("ToggleApp", &(name)).await?;
+    } else {
+        proxy.call_method("Toggle", &()).await?;
+    }
     Ok(())
 }

@@ -1,0 +1,46 @@
+# Ruake Multi-App Configuration Example
+# Place this file at ~/.ruake.toml or ~/.config/ruake/ruake.toml
+
+# You can define multiple applications by naming sections like [app.NAME]
+# You can toggle specific ones via `ruake --app NAME` or using their unique hotkeys.
+
+[app.terminal]
+window_class = "wezquake"
+start_command = "wezterm start --class wezquake"
+hotkey = ["Meta+Grave", "Ctrl+Grave"] # Multiple hotkeys supported!
+animate_opacity = true
+
+[app.zed]
+window_class = "zed"
+start_command = "zed"
+hotkey = "Meta+Z"
+animate_opacity = true
+# App-specific overrides (width/height = "0" or "unset" means skip resizing for this app)
+width = "1200px"
+height = "800px"
+
+[app.kcalc]
+window_class = "kcalc"
+start_command = "kcalc"
+hotkey = "Meta+F2"
+animate_opacity = false
+# Setting dimensions to "0" or "unset" exempts the app from any generally set height/width.
+width = "0"
+height = "0"
+
+# --- Global Window Settings ---
+[window]
+# Monitor selection mode: "follow-mouse", "active", "specific"
+display_mode = "active"
+
+# Global default dimensions for apps that don't override them.
+width = "80%"
+height = "50%"
+
+# --- Animation Settings ---
+[animation]
+show_duration = 400
+hide_duration = 300
+show_easing = "windows"
+hide_easing = "windows"
+animate_opacity = true

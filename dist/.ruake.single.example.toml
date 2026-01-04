@@ -1,0 +1,60 @@
+# Ruake Single-App Configuration Example
+# Place this file at ~/.ruake.toml or ~/.config/ruake/ruake.toml
+
+[app]
+# The WM_CLASS (Linux) or Process Name/Class (Windows) of the window to manage.
+# Ruake uses this to identify and capture the correct window.
+window_class = "wezquake"
+
+# The command to start the application if it's not already running.
+# TIP: Include any flags needed to set the specific window class (e.g., --class).
+# TIP: For apps like wezterm, you can set initial size via --config flags to set size and other specific configs that you want the app to have while handled by ruake.
+start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
+
+# Global hotkey(s) to toggle the window.
+# Supports single string: "Meta+Grave"
+# Supports array of strings: ["Meta+Grave", "Meta+Section"]
+hotkey = "Meta+Grave"
+
+# Whether to animate opacity during show/hide transitions.
+# If unset, it inherits from the global [animation] block.
+animate_opacity = true
+
+# Optional: Override global window dimensions for this specific app.
+# width = "50%"
+# height = "600px"
+
+# TIP: Setting width or height to "0" or "unset" exempts the app from global settings.
+# width = "0"
+
+# --- Global Window Settings ---
+[window]
+# Where to show the window:
+# "follow-mouse" - Monitor where the cursor is
+# "active"       - Monitor that has the currently focused window
+# "specific"     - Monitor defined by display_index
+display_mode = "follow-mouse"
+display_index = 0
+
+# Window dimensions. Supports % (percent of monitor), px (pixels), "0" or "unset".
+# If unset, Ruake will not resize the window at all.
+width = "100%"
+height = "50%"
+
+# Stay on top of other windows.
+keep_above = true
+
+# --- Animation Settings ---
+[animation]
+# Durations in milliseconds
+show_duration = 350
+hide_duration = 350
+
+# Easing curves: "ease-out-cubic", "ease-in-quart", "windows", "linear"
+show_easing = "ease-out-cubic"
+hide_easing = "ease-in-quart"
+
+# Global opacity settings
+animate_opacity = true
+show_opacity_point = 0.2
+hide_opacity_point = 0.8

@@ -1,128 +1,116 @@
 # Ruake - Quake-Style Terminal Manager
 
-**Ruake** (formerly Rustake/Goake) is a lightweight, high-performance Quake-style terminal wrapper written in Rust. It manages your favorite terminal emulator (WezTerm, Alacritty, Kitty, etc.), allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
+**Ruake** is a lightweight, high-performance Quake-style terminal wrapper. It manages your favorite terminal emulator (WezTerm, Alacritty, Kitty, Zed, etc.), allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
 ## Supported Platforms
 
-- **Linux**: KDE Plasma (Wayland only, via KWin scripts)
-- **Windows**: Windows 10/11 (via WinAPI)
+- **Linux**: KDE Plasma 6 (Wayland via KWin scripts)
+- **Windows**: Windows 10/11 (Native WinAPI)
 
-## Features
+## Key Features
 
-- **Fast & Lightweight**: Written in Rust for minimal resource usage.
-- **Cross-Platform**: Works on **Linux** (X11/Wayland via KWin/XDO) and **Windows** (Native Win32).
-- **Smooth Animations**: Hardware-accelerated slide animations (ease-out-quart).
-- **Focus Restoration**: Remembers your previous window and restores focus instantly when the terminal hides.
-- **Smart Start**: Running `ruake` starts the daemon or toggles the window automatically.
-- **DPI Aware**: Correctly handles multi-monitor setups with mixed DPIs.
+- **Atomic Switching (Cross-Platform)**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows.
+- **Zero-Config Hotkeys (Cross-Platform)**: Ruake automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
+- **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
+- **Robust Identification (Cross-Platform)**: Advanced scoring system (Visibility > Class > Title > Size) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
+- **Premium Animations**: Hardware-accelerated sliding with customizable easing (e.g., "windows" curves).
+- **Focus Restoration**: Remembers your previous window and restores focus instantly.
+- **CLI Power**: Control your setup via `./ruake --app <name>`.
 
 ## Installation
 
 ### Prerequisites
+- **KDE Plasma 6** (Linux) or **Windows 10/11**.
+- **kdotool** (Linux/Wayland requirement).
+- A terminal (WezTerm, Zed, VS Code, etc.).
 
-- **Rust**: Ensure you have `cargo` installed.
-- **Terminal**: WezTerm is the default, but you can configure any supported terminal.
-- **Linux**: `libxdo-dev` (if using X11/XDO), `kdotool` (for Wayland/KWin).
-
-### Build from Source
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/nabaxo/ruake.git
-   cd ruake
-   ```
-
-2. Build for your platform:
-   - **Linux**:
-     ```bash
-     make build-linux
-     ```
-   - **Windows** (MinGW):
-     ```bash
-     make build-windows
-     ```
-
-3. The binary will be at `target/release/ruake` (Linux) or `target/release/ruake.exe` (Windows).
+### Build
+```bash
+make build-linux   # Binary: ./dist/ruake
+make build-windows # Binary: ./dist/ruake.exe
+```
 
 ## Usage
 
+### Smart Startup & Toggling
+- Run `./ruake` to start the daemon.
+- Subsequent calls toggle the primary window.
+- Use `./ruake --app name` to toggle a specific application from your config.
+
+> [!TIP]
+> **Single-App Peace of Mind**: If you only have one app configured, Ruake ignores typos and always picks that app. In multi-app mode, it validates your input and shows a helpful error window if an app isn't found.
+
+### Linux (KDE)
+Ruake generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
+
 ### Windows
-
-1. Run `ruake.exe`. It will start in the background and show a tray icon.
-2. Press **F12** (default) to toggle the terminal.
-3. Right-click the tray icon to Quit or Toggle.
-
-### Linux
-
-1. Run the binary:
-   ```bash
-   ./target/release/ruake
-   ```
-2. **Global Shortcut Setup**:
-   - Open **KDE System Settings**
-   - Go to **Shortcuts** → **Commands**
-   - Add legacy command: `/path/to/ruake` (absolute path recommended)
-   - Assign `Meta+Grave` (or your preferred key)
+Ruake handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
 
 ## Configuration
 
-Create `.ruake.toml` (or `.goake.toml`) in your home directory (`~` or `%USERPROFILE%`).
+Create `.ruake.toml` in `~/.config/ruake/` or your home directory.
 
+### Single App
 ```toml
-[general]
-# Terminal settings
-window_class = "wezquake"      # Linux: Window Class | Windows: Process Name (e.g. "wezterm-gui" or "wezquake")
-start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake" # Command to launch the terminal
-hotkey = ["Meta+Grave", "Meta+Space"] # Global hotkey(s) (Windows Only)
-
-[window]
-# Display settings
-display_mode = "follow-mouse"  # "follow-mouse", "specific", or "active"
-display_index = 0              # Only used if display_mode = "specific"
-keep_above = false             # Keep window on top (Windows)
-
-# Size (percentage or terminal dimensions)
-width_percent = 40           # Set to 0 to disable resizing width
-height_percent = 40          # Set to 0 to disable resizing height
-
-[animation]
-# Timing
-show_duration = 350            # milliseconds
-hide_duration = 350
-show_easing = "windows"        # Easing function
-hide_easing = "windows"
-
-# Opacity
-animate_opacity = true         # Set to false to disable fade effect
-show_opacity_point = 0.2       # Fade-in completes at 20% of animation
-hide_opacity_point = 0.8       # Fade-out starts at 80% of animation
+[app]
+window_class = "wezquake"
+start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
+hotkey = "Meta+Grave"
 ```
 
-- `windows` for `cubic-bezier(0.25, 0, 0, 1)`
+### Multi-App
+```toml
+[app.terminal]
+window_class = "wezquake"
+start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
+hotkey = ["Meta+Grave", "Ctrl+Grave"]
 
-## Hotkey Reference (Windows Only)
+[app.zed]
+window_class = "zed"
+start_command = "zed"
+hotkey = "Meta+Z"
+```
 
-The `hotkey` field in `.ruake.toml` supports multiple modifiers and key combinations.
+## Global settings
+```toml
+[window]
+display_mode = "active" # follow-mouse, specific, active
+width = "50%"           # Supports %, px, "0" or "unset" to disable resizing.
+height = "600px"
 
-### Modifiers
-- `Meta`, `Super`, `Win`, `Cmd`
-- `Ctrl`, `Control`
-- `Alt`
-- `Shift`
+[animation]
+show_duration = 350
+show_easing = "windows"
+animate_opacity = true
+```
 
-### Common Keycodes
-| Type | Keycodes |
-|------|----------|
-| **Vowels/Letters** | `a` - `z` |
-| **Digits** | `0` - `9` |
-| **Function Keys** | `f1` - `f12` |
-| **Punctuation** | `grave` (` ` `), `minus` (`-`), `equal` (`=`), `bracketleft` (`[`), `bracketright` (`]`), `backslash` (`\`), `semicolon` (`;`), `quote` (`'`), `comma` (`,`), `period` (`.`), `slash` (`/`) |
-| **Navigation** | `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn` |
-| **Special** | `enter`, `space`, `esc`, `tab`, `backspace`, `insert`, `delete`, `capslock` |
-| **International** | `section` (`§`), `plusminus` (`±`) |
+### Easing Modes
 
-**Example**: `hotkey = ["Meta+Grave", "Ctrl+Alt+Space"]`
+| Mode | Description |
+| :--- | :--- |
+| `windows` | (Default) High-end cubic-bezier curve matching modern Windows 11 animations. |
+| `linear` | Direct, constant movement. |
+| `ease-in` | Starts slow, accelerates at the end. |
+| `ease-out` | Starts fast, decelerates to a stop. |
+| `ease-in-out` | Smooth acceleration and deceleration. |
+| `sine-out` | Subtler version of `ease-out`. |
+| `cubic-out` | Sharper deceleration. |
+| `quart-out` | Very sharp deceleration (popular for UI). |
+| `back-out` | Slightly overshoots before settling. |
+| `back-in` | Anticipates movement by pulling back slightly before sliding. |
+| `back-in-out` | Combines both anticipation and overshoot. |
+
+> [!NOTE]
+> All `*-in`, `*-out`, and `*-in-out` variants (e.g. `quart-in-out`) are supported.
+
+## Related Projects
+- **kdotool**: Powering the Wayland window management on Linux.
+- **zbus**: Facilitating D-Bus communication.
+
+## Known Issues
+
+### Linux: Hotkey registration delay
+On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
 
 ## License
-
 MIT

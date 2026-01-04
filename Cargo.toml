@@ -4,50 +4,41 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0"
-clap = { version = "4.5", features = ["derive"] }
-dirs = "5.0"
+tokio = { version = "1.32", features = ["full"] }
+zbus = { version = "4.1", features = ["tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
-tokio = { version = "1.39", features = ["full"] }
-thiserror = "1.0"
+anyhow = "1.0"
+dirs = "5.0"
 notify = "6.1"
-image = { version = "0.25", default-features = false, features = ["ico", "png"] }
+image = { version = "0.24", default-features = false, features = ["png"] }
+fs2 = "0.4"
+clap = { version = "4.4", features = ["derive"] }
+serde_json = "1.0"
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Console",
+    "Win32_Graphics_Dwm",
+    "Win32_UI_HiDpi",
+] }
+tray-icon = "0.14"
+tao = "0.26"
+winit = "0.29"
+global-hotkey = "0.5"
 
 [profile.release]
 lto = true
-strip = true
-opt-level = "z"
 codegen-units = 1
-panic = "abort"
+panic = 'abort'
+strip = true
+opt-level = 3
 overflow-checks = false
-
-[features]
-default = []
-
-[target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "4.4", features = ["tokio"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58", features = [
-    "Win32_Foundation",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_System_LibraryLoader",
-    "Win32_System_Threading",
-    "Win32_Graphics_Gdi",
-    "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_ProcessStatus",
-    "Win32_UI_HiDpi",
-    "Win32_System_Console",
-    "Win32_Graphics_DirectComposition",
-    "Win32_Graphics_Dwm",
-    "Win32_Graphics_Direct3D11",
-    "Win32_Graphics_Dxgi",
-    "UI_Composition",
-    "UI_Composition_Desktop",
-    "Foundation",
-] }
-global-hotkey = "0.5" # Lightweight global hotkey
-tray-icon = "0.14"
-winit = "0.29"

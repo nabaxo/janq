@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::AppConfig;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use crate::windows::window::find_window_by_process;
@@ -7,11 +7,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 // Global guard for preventing multiple spawns
 static IS_SPAWNING: AtomicBool = AtomicBool::new(false);
 
-pub async fn ensure_terminal_running(config: &Config) -> bool {
+pub async fn ensure_terminal_running(app_cfg: &AppConfig) -> bool {
     // Loop to acquire lock or check existing window
     loop {
         // 1. Check if window already exists
-        if find_window_by_process(&config.general.window_class).is_some() {
+        if find_window_by_process(&app_cfg.window_class).is_some() {
             return false; // Already running and has window
         }
 
@@ -20,31 +20,28 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
              break; // Got lock, proceed to spawn
         }
 
-        // 3. Wait if someone else is spawning
-        println!("DEBUG: Spawn already in progress, waiting...");
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
     // -- CRITICAL SECTION --
     // We own the spawn lock.
-    println!("DEBUG: Acquired spawn lock. spawning...");
 
     // Double check (in case window appeared just before lock)
-    if find_window_by_process(&config.general.window_class).is_some() {
+    if find_window_by_process(&app_cfg.window_class).is_some() {
          IS_SPAWNING.store(false, Ordering::SeqCst);
          return false;
     }
 
-    if config.general.start_command.is_empty() {
+    if app_cfg.start_command.is_empty() {
         IS_SPAWNING.store(false, Ordering::SeqCst);
         return false;
     }
 
-    println!("Starting terminal: {}", config.general.start_command);
+    println!("Starting terminal: {}", app_cfg.start_command);
 
     // On Windows, start_command might need cmd /C or just running executable
     // Split command
-    let parts: Vec<&str> = config.general.start_command.split_whitespace().collect();
+    let parts: Vec<&str> = app_cfg.start_command.split_whitespace().collect();
     if parts.is_empty() {
         IS_SPAWNING.store(false, Ordering::SeqCst);
         return false;
@@ -86,8 +83,7 @@ pub async fn ensure_terminal_running(config: &Config) -> bool {
     let mut found = false;
     for _ in 0..40 { // Wait up to 8s (200ms * 40)
         tokio::time::sleep(Duration::from_millis(200)).await;
-        if find_window_by_process(&config.general.window_class).is_some() {
-            println!("Terminal window detected.");
+        if find_window_by_process(&app_cfg.window_class).is_some() {
             found = true;
             break;
         }
