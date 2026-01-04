@@ -246,14 +246,11 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
     if (shouldShow) {
-        target.keepAbove = true;
         if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
         else workspace.activeClient = target;
 
         // Defined inside the scope to capture variables (startX, startY, finalX, finalY, etc.)
         function startAnimation() {
-            target.keepAbove = true;
-
             if (duration > 0) {
               var startTime = Date.now();
               var diff = finalY - startY;
@@ -476,6 +473,7 @@ const RESTORE_TEMPLATE: &str = r#"
           c.skipTaskbar = false;
           c.skipPager = false;
           if (c.skipSwitcher !== undefined) c.skipSwitcher = false;
+          c.fullScreen = false;
           c.opacity = 1.0;
 
           var area = workspace.clientArea(KWin.PlacementArea, c);
