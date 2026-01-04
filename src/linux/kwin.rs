@@ -376,7 +376,7 @@ const RESTORE_TEMPLATE: &str = r#"
           if (geo.y + geo.height <= area.y + 50) {
             c.frameGeometry = {
               x: area.x + (area.width - geo.width) / 2,
-              y: area.y + (area.height - geo.height) / 2,
+              y: area.y + 100,
               width: geo.width,
               height: geo.height
             };
