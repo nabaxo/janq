@@ -45,7 +45,7 @@ pub fn generate_desktop_file(config: &Config) -> Result<()> {
     desktop_content.push_str("X-Color-Scheme-Preference=Dark\n");
     desktop_content.push_str("X-DBus-ServiceName=dev.nabaxo.ruake\n");
     desktop_content.push_str("X-DBus-StartupType=Unique\n");
-    desktop_content.push_str(&format!("X-DBus-ObjectPath=/dev/nabaxo/ruake\n"));
+    desktop_content.push_str("X-DBus-ObjectPath=/dev/nabaxo/ruake\n");
 
     if !config.app.is_empty() {
         let mut keys: Vec<_> = config.app.keys().collect();
@@ -53,7 +53,7 @@ pub fn generate_desktop_file(config: &Config) -> Result<()> {
 
         desktop_content.push_str("Actions=");
         for (i, name) in keys.iter().enumerate() {
-            if i > 0 { desktop_content.push_str(";"); }
+            if i > 0 { desktop_content.push(';'); }
             desktop_content.push_str(name);
         }
         desktop_content.push_str(";\n");

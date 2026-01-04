@@ -63,13 +63,6 @@ impl HotkeyConfig {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        match self {
-            HotkeyConfig::Single(s) => s.is_empty(),
-            HotkeyConfig::Multiple(v) => v.is_empty(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -229,10 +222,8 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
                                          Some(rest)
                                      } else if let Some(rest) = content.strip_prefix("apps.") {
                                          Some(rest)
-                                     } else if let Some(rest) = content.strip_prefix("general.") {
-                                         Some(rest)
                                      } else {
-                                         None
+                                         content.strip_prefix("general.")
                                      }
                                 } else {
                                     None

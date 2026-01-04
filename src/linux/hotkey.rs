@@ -106,7 +106,7 @@ fn map_qt_key(s: &str) -> i32 {
 fn shortcut_to_keycode(shortcut: &str) -> i32 {
     shortcut.split('+')
         .map(|part| map_qt_key(part.trim().to_lowercase().as_str()))
-        .fold(0, |acc, val| acc + val)
+        .sum::<i32>()
 }
 
 #[zbus::proxy(
@@ -198,7 +198,7 @@ impl ShortcutFile {
                 self.modified = true;
             }
         } else {
-            if !self.lines.is_empty() && !self.lines.last().map_or(true, |s| s.is_empty()) {
+            if !self.lines.is_empty() && !self.lines.last().is_none_or(|s| s.is_empty()) {
                 self.lines.push(String::new());
             }
             self.lines.push(section_header.to_string());

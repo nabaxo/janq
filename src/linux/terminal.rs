@@ -1,6 +1,5 @@
 use std::fs;
 use std::process::{Command, Stdio};
-use tokio;
 use std::time::Duration;
 use zbus::Connection;
 use crate::config::{Config, AppConfig};

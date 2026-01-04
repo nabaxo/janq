@@ -6,6 +6,33 @@ use tokio::time::{sleep, Duration};
 
 use zbus::{Connection, Result};
 
+/// Helper to run a KWin script with common boilerplate:
+/// unload old script, write to temp file, load, run, and optionally cleanup.
+async fn run_kwin_script(conn: &Connection, script_name: &str, script_content: &str, delay_before_unload: Option<Duration>) -> Result<()> {
+    let scripting_proxy = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+    let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
+
+    let tmp_path = std::env::temp_dir().join(format!("{}.js", script_name));
+    fs::write(&tmp_path, script_content).map_err(|e| zbus::Error::Failure(format!("Failed to write script: {}", e)))?;
+
+    let tmp_path_str = tmp_path.to_string_lossy().to_string();
+    let reply = scripting_proxy.call_method("loadScript", &(tmp_path_str, script_name)).await?;
+    let script_id: i32 = reply.body().deserialize()?;
+
+    if script_id >= 0 {
+        let script_obj_path = format!("/Scripting/Script{}", script_id);
+        let script_proxy = zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+        script_proxy.call_method("run", &()).await?;
+
+        if let Some(delay) = delay_before_unload {
+            sleep(delay).await;
+            let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
+        }
+        let _ = fs::remove_file(tmp_path);
+    }
+    Ok(())
+}
+
 // Global state
 struct KWinState {
     visible_app: Option<String>,
@@ -16,6 +43,15 @@ static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
     visible_app: None,
     previous_window_id: String::new(),
 });
+
+/// Parameters for toggle script execution
+struct ToggleParams<'a> {
+    visible: bool,
+    prev_id: &'a str,
+    target_id: &'a str,
+    target_pid: u32,
+    ruake_classes: &'a str,
+}
 
 // Template bodies that take arguments in their IIFE
 const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
@@ -481,106 +517,65 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
         }
         let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
 
-        run_toggle_script(app_cfg, config, conn, true, "", &target_id, target_pid, &classes_string).await?;
+        run_toggle_script(app_cfg, config, conn, ToggleParams {
+            visible: true,
+            prev_id: "",
+            target_id: &target_id,
+            target_pid,
+            ruake_classes: &classes_string,
+        }).await?;
         state.visible_app = Some(app_name.to_string());
     } else {
         let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
 
         let prev_id = state.previous_window_id.clone();
-        run_toggle_script(app_cfg, config, conn, false, &prev_id, &target_id, target_pid, &classes_string).await?;
+        run_toggle_script(app_cfg, config, conn, ToggleParams {
+            visible: false,
+            prev_id: &prev_id,
+            target_id: &target_id,
+            target_pid,
+            ruake_classes: &classes_string,
+        }).await?;
         state.visible_app = None;
     }
     Ok(())
 }
 
-async fn run_toggle_script(app_cfg: &AppConfig, config: &Config, conn: &Connection, visible: bool, prev_id: &str, target_id: &str, target_pid: u32, ruake_classes: &str) -> Result<()> {
-    let scripting_proxy = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
-    let script_name = "ruake_toggle_engine";
-    let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
-
-    let duration = if visible { config.animation.show_duration } else { config.animation.hide_duration };
+async fn run_toggle_script(app_cfg: &AppConfig, config: &Config, conn: &Connection, params: ToggleParams<'_>) -> Result<()> {
+    let duration = if params.visible { config.animation.show_duration } else { config.animation.hide_duration };
     let (width, height) = app_cfg.resolve_dimensions(&config.window);
     let animate_opacity = app_cfg.get_animate_opacity(config.animation.animate_opacity);
+    let easing = if params.visible { &config.animation.show_easing } else { &config.animation.hide_easing };
+    let opacity_point = if params.visible { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
 
-    let tmp_path = std::env::temp_dir().join(format!("{}.js", script_name));
-    {
-        use std::io::Write;
-        let file = std::fs::File::create(&tmp_path).expect("Failed to create tmp script");
-        let mut writer = std::io::BufWriter::new(file);
-        writer.write_all(TOGGLE_SCRIPT_TEMPLATE.as_bytes()).unwrap();
-        writeln!(writer, "(\n  \"{}\", \"{}\", {}, {}, {},", app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height).unwrap();
-        let easing = if visible { &config.animation.show_easing } else { &config.animation.hide_easing };
-        writeln!(writer, "  {}, \"{}\", {}, {}, {},", duration, easing, visible, config.window.keep_above, animate_opacity).unwrap();
-        let opacity_point = if visible { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
-        writeln!(writer, "  {}, \"{}\", \"{}\", {}, \"{}\"\n);", opacity_point, prev_id, target_id, target_pid, ruake_classes).unwrap();
-    }
+    let script_content = format!(
+        "{}(\n  \"{}\", \"{}\", {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, \"{}\", \"{}\", {}, \"{}\"\n);",
+        TOGGLE_SCRIPT_TEMPLATE,
+        app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height,
+        duration, easing, params.visible, config.window.keep_above, animate_opacity,
+        opacity_point, params.prev_id, params.target_id, params.target_pid, params.ruake_classes
+    );
 
-    let tmp_path_str = tmp_path.to_string_lossy().to_string();
-    let reply = scripting_proxy.call_method("loadScript", &(tmp_path_str, script_name)).await?;
-    let script_id: i32 = reply.body().deserialize()?;
-    if script_id >= 0 {
-        let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
-        script_proxy.call_method("run", &()).await?;
-        let _ = fs::remove_file(tmp_path);
-    }
-    Ok(())
+    run_kwin_script(conn, "ruake_toggle_engine", &script_content, None).await
 }
 
 pub async fn ensure_grabbed(app_cfg: &AppConfig, config: &Config, conn: &Connection) -> Result<()> {
     let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
-    let scripting_proxy = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
-    let script_name = "ruake_init_script";
-    let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
-
     let (width, height) = app_cfg.resolve_dimensions(&config.window);
-    let tmp_path = std::env::temp_dir().join(format!("{}.js", script_name));
-    {
-        use std::io::Write;
-        let file = std::fs::File::create(&tmp_path).expect("Failed to create init script");
-        let mut writer = std::io::BufWriter::new(file);
-        writer.write_all(ENSURE_GRABBED_TEMPLATE.as_bytes()).unwrap();
-        writeln!(writer, "(\n  \"{}\", \"{}\", {}, {}, {},", app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height).unwrap();
-        writeln!(writer, "  {}, \"{}\", {}\n);", config.window.keep_above, target_id, target_pid).unwrap();
-    }
-    let tmp_path_str = tmp_path.to_string_lossy().to_string();
-    let reply = scripting_proxy.call_method("loadScript", &(tmp_path_str, script_name)).await?;
-    let script_id: i32 = reply.body().deserialize()?;
-    if script_id >= 0 {
-        let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
-        script_proxy.call_method("run", &()).await?;
-        let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
-        let _ = fs::remove_file(tmp_path);
-    }
-    Ok(())
+
+    let script_content = format!(
+        "{}(\n  \"{}\", \"{}\", {}, {}, {},\n  {}, \"{}\", {}\n);",
+        ENSURE_GRABBED_TEMPLATE,
+        app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height,
+        config.window.keep_above, target_id, target_pid
+    );
+
+    run_kwin_script(conn, "ruake_init_script", &script_content, Some(Duration::ZERO)).await
 }
 
 pub async fn restore_app(_app_name: &str, window_class: &str, conn: &Connection) -> Result<()> {
-    let scripting_proxy = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
-    let script_name = "ruake_restore_script";
-    let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
-
-    let tmp_path = std::env::temp_dir().join(format!("{}.js", script_name));
-    {
-        use std::io::Write;
-        let file = std::fs::File::create(&tmp_path).expect("Failed to create restore script");
-        let mut writer = std::io::BufWriter::new(file);
-        writer.write_all(RESTORE_TEMPLATE.as_bytes()).unwrap();
-        writeln!(writer, "(\"{}\");", window_class).unwrap();
-    }
-    let tmp_path_str = tmp_path.to_string_lossy().to_string();
-    let reply = scripting_proxy.call_method("loadScript", &(tmp_path_str, script_name)).await?;
-    let script_id: i32 = reply.body().deserialize()?;
-    if script_id >= 0 {
-        let script_obj_path = format!("/Scripting/Script{}", script_id);
-        let script_proxy = zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
-        script_proxy.call_method("run", &()).await?;
-        sleep(Duration::from_millis(300)).await;
-        let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
-        let _ = fs::remove_file(tmp_path);
-    }
-    Ok(())
+    let script_content = format!("{}(\"{}\");", RESTORE_TEMPLATE, window_class);
+    run_kwin_script(conn, "ruake_restore_script", &script_content, Some(Duration::from_millis(300))).await
 }
 
 pub async fn restore_quake(config: &Config, conn: &Connection) -> Result<()> {

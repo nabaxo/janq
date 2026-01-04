@@ -13,8 +13,6 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
-use std::ffi::OsString;
-use std::os::windows::ffi::OsStrExt;
 use tokio::time::Instant;
 
 // Wrapper to make HWND Send/Sync for async tasks
@@ -59,12 +57,6 @@ fn get_hwnd_cache() -> &'static RwLock<HashMap<String, SendHwnd>> {
 }
 
 // ... (helpers omitted for brevity if unchanged, but for replace_file_content we need context)
-
-// Helper to convert string to wide string for Windows API
-#[allow(dead_code)]
-fn to_wstring(s: &str) -> Vec<u16> {
-    OsString::from(s).as_os_str().encode_wide().chain(Some(0)).collect()
-}
 
 unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let target_struct = &mut *(lparam.0 as *mut TargetSearch);
