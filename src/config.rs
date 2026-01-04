@@ -194,13 +194,13 @@ fn default_show_opacity() -> f64 { 0.2 }
 fn default_hide_opacity() -> f64 { 0.8 }
 
 pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
-    let mut config_paths = vec![PathBuf::from(".ruake.toml"), PathBuf::from(".goake.toml")];
+    let mut config_paths = Vec::new();
 
     if let Some(home) = dirs::home_dir() {
         config_paths.push(home.join(".ruake.toml"));
         config_paths.push(home.join(".goake.toml"));
 
-        // Explicitly check ~/.config/ruake for cross-platform consistency (even on Windows)
+        // Explicitly check ~/.config/ruake for cross-platform consistency
         config_paths.push(home.join(".config").join("ruake").join("ruake.toml"));
         config_paths.push(home.join(".config").join("ruake").join(".ruake.toml"));
         config_paths.push(home.join(".config").join("ruake").join(".goake.toml"));
@@ -210,6 +210,15 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
              config_paths.push(xdg_config.join("ruake").join(".ruake.toml"));
              config_paths.push(xdg_config.join("ruake").join(".goake.toml"));
              config_paths.push(xdg_config.join("goake").join(".goake.toml"));
+        }
+    }
+
+    // Binary directory (Portable fallback)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            config_paths.push(parent.join("ruake.toml"));
+            config_paths.push(parent.join(".ruake.toml"));
+            config_paths.push(parent.join(".goake.toml"));
         }
     }
 

@@ -48,6 +48,21 @@ Ruake handles hotkeys natively as defined in your config. Right-click the tray i
 
 ## Configuration
 
+### Search Priority
+
+Ruake searches for a configuration file in the following order:
+
+1.  **User Configuration** (Recommended):
+    - `~/.ruake.toml` or `~/.goake.toml`
+    - `~/.config/ruake/ruake.toml`
+2.  **Binary Directory** (Portable Mode):
+    - Same folder as the `ruake` executable.
+
+> [!CAUTION]
+> **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. Ruake includes a safeguard to prevent destroying your system integration.
+
+### Setup
+
 Create `.ruake.toml` in `~/.config/ruake/` or your home directory.
 
 ### Single App
