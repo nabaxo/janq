@@ -29,6 +29,13 @@ impl QuakeApplication {
         _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>
     ) {
         println!("D-Bus: Action activated! (name: '{}')", action_name);
+
+        // Ensure the app is running before toggling (critical for D-Bus activation)
+        let config = { self.config.read().unwrap().clone() };
+        if let Some(app_cfg) = config.app.get(&action_name) {
+            let _ = ensure_terminal_running(app_cfg, &config, &self.conn).await;
+        }
+
         let daemon = QuakeDaemon { config: self.config.clone(), conn: self.conn.clone() };
         daemon.toggle_app(action_name).await;
     }
