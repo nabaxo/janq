@@ -328,12 +328,22 @@ fn run_animation_task_sync(
         // --- Sibling Data ---
         let mut siblings_data = Vec::new();
         for ohwnd in siblings {
+            if ohwnd.0 == target_hwnd.0 { continue; }
             let mut r = RECT::default();
             if GetWindowRect(ohwnd.inner(), &mut r).is_ok() {
-                if (r.left < work_area.right && r.right > work_area.left) && (r.bottom > work_area.top - 50) {
+                // Ignore monitor bounds; if it's on/near ANY screen, hide it.
+                let smon = MonitorFromWindow(ohwnd.inner(), MONITOR_DEFAULTTONEAREST);
+                let mut smi = MONITORINFO::default();
+                smi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+                if GetMonitorInfoW(smon, &mut smi).as_bool() {
+                    let s_work = smi.rcWork;
                     let osy = r.top;
-                    let oty = work_area.top - (r.bottom - r.top) - 10;
-                    siblings_data.push((ohwnd, r.left, r.right-r.left, r.bottom-r.top, osy, oty));
+                    let oty = s_work.top - (r.bottom - r.top) - 10;
+
+                    // Only animate if it's currently relevant (on screen)
+                    if r.bottom > s_work.top - 100 {
+                        siblings_data.push((ohwnd, r.left, r.right-r.left, r.bottom-r.top, osy, oty));
+                    }
                 }
             }
         }

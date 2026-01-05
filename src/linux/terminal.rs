@@ -41,7 +41,7 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn:
         .spawn() {
             Ok(_) => {},
             Err(e) => {
-                println!("Failed to start terminal: {}", e);
+                println!("Failed to start managed app: {}", e);
                 return false;
             }
         }

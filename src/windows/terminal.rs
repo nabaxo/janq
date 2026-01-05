@@ -76,7 +76,7 @@ pub async fn ensure_terminal_running(app_name: &str, app_cfg: &AppConfig, config
     match spawn_result {
             Ok(_) => {},
             Err(e) => {
-                println!("Failed to start terminal: {}", e);
+                println!("Failed to start managed app: {}", e);
                 IS_SPAWNING.store(false, Ordering::SeqCst);
                 return false;
             }
