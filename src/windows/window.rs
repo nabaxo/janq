@@ -3,9 +3,9 @@ use crate::windows::easing::get_easing;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, COLORREF, RECT, POINT, TRUE};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
-    SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOZORDER,
+    SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_NOACTIVATE, SWP_NOZORDER,
     GetLayeredWindowAttributes, SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA,
-    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SWP_NOSIZE, SWP_NOCOPYBITS, SWP_DEFERERASE, SWP_NOMOVE, SWP_FRAMECHANGED,
+    GetCursorPos, GetWindowRect, IsIconic, SWP_NOSIZE, SWP_NOCOPYBITS, SWP_DEFERERASE, SWP_NOMOVE, SWP_FRAMECHANGED,
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, SW_SHOWNA
 };
 use windows::Win32::Graphics::Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
@@ -499,9 +499,8 @@ pub async fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConf
     }
 }
 
-pub fn restore_app_window(app_name: &str, window_class: &str) {
+pub fn restore_app_window(_app_name: &str, window_class: &str) {
     if let Some(hwnd) = find_window_by_process(window_class) {
-        let is_visible = { let v = get_visible_app().read().unwrap(); v.as_deref() == Some(app_name) };
         unsafe {
             let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
             if (ex & WS_EX_LAYERED.0 as i32) == 0 {
@@ -509,13 +508,7 @@ pub fn restore_app_window(app_name: &str, window_class: &str) {
                 let _ = SetWindowPos(hwnd, HWND::default(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
-            let (x, y, flags) = if is_visible { (0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE) }
-            else {
-                let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-                let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
-                if GetMonitorInfoW(mon, &mut mi).as_bool() { (mi.rcWork.left, mi.rcWork.top, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE) }
-                else { (0, 0, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE) }
-            };
+            let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
             let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
             if IsIconic(hwnd).as_bool() { let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE); }
             else { let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA); }
