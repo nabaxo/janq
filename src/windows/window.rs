@@ -309,23 +309,28 @@ fn run_animation_task_sync(
         let screen_w = work_area.right - work_area.left;
         let screen_h = work_area.bottom - work_area.top;
 
-        // --- Geometry ---
+        // --- Geometry & Current State Capture ---
         let (width_val, height_val) = app_cfg.resolve_dimensions(&config.window);
+
+        let mut r_target = RECT::default();
+        let _ = GetWindowRect(target_hwnd.inner(), &mut r_target);
+
         let target_w = if width_val > 0.0 { (if width_val <= 1.0 { screen_w as f64 * width_val } else { width_val }) as i32 }
-        else {
-            let mut r = RECT::default();
-            if GetWindowRect(target_hwnd.inner(), &mut r).is_ok() { r.right - r.left } else { 400 }
-        };
+        else { r_target.right - r_target.left };
         let target_h = if height_val > 0.0 { (if height_val <= 1.0 { screen_h as f64 * height_val } else { height_val }) as i32 }
-        else {
-            let mut r = RECT::default();
-            if GetWindowRect(target_hwnd.inner(), &mut r).is_ok() { r.bottom - r.top } else { 300 }
-        };
+        else { r_target.bottom - r_target.top };
 
         let target_x = work_area.left + (screen_w - target_w) / 2;
         let shown_y = work_area.top;
         let hidden_y = work_area.top - target_h;
         let final_target_y = if should_show { shown_y } else { hidden_y };
+
+        let mut t_curr_alpha: u8 = 255;
+        let _ = GetLayeredWindowAttributes(target_hwnd.inner(), None, Some(&mut t_curr_alpha), None);
+
+        // Capture current Y. We use the current rect, but if perfectly hidden/invisible, we assume start/end state.
+        let t_curr_y = r_target.top;
+        let t_on_correct_monitor = MonitorFromWindow(target_hwnd.inner(), MONITOR_DEFAULTTONEAREST) == monitor;
 
         // --- Sibling Data ---
         let mut siblings_data = Vec::new();
@@ -341,19 +346,42 @@ fn run_animation_task_sync(
                     let osy = r.top;
                     let oty = s_work.top - (r.bottom - r.top) - 10;
                     if r.bottom > s_work.top - 100 {
-                        siblings_data.push((ohwnd, r.left, r.right-r.left, r.bottom-r.top, osy, oty));
+                        // Capture sibling start alpha
+                        let mut sa: u8 = 255;
+                        let _ = GetLayeredWindowAttributes(ohwnd.inner(), None, Some(&mut sa), None);
+                        siblings_data.push((ohwnd, r.left, r.right-r.left, r.bottom-r.top, osy, oty, sa));
                     }
                 }
             }
         }
 
-        // --- Bypass OS Transitions ---
+        // --- Target Catching & Teleport ---
+        let t_start_y = if should_show {
+            // "Never teleport" on the same monitor. Only jump if we are switching displays.
+            if !t_on_correct_monitor {
+                let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 0, LWA_ALPHA);
+                let _ = SetWindowPos(target_hwnd.inner(), HWND::default(), target_x, hidden_y, target_w, target_h, SWP_NOACTIVATE | SWP_NOZORDER);
+                hidden_y
+            } else { t_curr_y }
+        } else { t_curr_y };
+
+        let t_dist_total = (final_target_y - t_start_y).abs();
+        let max_dist = target_h;
+        // Scale duration based on remaining distance to be travel
+        let animate_opacity = app_cfg.get_animate_opacity(config.animation.animate_opacity);
+        let base_dur_ms = if should_show { config.animation.show_duration } else { config.animation.hide_duration };
+        let dur_ms = if max_dist > 0 { (base_dur_ms as f64 * (t_dist_total as f64 / max_dist as f64)).min(base_dur_ms as f64) } else { base_dur_ms as f64 };
+        let dur_secs = dur_ms / 1000.0;
+        let easing = if should_show { &config.animation.show_easing } else { &config.animation.hide_easing };
+        let z_order = if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST };
+        let op_point = if should_show { config.animation.show_opacity_point } else { config.animation.hide_opacity_point }.clamp(0.01, 1.0);
+
+        // --- Style & Layering Prep ---
         let _ = DwmSetWindowAttribute(target_hwnd.inner(), DWMWA_TRANSITIONS_FORCEDISABLED, &TRUE as *const _ as *const _, 4);
-        for (h, _, _, _, _, _) in &siblings_data {
+        for (h, _, _, _, _, _, _) in &siblings_data {
             let _ = DwmSetWindowAttribute(h.inner(), DWMWA_TRANSITIONS_FORCEDISABLED, &TRUE as *const _ as *const _, 4);
         }
 
-        // --- Style & Layering ---
         let prep_layer = |h: HWND| {
             let ex = GetWindowLongW(h, GWL_EXSTYLE);
             if (ex & WS_EX_LAYERED.0 as i32) == 0 {
@@ -362,29 +390,7 @@ fn run_animation_task_sync(
             }
         };
         prep_layer(target_hwnd.inner());
-        for (h, _, _, _, _, _) in &siblings_data { prep_layer(h.inner()); }
-
-        // --- Teleport & Initial State ---
-        if should_show {
-            // Mask with Alpha 0 instead of SWP_HIDEWINDOW to avoid initialization issues
-            let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 0, LWA_ALPHA);
-            let _ = SetWindowPos(target_hwnd.inner(), HWND::default(), target_x, hidden_y, target_w, target_h, SWP_NOACTIVATE | SWP_NOZORDER);
-        }
-
-        let mut target_rect = RECT::default();
-        let mut t_start_alpha: u8 = 255;
-        let _ = GetLayeredWindowAttributes(target_hwnd.inner(), None, Some(&mut t_start_alpha), None);
-        let _ = GetWindowRect(target_hwnd.inner(), &mut target_rect);
-
-        let t_start_y = if should_show { hidden_y } else { target_rect.top };
-        let t_dist_y = final_target_y - t_start_y;
-
-        let animate_opacity = app_cfg.get_animate_opacity(config.animation.animate_opacity);
-        let dur_ms = if should_show { config.animation.show_duration } else { config.animation.hide_duration };
-        let dur_secs = dur_ms as f64 / 1000.0;
-        let easing = if should_show { &config.animation.show_easing } else { &config.animation.hide_easing };
-        let z_order = if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST };
-        let op_point = if should_show { config.animation.show_opacity_point } else { config.animation.hide_opacity_point }.clamp(0.01, 1.0);
+        for (h, _, _, _, _, _, _) in &siblings_data { prep_layer(h.inner()); }
 
         let start_time = Instant::now();
         let mut first_frame = true;
@@ -394,7 +400,7 @@ fn run_animation_task_sync(
                 {
                     let v = get_visible_app().read().unwrap();
                     let still_target = if should_show { v.as_deref() == Some(app_name) } else { v.as_deref() != Some(app_name) };
-                    if !still_target { break; }
+                    if !still_target { return; } // BAIL COMPLETELY - Skip Finalize to prevent "End-Snap" fighting the new task
                 }
 
                 let elapsed = start_time.elapsed().as_secs_f64();
@@ -405,22 +411,31 @@ fn run_animation_task_sync(
                     let op_progress = if should_show { (progress / op_point).min(1.0) }
                     else { if progress <= (1.0 - op_point) { 0.0 } else { ((progress - (1.0 - op_point)) / op_point).min(1.0) } };
 
-                    // If we set t_start_alpha to 0 during show teleport, this works:
-                    let sa = if should_show { 0.0 } else { t_start_alpha as f64 };
-                    let t_alpha = if should_show { (sa + (255.0 - sa) * op_progress) as u8 }
-                    else { (sa * (1.0 - op_progress)) as u8 };
-                    let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
+                    let target_alpha = if should_show { 255.0 } else { 0.0 };
+                    let t_alpha = (t_curr_alpha as f64 + (target_alpha - t_curr_alpha as f64) * op_progress) as u8;
 
-                    for (h, _, _, _, _, _) in &siblings_data {
+                    // Only update if changed (prevents redundant internal SetWindowPos in some drivers)
+                    let mut current_alpha: u8 = 0;
+                    let _ = GetLayeredWindowAttributes(target_hwnd.inner(), None, Some(&mut current_alpha), None);
+                    if current_alpha != t_alpha {
+                        let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
+                    }
+
+                    for (h, _, _, _, _, _, sa) in &siblings_data {
                          let s_op = if progress <= (1.0 - config.animation.hide_opacity_point) { 0.0 } else { ((progress - (1.0 - config.animation.hide_opacity_point)) / config.animation.hide_opacity_point.clamp(0.01, 1.0)).min(1.0) };
-                         let _ = SetLayeredWindowAttributes(h.inner(), COLORREF(0), (255.0 * (1.0 - s_op)) as u8, LWA_ALPHA);
+                         let s_target_alpha = (*sa as f64 * (1.0 - s_op)) as u8;
+                         let mut cur_s_alpha: u8 = 0;
+                         let _ = GetLayeredWindowAttributes(h.inner(), None, Some(&mut cur_s_alpha), None);
+                         if cur_s_alpha != s_target_alpha {
+                            let _ = SetLayeredWindowAttributes(h.inner(), COLORREF(0), s_target_alpha, LWA_ALPHA);
+                         }
                     }
                 } else if first_frame && should_show {
-                    // Force reveal if not animating opacity
                     let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
                 }
 
                 if let Ok(mut hdwp) = BeginDeferWindowPos((1 + siblings_data.len()) as i32) {
+                    let t_dist_y = final_target_y - t_start_y;
                     let next_y = t_start_y + (t_dist_y as f64 * ease_val) as i32;
                     let mut t_flags = SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE;
                     let t_z = if first_frame { z_order } else { HWND::default() };
@@ -434,7 +449,7 @@ fn run_animation_task_sync(
                         _ => {}
                     }
 
-                    for (h, ox, ow, oh, osy, oty) in &siblings_data {
+                    for (h, ox, ow, oh, osy, oty, _) in &siblings_data {
                         let on_y = osy + ((*oty - *osy) as f64 * ease_val) as i32;
                         match DeferWindowPos(hdwp, h.inner(), HWND::default(), *ox, on_y, *ow, *oh, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOZORDER) {
                             Ok(nh) if !nh.is_invalid() => hdwp = nh,
@@ -467,7 +482,7 @@ fn run_animation_task_sync(
                 if let Some(h) = *prev { if IsWindowVisible(h.0).as_bool() { let _ = SetForegroundWindow(h.0); } }
             }
         }
-        for (h, _, _, _, _, _) in siblings_data { let _ = ShowWindow(h.inner(), SW_HIDE); }
+        for (h, _, _, _, _, _, _) in siblings_data { let _ = ShowWindow(h.inner(), SW_HIDE); }
     }
 }
 
