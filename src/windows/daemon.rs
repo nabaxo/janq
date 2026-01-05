@@ -75,10 +75,13 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                     let app_name = if msg.starts_with("toggle:") {
                         msg.strip_prefix("toggle:").unwrap().trim().to_string()
                     } else {
-                         // Default to first app alphabetically
-                         let mut apps: Vec<_> = cfg.app.keys().collect();
-                         apps.sort();
-                         apps.first().cloned().map(|s| s.to_string()).unwrap_or_default()
+                         // Default to first app from config order
+                         cfg.app_order.first().cloned().unwrap_or_else(|| {
+                             // Fallback to alphabetical if empty (shouldn't happen if apps exist)
+                             let mut apps: Vec<_> = cfg.app.keys().collect();
+                             apps.sort();
+                             apps.first().cloned().map(|s| s.to_string()).unwrap_or_default()
+                         })
                     };
 
                     let target_app = if cfg.app.len() == 1 {
@@ -213,11 +216,17 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                 let tray_menu = Menu::new();
                 {
                     let cfg = config_clone_loop.read().unwrap();
-                    let mut keys: Vec<_> = cfg.app.keys().collect();
-                    keys.sort();
+                    let mut keys = cfg.app_order.clone();
+                    // Just in case app_order somehow missed something or is desynced (though load_config handles it)
+                    for k in cfg.app.keys() {
+                        if !keys.contains(k) {
+                            keys.push(k.clone());
+                        }
+                    }
 
                     for name in keys {
-                        let item = MenuItem::new(name, true, None);
+                        if !cfg.app.contains_key(&name) { continue; } // Skip if not in map
+                        let item = MenuItem::new(&name, true, None);
                         let _ = tray_menu.append(&item);
                         app_menu_items.insert(item.id().clone(), name.clone());
                     }
@@ -320,9 +329,14 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                     if button_state == MouseButtonState::Up {
                                         if button == MouseButton::Left {
                                             let cfg = config_clone_loop.read().unwrap().clone();
-                                            let mut apps: Vec<_> = cfg.app.keys().cloned().collect();
-                                            apps.sort();
-                                            if let Some(app_name) = apps.first().cloned() {
+                                            // PRIORITIZE app_order for left click
+                                            let app_to_toggle = cfg.app_order.first().cloned().or_else(|| {
+                                                let mut apps: Vec<_> = cfg.app.keys().cloned().collect();
+                                                apps.sort();
+                                                apps.first().cloned()
+                                            });
+
+                                            if let Some(app_name) = app_to_toggle {
                                                 if let Some(app_cfg) = cfg.app.get(&app_name) {
                                                     let app_cfg = app_cfg.clone();
                                                     let cfg_spawn = cfg.clone();
