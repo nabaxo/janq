@@ -138,6 +138,7 @@ hotkey = "Meta+Z"
 Ruake supports a wide range of keycodes for defining hotkeys. Keys are case-insensitive.
 
 **Modifiers:** `Ctrl`, `Alt`, `Shift`, `Meta` (Super/Windows/Cmd).
+Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl+alt+shift+meta+z`, whatever floats your boat).
 
 **Standard Keys:**
 *   **Alphanumeric:** `a`-`z`, `0`-`9`
