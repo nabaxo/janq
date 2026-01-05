@@ -149,9 +149,18 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         *w = Arc::new(new_config.clone());
 
                         for (name, app_cfg) in &old_config.app {
-                            if !new_config.app.contains_key(name) {
+                            // Only restore if the window_class is NOT present in the new config.
+                            // This prevents releasing windows when switching from [app.name] to [app] (single app).
+                            let still_managed = new_config.app.values().any(|new_app_cfg| new_app_cfg.window_class == app_cfg.window_class);
+                            if !still_managed {
                                 crate::windows::window::restore_app_window(name, &app_cfg.window_class);
                             }
+                        }
+
+                        // Clear the HWND cache so that the next invocation or the 2-second loop re-finds and maps windows to their new names.
+                        {
+                            let mut cache = crate::windows::window::get_hwnd_cache().write().unwrap();
+                            cache.clear();
                         }
                     }
                     let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
