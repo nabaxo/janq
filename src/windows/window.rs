@@ -396,77 +396,103 @@ fn run_animation_task_sync(
         let mut first_frame = true;
 
         if dur_secs > 0.0 {
+            let mut last_y = t_start_y;
+            let mut last_alpha = t_curr_alpha;
+            let mut last_sibling_ys: Vec<i32> = siblings_data.iter().map(|(_, _, _, _, osy, _, _)| *osy).collect();
+            let mut last_sibling_alphas: Vec<u8> = siblings_data.iter().map(|(_, _, _, _, _, _, sa)| *sa).collect();
+
             loop {
+                // 1. Bail Check - Check if we are still the intended animation
                 {
                     let v = get_visible_app().read().unwrap();
                     let still_target = if should_show { v.as_deref() == Some(app_name) } else { v.as_deref() != Some(app_name) };
-                    if !still_target { return; } // BAIL COMPLETELY - Skip Finalize to prevent "End-Snap" fighting the new task
+                    if !still_target { return; }
                 }
 
                 let elapsed = start_time.elapsed().as_secs_f64();
                 let progress = (elapsed / dur_secs).min(1.0);
                 let ease_val = get_easing(progress, easing);
 
+                let mut needs_pos_update = false;
                 if animate_opacity {
                     let op_progress = if should_show { (progress / op_point).min(1.0) }
                     else { if progress <= (1.0 - op_point) { 0.0 } else { ((progress - (1.0 - op_point)) / op_point).min(1.0) } };
 
-                    let target_alpha = if should_show { 255.0 } else { 0.0 };
-                    let t_alpha = (t_curr_alpha as f64 + (target_alpha - t_curr_alpha as f64) * op_progress) as u8;
+                    let target_alpha_val = if should_show { 255.0 } else { 0.0 };
+                    let t_alpha = (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * op_progress) as u8;
 
-                    // Only update if changed (prevents redundant internal SetWindowPos in some drivers)
-                    let mut current_alpha: u8 = 0;
-                    let _ = GetLayeredWindowAttributes(target_hwnd.inner(), None, Some(&mut current_alpha), None);
-                    if current_alpha != t_alpha {
+                    if t_alpha != last_alpha {
                         let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
+                        last_alpha = t_alpha;
                     }
 
-                    for (h, _, _, _, _, _, sa) in &siblings_data {
+                    for (i, (h, _, _, _, _, _, sa)) in siblings_data.iter().enumerate() {
                          let s_op = if progress <= (1.0 - config.animation.hide_opacity_point) { 0.0 } else { ((progress - (1.0 - config.animation.hide_opacity_point)) / config.animation.hide_opacity_point.clamp(0.01, 1.0)).min(1.0) };
                          let s_target_alpha = (*sa as f64 * (1.0 - s_op)) as u8;
-                         let mut cur_s_alpha: u8 = 0;
-                         let _ = GetLayeredWindowAttributes(h.inner(), None, Some(&mut cur_s_alpha), None);
-                         if cur_s_alpha != s_target_alpha {
+                         if s_target_alpha != last_sibling_alphas[i] {
                             let _ = SetLayeredWindowAttributes(h.inner(), COLORREF(0), s_target_alpha, LWA_ALPHA);
+                            last_sibling_alphas[i] = s_target_alpha;
                          }
                     }
                 } else if first_frame && should_show {
                     let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
+                    last_alpha = 255;
                 }
 
-                if let Ok(mut hdwp) = BeginDeferWindowPos((1 + siblings_data.len()) as i32) {
-                    let t_dist_y = final_target_y - t_start_y;
-                    let next_y = t_start_y + (t_dist_y as f64 * ease_val) as i32;
-                    let mut t_flags = SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE;
-                    let t_z = if first_frame { z_order } else { HWND::default() };
-                    if first_frame {
-                        if should_show { t_flags |= SWP_SHOWWINDOW; }
-                    } else { t_flags |= SWP_NOZORDER; }
+                // --- Position Update ---
+                let t_dist_y = final_target_y - t_start_y;
+                let next_y = t_start_y + (t_dist_y as f64 * ease_val) as i32;
 
-                    let mut t_ok = false;
-                    match DeferWindowPos(hdwp, target_hwnd.inner(), t_z, target_x, next_y, target_w, target_h, t_flags) {
-                        Ok(h) if !h.is_invalid() => { hdwp = h; t_ok = true; },
-                        _ => {}
-                    }
-
-                    for (h, ox, ow, oh, osy, oty, _) in &siblings_data {
+                if next_y != last_y || first_frame {
+                    needs_pos_update = true;
+                } else {
+                    for (i, (_, _, _, _, osy, oty, _)) in siblings_data.iter().enumerate() {
                         let on_y = osy + ((*oty - *osy) as f64 * ease_val) as i32;
-                        match DeferWindowPos(hdwp, h.inner(), HWND::default(), *ox, on_y, *ow, *oh, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOZORDER) {
-                            Ok(nh) if !nh.is_invalid() => hdwp = nh,
-                            _ => { let _ = SetWindowPos(h.inner(), HWND::default(), *ox, on_y, *ow, *oh, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOZORDER); }
+                        if on_y != last_sibling_ys[i] {
+                            needs_pos_update = true;
+                            break;
                         }
                     }
-                    let _ = EndDeferWindowPos(hdwp);
-                    if !t_ok { let _ = SetWindowPos(target_hwnd.inner(), t_z, target_x, next_y, target_w, target_h, t_flags); }
+                }
+
+                if needs_pos_update {
+                    if let Ok(mut hdwp) = BeginDeferWindowPos((1 + siblings_data.len()) as i32) {
+                        let mut t_flags = SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE;
+                        let t_z = if first_frame { z_order } else { HWND::default() };
+                        if first_frame {
+                            if should_show { t_flags |= SWP_SHOWWINDOW; }
+                        } else { t_flags |= SWP_NOZORDER; }
+
+                        let mut t_ok = false;
+                        match DeferWindowPos(hdwp, target_hwnd.inner(), t_z, target_x, next_y, target_w, target_h, t_flags) {
+                            Ok(h) if !h.is_invalid() => { hdwp = h; t_ok = true; },
+                            _ => {}
+                        }
+
+                        for (i, (h, ox, ow, oh, osy, oty, _)) in siblings_data.iter().enumerate() {
+                            let on_y = osy + ((*oty - *osy) as f64 * ease_val) as i32;
+                            match DeferWindowPos(hdwp, h.inner(), HWND::default(), *ox, on_y, *ow, *oh, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOZORDER) {
+                                Ok(nh) if !nh.is_invalid() => hdwp = nh,
+                                _ => { let _ = SetWindowPos(h.inner(), HWND::default(), *ox, on_y, *ow, *oh, SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOZORDER); }
+                            }
+                            last_sibling_ys[i] = on_y;
+                        }
+                        let _ = EndDeferWindowPos(hdwp);
+                        if !t_ok { let _ = SetWindowPos(target_hwnd.inner(), t_z, target_x, next_y, target_w, target_h, t_flags); }
+                        last_y = next_y;
+                    }
                 }
 
                 if first_frame && should_show {
                     let _ = ShowWindow(target_hwnd.inner(), SW_SHOWNA);
                     let _ = SetForegroundWindow(target_hwnd.inner());
                 }
+
                 first_frame = false;
 
+                // Sync with monitor refresh
                 let _ = DwmFlush();
+
                 if progress >= 1.0 { break; }
             }
         }
