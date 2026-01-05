@@ -139,8 +139,15 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                     let (new_config, _) = match load_config() {
                         Ok(c) => c,
                         Err(e) => {
+                            // Restore all apps from current config before shutting down
+                            let current_cfg = config_clone_watcher.read().unwrap().clone();
+                            for (_name, app_cfg) in &current_cfg.app {
+                                crate::windows::window::restore_app_window("", &app_cfg.window_class);
+                            }
+
                             crate::windows::show_error(&e);
-                            continue;
+                            let _ = watcher_proxy.send_event(DaemonEvent::Exit);
+                            return;
                         }
                     };
                      {

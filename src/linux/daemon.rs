@@ -304,8 +304,17 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
                             Err(e) => {
                                 let err_msg = format!("Config reload failed: {}", e);
                                 eprintln!("Watcher: {}", err_msg);
+
+                                // Restore all apps before shutting down
+                                let current_cfg = config_for_watcher.read().unwrap().clone();
+                                let conn_shutdown = conn_for_watcher.clone();
+                                rt_handle.block_on(async move {
+                                    println!("Watcher: Restoring all apps before shutdown...");
+                                    let _ = restore_quake(&current_cfg, &conn_shutdown).await;
+                                });
+
                                 crate::linux::show_error(&err_msg);
-                                continue;
+                                std::process::exit(1);
                             }
                         };
 
