@@ -32,5 +32,13 @@ else
     echo "Warning: cleanup_metadata.sh not found in $DIR, skipping metadata cleanup."
 fi
 
+# 4. Clean Desktop Files
+if [ -f "$DIR/cleanup_desktop.sh" ]; then
+    echo "--- Running desktop file cleanup ---"
+    bash "$DIR/cleanup_desktop.sh"
+else
+    echo "Warning: cleanup_desktop.sh not found in $DIR, skipping desktop cleanup."
+fi
+
 echo "=== FULL RESET COMPLETE ==="
 echo "You can now rebuild and restart the daemon."
