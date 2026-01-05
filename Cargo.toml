@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.32", features = ["full"] }
+tokio = { version = "1.32", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "process"] }
 zbus = { version = "4.1", features = ["tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"

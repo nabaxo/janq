@@ -44,6 +44,15 @@ static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
     previous_window_id: String::new(),
 });
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+static WINDOW_CACHE: OnceLock<Mutex<HashMap<String, (String, u32)>>> = OnceLock::new();
+
+fn get_window_cache() -> &'static Mutex<HashMap<String, (String, u32)>> {
+    WINDOW_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// Parameters for toggle script execution
 struct ToggleParams<'a> {
     visible: bool,
@@ -519,15 +528,41 @@ fn update_focus_state(state: &mut KWinState, ruake_classes: &[String]) {
     }
 }
 
-fn get_window_id_and_pid(class: &str) -> Option<(String, u32)> {
+fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
+    // 1. Check Cache
+    {
+        if let Ok(cache) = get_window_cache().try_lock() {
+            if let Some((id, pid)) = cache.get(app_name) {
+                // Verify window still exists and has matching class (light check)
+                let check_cmd = Command::new("kdotool").args(["getwindowclassname", id]).output();
+                if let Ok(o) = check_cmd {
+                    if o.status.success() {
+                        let name = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                        if name.to_lowercase().contains(&class.to_lowercase()) {
+                            return Some((id.clone(), *pid));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback to Search
     if let Some(id) = crate::linux::terminal::check_window_exists(class) {
+        let mut pid = 0;
         if let Ok(pid_out) = Command::new("kdotool").args(["getwindowpid", &id]).output() {
             if pid_out.status.success() {
                 let pid_str = String::from_utf8_lossy(&pid_out.stdout).trim().to_string();
-                if let Ok(pid) = pid_str.parse::<u32>() { return Some((id, pid)); }
+                if let Ok(parsed_pid) = pid_str.parse::<u32>() { pid = parsed_pid; }
             }
         }
-        return Some((id, 0));
+
+        // 3. Update Cache
+        if let Ok(mut cache) = get_window_cache().try_lock() {
+            cache.insert(app_name.to_string(), (id.clone(), pid));
+        }
+
+        return Some((id, pid));
     }
     None
 }
@@ -550,7 +585,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
         if state.visible_app.is_none() {
             update_focus_state(&mut state, &ruake_classes);
         }
-        let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
+        let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
 
         run_toggle_script(app_cfg, config, conn, ToggleParams {
             visible: true,
@@ -561,7 +596,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
         }).await?;
         state.visible_app = Some(app_name.to_string());
     } else {
-        let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
+        let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
 
         let prev_id = state.previous_window_id.clone();
         run_toggle_script(app_cfg, config, conn, ToggleParams {
@@ -604,13 +639,13 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
 
     let mut apps_json = Vec::new();
     for (app_cfg, config) in apps {
-        let (target_id, target_pid) = get_window_id_and_pid(&app_cfg.window_class).unwrap_or((String::new(), 0));
-        let (width, height) = app_cfg.resolve_dimensions(&config.window);
-
         let app_name = config.app.iter()
             .find(|(_, cfg)| cfg.window_class == app_cfg.window_class)
             .map(|(name, _)| name.as_str())
             .unwrap_or("");
+
+        let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+        let (width, height) = app_cfg.resolve_dimensions(&config.window);
 
         let is_visible = state.visible_app.as_deref() == Some(app_name);
         apps_json.push(format!(
