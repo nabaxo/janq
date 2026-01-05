@@ -13,7 +13,7 @@
 - **Zero-Config Hotkeys (Cross-Platform)**: Ruake automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
 - **Robust Identification (Cross-Platform)**: Advanced scoring system (Visibility > Class > Title > Size) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
-- **Premium Animations**: Hardware-accelerated sliding with customizable easing (e.g., "windows" curves).
+- **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves)
 - **Focus Restoration**: Remembers your previous window and restores focus instantly.
 - **CLI Power**: Control your setup via `./ruake --app <name>`.
 
@@ -22,7 +22,6 @@
 ### Prerequisites
 - **KDE Plasma 6** (Linux) or **Windows 10/11**.
 - **kdotool** (Linux/Wayland requirement).
-- A terminal (WezTerm, Zed, VS Code, etc.).
 
 ### Build
 ```bash
@@ -65,28 +64,7 @@ Ruake searches for a configuration file in the following order:
 
 Create `.ruake.toml` in `~/.config/ruake/` or your home directory.
 
-### Single App
-```toml
-[app]
-window_class = "wezquake"
-start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
-hotkey = "Meta+Grave"
-```
-
-### Multi-App
-```toml
-[app.terminal]
-window_class = "wezquake"
-start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
-hotkey = ["Meta+Grave", "Ctrl+Grave"]
-
-[app.zed]
-window_class = "zed"
-start_command = "zed"
-hotkey = "Meta+Z"
-```
-
-## Global settings
+### Global settings
 ```toml
 [window]
 display_mode = "active" # follow-mouse, specific, active
@@ -97,6 +75,28 @@ height = "600px"
 show_duration = 350
 show_easing = "windows"
 animate_opacity = true
+```
+
+### Single App configuration
+```toml
+[app]
+# On Windows: Matches Process Name (e.g. "wezterm-gui") OR Window Class
+window_class = "wezquake"
+start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
+hotkey = "Meta+Grave"
+```
+
+### Multi-App configuration
+```toml
+[app.terminal]
+window_class = "wezquake"
+start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
+hotkey = ["Meta+Grave", "Ctrl+Grave"]
+
+[app.zed]
+window_class = "zed"
+start_command = "zed"
+hotkey = "Meta+Z"
 ```
 
 ### Default Values
@@ -132,6 +132,31 @@ animate_opacity = true
 | `back`* | Overshoots slightly before settling. |
 
 \* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`.
+
+### Keycodes
+
+Ruake supports a wide range of keycodes for defining hotkeys. Keys are case-insensitive.
+
+**Modifiers:** `Ctrl`, `Alt`, `Shift`, `Meta` (Super/Windows/Cmd).
+
+**Standard Keys:**
+*   **Alphanumeric:** `a`-`z`, `0`-`9`
+*   **Function:** `f1`-`f12`
+*   **Navigation:** `up`, `down`, `left`, `right`, `home`, `end`, `pgup` (pageup), `pgdn` (pagedown)
+*   **Editing:** `insert`, `delete` (del), `backspace`, `tab`, `enter` (return), `space`, `esc` (escape)
+
+**Punctuation & Symbols:**
+*   `grave` / `backtick` ( ` )
+*   `minus` ( - ), `equal` ( = )
+*   `bracketleft` ( [ ), `bracketright` ( ] )
+*   `backslash` ( \ ), `slash` ( / )
+*   `semicolon` ( ; ), `quote` ( ' )
+*   `comma` ( , ), `period` ( . )
+
+**International / Special:**
+*   `section` ( § ) - *Mapped to `IntlBackslash` (the key below Esc on some ISO keyboards)*
+*   `plusminus`
+*   `dead_grave`
 
 ## Related Projects
 - **kdotool**: Powering the Wayland window management on Linux.
