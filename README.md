@@ -103,8 +103,8 @@ hotkey = "Meta+Z"
 
 | Section | Option | Default | Description | Per-App |
 | :--- | :--- | :--- | :--- | :--- |
-| `[app]` | `window_class` | `"wezquake"` | Window class/name to match for toggling | — |
-| | `start_command` | `"wezterm-gui start --class wezquake"` | Command to launch the application | — |
+| `[app]` | `window_class` | **Required** | Window class/name to match for toggling | — |
+| | `start_command` | **Required** | Command to launch the application | — |
 | | `hotkey` | `"Meta+Grave"` | Global hotkey(s) to toggle the app | — |
 | `[window]` | `display_mode` | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific` | ✗ no |
 | | `display_index` | `0` | Monitor index when `display_mode = "specific"` | ✗ no |
@@ -113,8 +113,8 @@ hotkey = "Meta+Z"
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
 | `[animation]` | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
 | | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |
-| | `show_easing` | `"ease-out-cubic"` | Easing curve for showing | ✗ no |
-| | `hide_easing` | `"ease-in-quart"` | Easing curve for hiding | ✗ no |
+| | `show_easing` | `"ease"` | Easing curve for showing | ✗ no |
+| | `hide_easing` | `"ease"` | Easing curve for hiding | ✗ no |
 | | `animate_opacity` | `false` | Fade opacity during animations | ✓ yes |
 | | `show_opacity_point` | `0.2` | Animation progress (0-1) when fade-in starts | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |

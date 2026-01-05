@@ -79,8 +79,8 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            window_class: "wezquake".to_string(),
-            start_command: "wezterm-gui start --class wezquake".to_string(),
+            window_class: String::new(),
+            start_command: String::new(),
             hotkey: HotkeyConfig::default(),
             animate_opacity: None,
             width: None,
@@ -151,8 +151,8 @@ impl Default for AnimationConfig {
         Self {
             show_duration: 350,
             hide_duration: 350,
-            show_easing: "ease-out-cubic".to_string(),
-            hide_easing: "ease-in-quart".to_string(),
+            show_easing: "ease".to_string(),
+            hide_easing: "ease".to_string(),
             animate_opacity: false,
             show_opacity_point: 0.2,
             hide_opacity_point: 0.8,
@@ -280,6 +280,10 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
                                 }
                             }
 
+                            if c.app.is_empty() {
+                                return Err("No app configured. Add at least one [app] or [app.name] section to your config.".to_string());
+                            }
+
                             return Ok((c, Some(path)));
                         }
                         Err(e) => {
@@ -294,8 +298,7 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
         }
     }
 
-    println!("No config file found. Using defaults.");
-    Ok((Config::default(), None))
+    Err("No config file found. Create ~/.ruake.toml or ~/.config/ruake/ruake.toml with at least one [app] section.".to_string())
 }
 
 use serde::de::{self, Deserializer, Visitor};
@@ -352,12 +355,11 @@ where
                     .map_err(de::Error::custom)?;
                 let mut result = HashMap::new();
 
-                // Use window_class as a better name than "default" if available
-                let name = if config.window_class.is_empty() {
-                    "default".to_string()
-                } else {
-                    config.window_class.clone()
-                };
+                // Require window_class for single-app mode
+                if config.window_class.is_empty() {
+                    return Err(de::Error::custom("[app] section requires 'window_class' field"));
+                }
+                let name = config.window_class.clone();
 
                 result.insert(name, config);
                 Ok(result)
