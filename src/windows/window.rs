@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, AppConfig};
 use crate::windows::easing::get_easing;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, COLORREF, RECT, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -17,7 +17,7 @@ use tokio::time::Instant;
 
 // Wrapper to make HWND Send/Sync for async tasks
 #[derive(Clone, Copy)]
-struct SendHwnd(HWND);
+pub struct SendHwnd(pub HWND);
 unsafe impl Send for SendHwnd {}
 unsafe impl Sync for SendHwnd {}
 
@@ -52,7 +52,7 @@ fn get_last_monitor() -> &'static std::sync::Mutex<Option<isize>> {
     LAST_MONITOR.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-fn get_hwnd_cache() -> &'static RwLock<HashMap<String, SendHwnd>> {
+pub fn get_hwnd_cache() -> &'static RwLock<HashMap<String, SendHwnd>> {
     HWND_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
@@ -64,32 +64,56 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
     let mut pid = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut pid));
 
-    // Open process to get name
+    // 1. Get Window Class Name
+    let mut class_buffer = [0u16; 256];
+    let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buffer);
+    let class_name = String::from_utf16_lossy(&class_buffer[..class_len as usize]).to_lowercase();
+
+    // 2. Get Process Name
+    let mut proc_name = String::new();
     if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
         let mut buffer = [0u16; 1024];
         let len = GetModuleBaseNameW(process, None, &mut buffer);
         if len > 0 {
-            let name = String::from_utf16_lossy(&buffer[..len as usize]);
-            // Check if name matches (ignoring case)
-            if name.to_lowercase().contains(&target_struct.name) {
-                target_struct.found_hwnds.push(hwnd);
-                // Continue enumeration to find ALL windows
-            }
+            proc_name = String::from_utf16_lossy(&buffer[..len as usize]).to_lowercase();
         }
+    }
+
+    // 3. Get Window Title
+    let mut title_buf = [0u16; 256];
+    let title_len = windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut title_buf);
+    let title = String::from_utf16_lossy(&title_buf[..title_len as usize]).to_lowercase();
+
+    // Match if EITHER process name OR class name contains our target
+    if proc_name.contains(&target_struct.name) || class_name.contains(&target_struct.name) {
+        target_struct.found_data.push(FoundWindow {
+            hwnd,
+            class_name,
+            _proc_name: proc_name,
+            title,
+        });
     }
 
     BOOL(1) // Continue
 }
 
+struct FoundWindow {
+    hwnd: HWND,
+    class_name: String,
+    _proc_name: String,
+    title: String,
+}
+
 struct TargetSearch {
     name: String,
-    found_hwnds: Vec<HWND>,
+    found_data: Vec<FoundWindow>,
 }
 
 pub fn find_window_by_process(name: &str) -> Option<HWND> {
+    let lower_name = name.to_lowercase();
     let mut search = TargetSearch {
-        name: name.to_string().to_lowercase(),
-        found_hwnds: Vec::new(),
+        name: lower_name,
+        found_data: Vec::new(),
     };
 
     unsafe {
@@ -97,45 +121,67 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
     }
 
     let mut best_hwnd = None;
-    let mut best_score = -1;
+    let mut best_score = -5000; // Allow for negative scores if all are bad
 
-    for hwnd in search.found_hwnds {
+    for data in search.found_data {
+        let hwnd = data.hwnd;
         unsafe {
             let mut rect = RECT::default();
             if GetWindowRect(hwnd, &mut rect).is_ok() {
                 let w = rect.right - rect.left;
                 let h = rect.bottom - rect.top;
 
-                if w > 50 && h > 50 {
-                    let is_visible = IsWindowVisible(hwnd).as_bool();
-                    let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-                    let is_tool = (style & windows::Win32::UI::WindowsAndMessaging::WS_EX_TOOLWINDOW.0) != 0;
+                // Reject genuinely invisible/zero-size windows unless iconic
+                let is_minimized = IsIconic(hwnd).as_bool();
+                if (w <= 0 || h <= 0) && !is_minimized {
+                    continue;
+                }
 
-                    if is_tool { continue; }
+                let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+                let is_tool = (style & windows::Win32::UI::WindowsAndMessaging::WS_EX_TOOLWINDOW.0) != 0;
+                if is_tool { continue; }
 
-                    let mut score = 0;
-                    if is_visible { score += 1000; }
+                let is_visible = IsWindowVisible(hwnd).as_bool();
+                let mut score = 0;
 
-                    // Main window typically has a caption/title bar
-                    let style_regular = GetWindowLongW(hwnd, windows::Win32::UI::WindowsAndMessaging::GWL_STYLE) as u32;
-                    if (style_regular & windows::Win32::UI::WindowsAndMessaging::WS_CAPTION.0) != 0 {
-                        score += 500;
-                    }
+                // --- PRIORITY 1: Exact Class Match ---
+                if data.class_name == search.name {
+                    score += 5000;
+                } else if data.class_name.contains(&search.name) {
+                    score += 1000;
+                }
 
-                    // Prefer larger windows
-                    score += ((w * h) / 10000).min(100);
+                // --- PRIORITY 2: Visibility & State ---
+                if is_visible { score += 2000; }
+                if is_minimized { score += 1000; }
 
-                    // Prefer windows with titles
-                    let mut title_buf = [0u16; 256];
-                    let title_len = windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut title_buf);
-                    if title_len > 0 {
-                        score += 200;
-                    }
+                // --- PRIORITY 3: Helper Window Penalties ---
+                // Penalize dummy, invisible, ime, and secondary buffers
+                let lower_title = data.title.to_lowercase();
+                if lower_title.contains("dummy") || lower_title.contains("invisible") || data.class_name.contains("nvopengl") || data.class_name.contains("wgpu") {
+                    score -= 4000;
+                }
+                if data.class_name == "ime" || data.class_name == "msctfime ui" {
+                    score -= 4500;
+                }
 
-                    if score > best_score {
-                         best_score = score;
-                         best_hwnd = Some(hwnd);
-                    }
+                // --- PRIORITY 4: Structural Hints ---
+                let style_regular = GetWindowLongW(hwnd, windows::Win32::UI::WindowsAndMessaging::GWL_STYLE) as u32;
+                if (style_regular & windows::Win32::UI::WindowsAndMessaging::WS_CAPTION.0) != 0 {
+                    score += 500;
+                }
+
+                // Prefer windows with titles that aren't helper-like
+                if !data.title.is_empty() {
+                    score += 200;
+                }
+
+                // Prefer larger windows
+                score += ((w * h) / 10000).min(100);
+
+                if score > best_score {
+                     best_score = score;
+                     best_hwnd = Some(hwnd);
                 }
             }
         }
@@ -160,7 +206,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
     };
     let should_show = !is_visible;
 
-    println!("[Ruake] Toggling app: {} (should_show: {})", app_name, should_show);
+    // println!("[Ruake] Toggling app: {} (should_show: {})", app_name, should_show);
 
     let app_cfg = match config.app.get(app_name) {
         Some(c) => c,
@@ -239,7 +285,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
             let fg_window = GetForegroundWindow();
             // Capture focus when showing - update previous focus to current focused app
             let mut prev = get_previous_focus().lock().unwrap();
-            if fg_window.0 != 0 && fg_window != target_hwnd.inner() {
+            if !fg_window.is_invalid() && fg_window != target_hwnd.inner() {
                 *prev = Some(SendHwnd(fg_window));
             }
 
@@ -274,7 +320,7 @@ async fn run_animation_task(
     siblings: Vec<(String, SendHwnd)>,
     restore_focus: bool,
 ) {
-    println!("[Ruake] Starting animation for '{}' (siblings: {})", app_name, siblings.len());
+    // println!("[Ruake] Starting animation for '{}' (siblings: {})", app_name, siblings.len());
     let app_cfg = match config.app.get(app_name) {
         Some(c) => c,
         None => return,
@@ -319,18 +365,16 @@ async fn run_animation_task(
             *last = Some(monitor.0 as isize);
             monitor
         } else {
-                let last = get_last_monitor().lock().unwrap();
-                if let Some(h) = *last {
-                    HMONITOR(h as isize)
-                } else {
+            let last = get_last_monitor().lock().unwrap();
+            if let Some(h) = *last {
+                HMONITOR(h as *mut std::ffi::c_void)
+            } else {
                 monitor
             }
         };
 
-        let mut mi = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
+        let mut mi = MONITORINFO::default();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
         if !GetMonitorInfoW(final_monitor, &mut mi).as_bool() { return; }
 
         let work_area = mi.rcWork;
@@ -467,7 +511,10 @@ async fn run_animation_task(
         // --- Final Cleanup ---
         if should_show {
             let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
-            let _ = SetWindowPos(target_hwnd.inner(), z_flag.0, target_x, final_target_y, target_w, target_h, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+
+            // Final Z-Order based strictly on config
+            let final_z = if config.window.keep_above { HWND_TOPMOST } else { HWND_NOTOPMOST };
+            let _ = SetWindowPos(target_hwnd.inner(), final_z, target_x, final_target_y, target_w, target_h, SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOCOPYBITS);
         } else {
             let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
             if restore_focus {
@@ -484,6 +531,46 @@ async fn run_animation_task(
 
         for (_, ohwnd, _, _, _, _, _) in siblings_data {
             let _ = ShowWindow(ohwnd.inner(), SW_HIDE);
+        }
+    }
+}
+
+pub async fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConfig) {
+    let hwnd = send_hwnd.inner();
+    unsafe {
+        // Enforce Styles (No border, Layered for opacity)
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        if (ex_style & WS_EX_LAYERED.0 as i32) == 0 {
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+        }
+
+        let _ = SetWindowPos(hwnd, HWND::default(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA); // Invisible
+        let _ = ShowWindow(hwnd, SW_HIDE);
+
+        // Fetch current dimensions to preserve them if not configured
+        let mut current_rect = RECT::default();
+        let _ = GetWindowRect(hwnd, &mut current_rect);
+        let current_w = current_rect.right - current_rect.left;
+        let current_h = current_rect.bottom - current_rect.top;
+
+        // Position it offscreen on the correct monitor
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi = MONITORINFO::default();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+             let (w, h) = app_cfg.resolve_dimensions(&config.window);
+             let work_area = mi.rcWork;
+             let screen_w = work_area.right - work_area.left;
+
+             // Only use config if > 0.0, else preserve current size
+             let target_w = if w > 0.0 { (if w <= 1.0 { screen_w as f64 * w } else { w }) as i32 } else { current_w };
+             let target_h = if h > 0.0 { (if h <= 1.0 { (work_area.bottom - work_area.top) as f64 * h } else { h }) as i32 } else { current_h };
+
+             let target_x = work_area.left + (screen_w - target_w) / 2;
+             let target_y = work_area.top - target_h - 10;
+
+             let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, target_x, target_y, target_w, target_h, SWP_NOACTIVATE);
         }
     }
 }

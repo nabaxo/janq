@@ -1,5 +1,5 @@
 use crate::config::{Config, load_config};
-use crate::windows::window::toggle_window;
+use crate::windows::window::{toggle_window, get_hwnd_cache};
 use crate::hotkey::parse_hotkey;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -25,7 +25,7 @@ enum DaemonEvent {
 }
 
 fn load_icon() -> tray_icon::Icon {
-    let bytes = include_bytes!("../../icon.ico");
+    let bytes = include_bytes!("../../icon.png");
     let image = image::load_from_memory(bytes).expect("Failed to load icon.ico").to_rgba8();
     let (width, height) = image.dimensions();
     let rgba = image.into_raw();
@@ -91,7 +91,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
                     if let Some(target_name) = target_app {
                         if let Some(app_cfg) = cfg.app.get(&target_name) {
-                            crate::windows::terminal::ensure_terminal_running(app_cfg).await;
+                            crate::windows::terminal::ensure_terminal_running(&target_name, app_cfg, &cfg).await;
                             toggle_window(&target_name, &cfg).await;
                         }
                     }
@@ -103,47 +103,13 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         }
     });
 
-    // 4. Hotkey Manager (Must be initialized on main thread)
-    let manager = GlobalHotKeyManager::new().unwrap();
+    // 4. Shared Hotkey State
     let current_hotkeys = Arc::new(RwLock::new(Vec::<HotKey>::new()));
     let hotkey_map = Arc::new(RwLock::new(std::collections::HashMap::<u32, String>::new()));
 
-    sync_hotkeys(&manager, &config.read().unwrap(), &hotkey_map, &current_hotkeys);
-
-    // 5. Tray Icon
-    let tray_menu = Menu::new();
-    let mut app_menu_items = std::collections::HashMap::new();
-
-    {
-        let cfg = config.read().unwrap();
-        // Sort keys for a consistent (alphabetical) order since HashMap is unordered
-        let mut keys: Vec<_> = cfg.app.keys().collect();
-        keys.sort();
-
-        for name in keys {
-            let item = MenuItem::new(name, true, None);
-            let _ = tray_menu.append(&item);
-            app_menu_items.insert(item.id().clone(), name.clone());
-        }
-    }
-
-    let _ = tray_menu.append(&PredefinedMenuItem::separator());
-    let quit_i = MenuItem::new("Quit", true, None);
-    let _ = tray_menu.append(&quit_i);
-
-    let tray_icon = TrayIconBuilder::new()
-        .with_menu(Box::new(tray_menu))
-        .with_tooltip("Ruake")
-        .with_icon(load_icon())
-        .build()
-        .unwrap();
-
-    // 6. Config Watcher (Spawned task or thread)
+    // 5. Config Watcher (Spawned task or thread)
     let config_clone_watcher = config.clone();
     let path_to_watch = config_path.clone();
-
-    // Watcher logic can run on a separate thread, but updating config needs lock
-    // We'll pass the event proxy after event loop creation
     let watcher_proxy = event_loop.create_proxy();
     std::thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -154,11 +120,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                   let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
              }
         } else if let Some(home) = dirs::home_dir() {
-             // Fallbacks if no config found at startup
-             let paths = vec![
-                 home.join(".ruake.toml"),
-                 home.join(".goake.toml"),
-             ];
+             let paths = vec![home.join(".ruake.toml"), home.join(".goake.toml")];
              for p in paths {
                  if p.exists() {
                       let _ = watcher.watch(&p, RecursiveMode::NonRecursive);
@@ -183,7 +145,6 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         let old_config = (**w).clone();
                         *w = Arc::new(new_config.clone());
 
-                        // Identify and Release Removed Apps
                         for (name, app_cfg) in &old_config.app {
                             if !new_config.app.contains_key(name) {
                                 crate::windows::window::restore_app_window(name, &app_cfg.window_class);
@@ -197,45 +158,19 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
         }
     });
 
-    println!("Ruake (Windows) daemon running...");
-
-    // 7. Event Loop (Main Thread)
+    // 6. Event Loop (Main Thread)
     let hotkey_receiver = global_hotkey::GlobalHotKeyEvent::receiver();
     let menu_receiver = MenuEvent::receiver();
     let tray_receiver = TrayIconEvent::receiver();
     let config_clone_loop = config.clone();
 
-    // Initial setup (Parallel)
-    {
-        let cfg = config_clone_loop.read().unwrap().clone();
-        for app_cfg in cfg.app.values() {
-            let app_cfg = app_cfg.clone();
-            rt.spawn(async move {
-                let _ = crate::windows::terminal::ensure_terminal_running(&app_cfg).await;
-            });
-        }
+    let manager_arc = Arc::new(GlobalHotKeyManager::new().expect("Failed to create HotKeyManager"));
+    sync_hotkeys(Arc::clone(&manager_arc), &config.read().unwrap(), &hotkey_map, &current_hotkeys);
 
-        if auto_show {
-            let app_to_show = target_app.as_ref();
-            if let Some(app_name) = app_to_show {
-                if let Some(_app_cfg) = cfg.app.get(app_name) {
-                    let cfg = (*cfg).clone();
-                    let app_name = app_name.clone();
-                    rt.spawn(async move {
-                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                         toggle_window(&app_name, &cfg).await;
-                    });
-                }
-            } else if let Some(first_app) = cfg.app_order.first() {
-                 let cfg = (*cfg).clone();
-                 let app_name = first_app.clone();
-                 rt.spawn(async move {
-                      tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                      toggle_window(&app_name, &cfg).await;
-                 });
-            }
-        }
-    }
+    let manager = Some(manager_arc);
+    let mut tray_icon: Option<tray_icon::TrayIcon> = None;
+    let mut app_menu_items = std::collections::HashMap::new();
+    let mut quit_item_id = tray_icon::menu::MenuId::new("quit");
 
     // Setup EventLoopProxy for external signals (Ctrl+C, Hotkeys, and Tray polling)
     let proxy = event_loop.create_proxy();
@@ -266,15 +201,79 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
     });
 
     event_loop.run(move |event, elwt| {
-        // Capture tray icon explicitly to keep it alive
+        // Keep these alive by capturing them in the closure
         let _ = &tray_icon;
         let _ = &manager;
 
-        // Wait indefinitely for events - no polling!
-        // Events wake us up instantly (hotkeys, tray timer, Ctrl+C)
         elwt.set_control_flow(ControlFlow::Wait);
 
         match event {
+            Event::NewEvents(winit::event::StartCause::Init) => {
+                // 3. Tray Icon
+                let tray_menu = Menu::new();
+                {
+                    let cfg = config_clone_loop.read().unwrap();
+                    let mut keys: Vec<_> = cfg.app.keys().collect();
+                    keys.sort();
+
+                    for name in keys {
+                        let item = MenuItem::new(name, true, None);
+                        let _ = tray_menu.append(&item);
+                        app_menu_items.insert(item.id().clone(), name.clone());
+                    }
+                }
+
+                let _ = tray_menu.append(&PredefinedMenuItem::separator());
+                let quit_i = MenuItem::new("Quit", true, None);
+                quit_item_id = quit_i.id().clone();
+                let _ = tray_menu.append(&quit_i);
+
+                let icon = load_icon();
+                match TrayIconBuilder::new()
+                    .with_menu(Box::new(tray_menu))
+                    .with_tooltip("Ruake")
+                    .with_icon(icon)
+                    .build() {
+                        Ok(ti) => {
+                            tray_icon = Some(ti);
+                        },
+                        Err(e) => eprintln!("    ✗ Failed to create tray icon: {}", e),
+                    }
+
+                // 4. Initial app spawning
+                {
+                    let cfg = config_clone_loop.read().unwrap().clone();
+                    for (name, app_cfg) in &cfg.app {
+                        let name = name.clone();
+                        let app_cfg = app_cfg.clone();
+                        let cfg = cfg.clone();
+                        rt.spawn(async move {
+                            let _ = crate::windows::terminal::ensure_terminal_running(&name, &app_cfg, &cfg).await;
+                        });
+                    }
+
+                    if auto_show {
+                        let app_to_show = target_app.as_ref();
+                        if let Some(app_name) = app_to_show {
+                            if let Some(_app_cfg) = cfg.app.get(app_name) {
+                                let cfg = (*cfg).clone();
+                                let app_name = app_name.clone();
+                                rt.spawn(async move {
+                                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                     toggle_window(&app_name, &cfg).await;
+                                });
+                            }
+                        } else if let Some(first_app) = cfg.app_order.first() {
+                             let cfg = (*cfg).clone();
+                             let app_name = first_app.clone();
+                             rt.spawn(async move {
+                                  tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                  toggle_window(&app_name, &cfg).await;
+                             });
+                        }
+                    }
+                }
+            }
             Event::LoopExiting => {
                 let cfg = config_clone_loop.read().unwrap().clone();
                 crate::windows::window::restore_window_visibility(&cfg);
@@ -285,8 +284,11 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         elwt.exit();
                     },
                     DaemonEvent::ReloadHotkeys => {
-                         let cfg = config_clone_loop.read().unwrap().clone();
-                         sync_hotkeys(&manager, &cfg, &hotkey_map, &current_hotkeys);
+                        println!("Reloading hotkeys from NEW config...");
+                        if let Some(m) = &manager {
+                            let cfg = config_clone_loop.read().unwrap().clone();
+                            sync_hotkeys(Arc::clone(m), &cfg, &hotkey_map, &current_hotkeys);
+                        }
                     },
                     DaemonEvent::Hotkey(event) => {
                         if event.state == global_hotkey::HotKeyState::Pressed {
@@ -302,7 +304,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                    rt.block_on(async {
                                        if let Some(app_cfg) = cfg.app.get(&app_name) {
                                            if !toggle_window(&app_name, &cfg).await {
-                                               crate::windows::terminal::ensure_terminal_running(app_cfg).await;
+                                               crate::windows::terminal::ensure_terminal_running(&app_name, app_cfg, &cfg).await;
                                                toggle_window(&app_name, &cfg).await;
                                            }
                                        }
@@ -323,9 +325,11 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                             if let Some(app_name) = apps.first().cloned() {
                                                 if let Some(app_cfg) = cfg.app.get(&app_name) {
                                                     let app_cfg = app_cfg.clone();
+                                                    let cfg_spawn = cfg.clone();
+                                                    let name_clone = app_name.clone();
                                                     rt.spawn(async move {
-                                                        crate::windows::terminal::ensure_terminal_running(&app_cfg).await;
-                                                        toggle_window(&app_name, &cfg).await;
+                                                        crate::windows::terminal::ensure_terminal_running(&name_clone, &app_cfg, &cfg_spawn).await;
+                                                        toggle_window(&app_name, &cfg_spawn).await;
                                                     });
                                                 }
                                             }
@@ -338,7 +342,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
 
                         // Check Menu
                         while let Ok(event) = menu_receiver.try_recv() {
-                            if event.id == quit_i.id() {
+                            if event.id == quit_item_id {
                                 let cfg = config_clone_loop.read().unwrap().clone();
                                 crate::windows::window::restore_window_visibility(&cfg);
                                 std::process::exit(0);
@@ -347,9 +351,11 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                                 let app_name = app_name.clone();
                                 if let Some(app_cfg) = cfg.app.get(&app_name) {
                                     let app_cfg = app_cfg.clone();
+                                    let cfg_spawn = cfg.clone();
+                                    let name_clone = app_name.clone();
                                     rt.spawn(async move {
-                                        crate::windows::terminal::ensure_terminal_running(&app_cfg).await;
-                                        toggle_window(&app_name, &cfg).await;
+                                        crate::windows::terminal::ensure_terminal_running(&name_clone, &app_cfg, &cfg_spawn).await;
+                                        toggle_window(&app_name, &cfg_spawn).await;
                                     });
                                 }
                             }
@@ -371,16 +377,28 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                     LAST_CHECK_SEC.store(now_sec, Ordering::Relaxed);
                     let cfg = config_clone_loop.read().unwrap().clone();
                     for (name, app_cfg) in &cfg.app {
-                        if crate::windows::window::find_window_by_process(&app_cfg.window_class).is_none() {
+                         // Only check if NOT in cache or invalid
+                         let needs_check = {
+                             let cache = get_hwnd_cache().read().unwrap();
+                             if let Some(hwnd) = cache.get(name) {
+                                 unsafe { !windows::Win32::UI::WindowsAndMessaging::IsWindow(hwnd.0).as_bool() }
+                             } else {
+                                 true
+                             }
+                         };
+
+                         if needs_check {
                              // If this was the visible app, reset it
                              crate::windows::window::reset_visible_app();
 
-                             println!("App '{}' closed. Respawning...", name);
+                             println!("App '{}' not managed. Checking/Respawning...", name);
                              let app_cfg = app_cfg.clone();
+                             let cfg_spawn = cfg.clone();
+                             let name_clone = name.clone();
                              rt.spawn(async move {
-                                 crate::windows::terminal::ensure_terminal_running(&app_cfg).await;
+                                 crate::windows::terminal::ensure_terminal_running(&name_clone, &app_cfg, &cfg_spawn).await;
                              });
-                        }
+                         }
                     }
                 }
             }
@@ -402,12 +420,11 @@ pub async fn send_toggle(app_name: Option<String>) -> Result<()> {
 }
 
 pub fn sync_hotkeys(
-    manager: &GlobalHotKeyManager,
+    manager: Arc<GlobalHotKeyManager>,
     config: &Config,
     hotkey_map: &Arc<RwLock<std::collections::HashMap<u32, String>>>,
     current_hotkeys: &Arc<RwLock<Vec<HotKey>>>
 ) {
-    println!("Syncing hotkeys...");
 
     // 1. Unregister all existing hotkeys
     {
@@ -431,21 +448,37 @@ pub fn sync_hotkeys(
             if hk_str.is_empty() {
                 continue;
             }
-            println!("App '{}' attempting to register hotkey: {}", app_name, hk_str);
             match parse_hotkey(&hk_str) {
                 Ok(key) => {
+                    let key_code = key.key;
                     match manager.register(key) {
                         Ok(_) => {
-                            println!("  ✓ Registered: {}", hk_str);
                             new_map.insert(key.id(), app_name.clone());
                             new_hks.push(key);
                         }
                         Err(e) => {
-                            eprintln!("  ✗ Failed to register '{}': {}", hk_str, e);
+                            // Try fallback for section key variants if it failed
+                            if key_code == global_hotkey::hotkey::Code::IntlBackslash {
+                                let fallback_key = HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backquote);
+                                if let Ok(_) = manager.register(fallback_key) {
+                                     new_map.insert(fallback_key.id(), app_name.clone());
+                                     new_hks.push(fallback_key);
+                                } else {
+                                     let fallback_key2 = HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backslash);
+                                     if let Ok(_) = manager.register(fallback_key2) {
+                                          new_map.insert(fallback_key2.id(), app_name.clone());
+                                          new_hks.push(fallback_key2);
+                                     } else {
+                                          eprintln!("  ✗ Failed to register {}: {}", hk_str, e);
+                                     }
+                                }
+                            } else {
+                                eprintln!("  ✗ Failed to register {}: {}", hk_str, e);
+                            }
                         }
                     }
                 },
-                Err(e) => eprintln!("  ✗ Failed to parse '{}': {}", hk_str, e),
+                Err(e) => eprintln!("  ✗ Failed to parse {}: {}", hk_str, e),
             }
         }
     }

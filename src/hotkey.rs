@@ -106,7 +106,7 @@ fn parse_code(s: &str) -> Option<Code> {
         "f11" => Some(Code::F11),
         "f12" => Some(Code::F12),
         "§" | "section" => Some(Code::IntlBackslash),
-        "±" | "plusminus" => Some(Code::IntlBackslash),
+        "plusminus" => Some(Code::IntlBackslash),
         "dead_grave" => Some(Code::Backquote),
         _ => None,
     }
