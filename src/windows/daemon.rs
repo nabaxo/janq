@@ -217,7 +217,6 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                 {
                     let cfg = config_clone_loop.read().unwrap();
                     let mut keys = cfg.app_order.clone();
-                    // Just in case app_order somehow missed something or is desynced (though load_config handles it)
                     for k in cfg.app.keys() {
                         if !keys.contains(k) {
                             keys.push(k.clone());
@@ -225,7 +224,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                     }
 
                     for name in keys {
-                        if !cfg.app.contains_key(&name) { continue; } // Skip if not in map
+                        if !cfg.app.contains_key(&name) { continue; }
                         let item = MenuItem::new(&name, true, None);
                         let _ = tray_menu.append(&item);
                         app_menu_items.insert(item.id().clone(), name.clone());
@@ -293,10 +292,38 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         elwt.exit();
                     },
                     DaemonEvent::ReloadHotkeys => {
-                        println!("Reloading hotkeys from NEW config...");
+                        println!("Reloading config (hotkeys & tray menu)...");
+                        let cfg = config_clone_loop.read().unwrap().clone();
+
+                        // 1. Sync Hotkeys
                         if let Some(m) = &manager {
-                            let cfg = config_clone_loop.read().unwrap().clone();
                             sync_hotkeys(Arc::clone(m), &cfg, &hotkey_map, &current_hotkeys);
+                        }
+
+                        // 2. Refresh Tray Menu
+                        let tray_menu = Menu::new();
+                        app_menu_items.clear();
+                        let mut keys = cfg.app_order.clone();
+                        for k in cfg.app.keys() {
+                            if !keys.contains(k) {
+                                keys.push(k.clone());
+                            }
+                        }
+
+                        for name in keys {
+                            if !cfg.app.contains_key(&name) { continue; }
+                            let item = MenuItem::new(&name, true, None);
+                            let _ = tray_menu.append(&item);
+                            app_menu_items.insert(item.id().clone(), name.clone());
+                        }
+
+                        let _ = tray_menu.append(&PredefinedMenuItem::separator());
+                        let quit_i = MenuItem::new("Quit", true, None);
+                        quit_item_id = quit_i.id().clone();
+                        let _ = tray_menu.append(&quit_i);
+
+                        if let Some(ti) = &tray_icon {
+                            let _ = ti.set_menu(Some(Box::new(tray_menu)));
                         }
                     },
                     DaemonEvent::Hotkey(event) => {
