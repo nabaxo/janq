@@ -105,8 +105,10 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
             score = 1000;
         } else if (safeTargetPid > 0 && c.pid == safeTargetPid) {
             score = 500;
-        } else if (cClass.indexOf(windowClass.toLowerCase()) !== -1) {
+        } else if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) {
             score = 100;
+        } else if (c.desktopFileName && c.desktopFileName.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) {
+            score = 50;
         }
 
         if (score > 0) {
@@ -416,6 +418,7 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
             if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) score += 1000;
             if (app.targetPid > 0 && c.pid == app.targetPid) score += 500;
             if (cClass.indexOf(app.windowClass.toLowerCase()) !== -1 || cName.indexOf(app.windowClass.toLowerCase()) !== -1) score += 100;
+            if (c.desktopFileName && c.desktopFileName.toLowerCase().indexOf(app.windowClass.toLowerCase()) !== -1) score += 50;
 
             if (score > 0) {
                 if (c.normalWindow) score += 2000;

@@ -25,6 +25,19 @@ COMPONENTS=(
     "goake"
 )
 
+# 3.1 Stop kglobalaccel temporarily so it doesn't write back to config
+echo "[3.1/5] Stopping kglobalaccel..."
+kquitapp6 kglobalaccel || pkill -f kglobalaccel || true
+
+# 3.2 Remove Desktop and Service files
+echo "[3.2/5] Removing Desktop and Service files..."
+rm -f ~/.local/share/applications/dev.nabaxo.ruake.desktop
+rm -f ~/.local/share/applications/ruake-dev.nabaxo.ruake.desktop
+rm -f ~/.local/share/applications/dev.nabaxo.goake.desktop
+rm -f ~/.local/share/dbus-1/services/dev.nabaxo.ruake.service
+rm -f ~/.local/share/dbus-1/services/ruake-dev.nabaxo.ruake.service
+rm -f ~/.local/share/dbus-1/services/dev.nabaxo.goake.service
+
 for comp in "${COMPONENTS[@]}"; do
     if qdbus org.kde.kglobalaccel /kglobalaccel allActionsForComponent "$comp" &>/dev/null; then
         echo "  Found component: $comp"
