@@ -103,7 +103,7 @@ pub async fn ensure_terminal_running(app_name: &str, app_cfg: &AppConfig, config
 
         if let Some(sh) = send_hwnd {
             // Add a slight settling delay for the window to be ready for manipulation
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
 
             // AUTOMATIC GRAB: Park newly discovered window immediately
             crate::windows::window::park_window(sh, config, app_cfg).await;

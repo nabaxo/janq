@@ -5,8 +5,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SetForegroundWindow, GetForegroundWindow,
     SetWindowPos, SW_HIDE, HWND_TOPMOST, HWND_NOTOPMOST, SWP_SHOWWINDOW, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOZORDER,
     GetLayeredWindowAttributes, SetLayeredWindowAttributes, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, LWA_ALPHA,
-    GetCursorPos, GetWindowRect, IsIconic, SWP_NOSIZE, SWP_NOCOPYBITS, SWP_DEFERERASE, SWP_NOMOVE, SWP_FRAMECHANGED,
-    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos
+    GetCursorPos, GetWindowRect, IsIconic, SW_SHOW, SWP_NOSIZE, SWP_NOCOPYBITS, SWP_DEFERERASE, SWP_NOMOVE, SWP_FRAMECHANGED,
+    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, SW_SHOWNA
 };
 use windows::Win32::Graphics::Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
 use windows::Win32::Graphics::Gdi::{
@@ -178,11 +178,14 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
                 cache.insert(app_name.to_string(), wrapper);
                 wrapper
             },
-            None => return false,
+            None => {
+                println!("Window not found for app: {} (class: {})", app_name, app_cfg.window_class);
+                return false;
+            }
         }
     };
 
-    // 2. Discover siblings (and explicitly exclude target)
+    // 2. Discover siblings
     let mut siblings = Vec::new();
     if should_show {
         for (name, cfg) in &config.app {
@@ -240,7 +243,6 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
     let config_clone = config.clone();
     let app_name_clone = app_name.to_string();
 
-    // Spawn blocking thread for buttery smooth animation (real-time loop)
     let handle = tokio::spawn(async move {
         let _ = tokio::task::spawn_blocking(move || {
             run_animation_task_sync(&app_name_clone, &config_clone, target_hwnd, should_show, siblings, restore_focus);
@@ -331,7 +333,6 @@ fn run_animation_task_sync(
             if ohwnd.0 == target_hwnd.0 { continue; }
             let mut r = RECT::default();
             if GetWindowRect(ohwnd.inner(), &mut r).is_ok() {
-                // Ignore monitor bounds; if it's on/near ANY screen, hide it.
                 let smon = MonitorFromWindow(ohwnd.inner(), MONITOR_DEFAULTTONEAREST);
                 let mut smi = MONITORINFO::default();
                 smi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
@@ -339,8 +340,6 @@ fn run_animation_task_sync(
                     let s_work = smi.rcWork;
                     let osy = r.top;
                     let oty = s_work.top - (r.bottom - r.top) - 10;
-
-                    // Only animate if it's currently relevant (on screen)
                     if r.bottom > s_work.top - 100 {
                         siblings_data.push((ohwnd, r.left, r.right-r.left, r.bottom-r.top, osy, oty));
                     }
@@ -365,16 +364,18 @@ fn run_animation_task_sync(
         prep_layer(target_hwnd.inner());
         for (h, _, _, _, _, _) in &siblings_data { prep_layer(h.inner()); }
 
-        // --- Teleport (Immediate) ---
+        // --- Teleport & Initial State ---
         if should_show {
-            let _ = SetWindowPos(target_hwnd.inner(), HWND::default(), target_x, hidden_y, target_w, target_h, SWP_NOACTIVATE | SWP_NOZORDER | SWP_HIDEWINDOW);
-            // We'll show it in the first frame of the loop
+            // Mask with Alpha 0 instead of SWP_HIDEWINDOW to avoid initialization issues
+            let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 0, LWA_ALPHA);
+            let _ = SetWindowPos(target_hwnd.inner(), HWND::default(), target_x, hidden_y, target_w, target_h, SWP_NOACTIVATE | SWP_NOZORDER);
         }
 
         let mut target_rect = RECT::default();
         let mut t_start_alpha: u8 = 255;
         let _ = GetLayeredWindowAttributes(target_hwnd.inner(), None, Some(&mut t_start_alpha), None);
         let _ = GetWindowRect(target_hwnd.inner(), &mut target_rect);
+
         let t_start_y = if should_show { hidden_y } else { target_rect.top };
         let t_dist_y = final_target_y - t_start_y;
 
@@ -390,7 +391,6 @@ fn run_animation_task_sync(
 
         if dur_secs > 0.0 {
             loop {
-                // Check if we should still be animating this app
                 {
                     let v = get_visible_app().read().unwrap();
                     let still_target = if should_show { v.as_deref() == Some(app_name) } else { v.as_deref() != Some(app_name) };
@@ -404,14 +404,20 @@ fn run_animation_task_sync(
                 if animate_opacity {
                     let op_progress = if should_show { (progress / op_point).min(1.0) }
                     else { if progress <= (1.0 - op_point) { 0.0 } else { ((progress - (1.0 - op_point)) / op_point).min(1.0) } };
-                    let t_alpha = if should_show { (t_start_alpha as f64 + (255.0 - t_start_alpha as f64) * op_progress) as u8 }
-                    else { (t_start_alpha as f64 * (1.0 - op_progress)) as u8 };
+
+                    // If we set t_start_alpha to 0 during show teleport, this works:
+                    let sa = if should_show { 0.0 } else { t_start_alpha as f64 };
+                    let t_alpha = if should_show { (sa + (255.0 - sa) * op_progress) as u8 }
+                    else { (sa * (1.0 - op_progress)) as u8 };
                     let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
 
                     for (h, _, _, _, _, _) in &siblings_data {
                          let s_op = if progress <= (1.0 - config.animation.hide_opacity_point) { 0.0 } else { ((progress - (1.0 - config.animation.hide_opacity_point)) / config.animation.hide_opacity_point.clamp(0.01, 1.0)).min(1.0) };
                          let _ = SetLayeredWindowAttributes(h.inner(), COLORREF(0), (255.0 * (1.0 - s_op)) as u8, LWA_ALPHA);
                     }
+                } else if first_frame && should_show {
+                    // Force reveal if not animating opacity
+                    let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
                 }
 
                 if let Ok(mut hdwp) = BeginDeferWindowPos((1 + siblings_data.len()) as i32) {
@@ -439,10 +445,13 @@ fn run_animation_task_sync(
                     if !t_ok { let _ = SetWindowPos(target_hwnd.inner(), t_z, target_x, next_y, target_w, target_h, t_flags); }
                 }
 
-                if first_frame && should_show { let _ = SetForegroundWindow(target_hwnd.inner()); }
+                if first_frame && should_show {
+                    let _ = ShowWindow(target_hwnd.inner(), SW_SHOWNA);
+                    let _ = SetForegroundWindow(target_hwnd.inner());
+                }
                 first_frame = false;
 
-                let _ = DwmFlush(); // VSync synchronization
+                let _ = DwmFlush();
                 if progress >= 1.0 { break; }
             }
         }
