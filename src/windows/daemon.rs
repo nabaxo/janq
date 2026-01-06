@@ -483,6 +483,46 @@ pub fn sync_hotkeys(
     hotkey_map: &Arc<RwLock<std::collections::HashMap<u32, String>>>,
     current_hotkeys: &Arc<RwLock<Vec<HotKey>>>
 ) {
+    // 0. Check if we actually need to sync
+    let mut desired_map = std::collections::HashMap::new();
+    let mut desired_hks = Vec::new();
+    for (app_name, app_cfg) in &config.app {
+        for hk_str in app_cfg.hotkey.as_vec() {
+            if hk_str.is_empty() { continue; }
+            if let Ok(key) = parse_hotkey(&hk_str) {
+                desired_map.insert(key.id(), app_name.clone());
+                desired_hks.push(key);
+            }
+        }
+    }
+
+    {
+        let current_map = hotkey_map.read().unwrap();
+        let current_hks = current_hotkeys.read().unwrap();
+
+        if current_map.len() == desired_map.len() && current_hks.len() == desired_hks.len() {
+            let mut identical = true;
+            for (id, app_name) in &desired_map {
+                if current_map.get(id) != Some(app_name) {
+                    identical = false;
+                    break;
+                }
+            }
+            if identical {
+                for hk in &desired_hks {
+                    if !current_hks.iter().any(|c| c.id() == hk.id()) {
+                        identical = false;
+                        break;
+                    }
+                }
+            }
+
+            if identical {
+                println!("Hotkey: Windows hotkeys already correct. Skipping sync.");
+                return;
+            }
+        }
+    }
 
     // 1. Unregister all existing hotkeys
     {

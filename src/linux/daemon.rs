@@ -193,7 +193,9 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
     {
         let cfg = config.read().unwrap().clone();
         let _ = crate::linux::desktop::generate_desktop_file(&cfg);
-        let _ = crate::linux::hotkey::sync_kde_shortcuts(&cfg, None).await;
+        tokio::spawn(async move {
+            let _ = crate::linux::hotkey::sync_kde_shortcuts(&cfg, None).await;
+        });
     }
 
 

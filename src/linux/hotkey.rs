@@ -18,7 +18,7 @@ pub fn normalize_shortcut_for_kde(shortcut: &str) -> String {
             "ctrl" | "control" => normalized.push_str("Ctrl"),
             "alt" => normalized.push_str("Alt"),
             "shift" => normalized.push_str("Shift"),
-            "`" | "grave" | "backtick" | "dead_grave" => normalized.push('`'),
+            "[`]" | "`" | "grave" | "backtick" | "dead_grave" => normalized.push('`'),
             "§" | "section" => normalized.push('§'),
             "±" | "plusminus" => normalized.push('±'),
             "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" => {
@@ -66,7 +66,7 @@ fn map_qt_key(s: &str) -> i32 {
         "ctrl" | "control" => 0x04000000,
         "alt" => 0x08000000,
         "shift" => 0x02000000,
-        "`" | "grave" | "backtick" | "dead_grave" => 0x60,
+        "[`]" | "`" | "grave" | "backtick" | "dead_grave" => 0x60,
         "1" => 0x31, "2" => 0x32, "3" => 0x33, "4" => 0x34, "5" => 0x35,
         "6" => 0x36, "7" => 0x37, "8" => 0x38, "9" => 0x39, "0" => 0x30,
         "-" | "minus" => 0x2d, "=" | "equal" => 0x3d,
@@ -164,32 +164,30 @@ impl ShortcutFile {
     }
 
     pub fn scrub(&mut self) -> Result<()> {
-        let sections = ["[services][ruake-dev.nabaxo.ruake.desktop]", "[services][dev.nabaxo.ruake.desktop]"];
-        let original_len = self.lines.len();
+        let sections = ["[services][ruake-dev.nabaxo.ruake.desktop]"]; // Only legacy ones
+        let original_lines = self.lines.clone();
 
         for section_header in sections {
             let mut new_lines = Vec::new();
             let mut in_section = false;
             for line in &self.lines {
-                if line.trim() == section_header {
+                let trimmed = line.trim();
+                if trimmed.eq_ignore_ascii_case(section_header) {
                     in_section = true;
                     continue;
                 }
-                if in_section && line.trim().starts_with('[') {
+                if in_section && trimmed.starts_with('[') {
                     in_section = false;
                 }
                 if !in_section {
                     new_lines.push(line.clone());
                 }
             }
-            if self.lines.len() != new_lines.len() {
-                self.modified = true;
-                self.lines = new_lines;
-            }
+            self.lines = new_lines;
         }
 
-        if original_len != self.lines.len() {
-            println!("Hotkey: Removed {} lines from Ruake sections in kglobalshortcutsrc", original_len - self.lines.len());
+        if original_lines != self.lines {
+            self.modified = true;
         }
 
         Ok(())
@@ -199,12 +197,21 @@ impl ShortcutFile {
         let section_header = "[services][dev.nabaxo.ruake.desktop]";
         let key_line = format!("{}={}", app_name, value);
 
-        let section_idx = self.lines.iter().position(|l| l == section_header);
+        let mut section_idx = None;
+        for (i, line) in self.lines.iter().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                if trimmed.eq_ignore_ascii_case(section_header) {
+                    section_idx = Some(i);
+                    break;
+                }
+            }
+        }
 
         if let Some(sec_idx) = section_idx {
             let mut next_section_idx = self.lines.len();
             for i in (sec_idx + 1)..self.lines.len() {
-                if self.lines[i].starts_with('[') {
+                if self.lines[i].trim().starts_with('[') {
                     next_section_idx = i;
                     break;
                 }
@@ -212,8 +219,10 @@ impl ShortcutFile {
 
             let mut key_found = false;
             for i in (sec_idx + 1)..next_section_idx {
-                if self.lines[i].starts_with(&format!("{}=", app_name)) {
-                    if self.lines[i] != key_line {
+                let trimmed = self.lines[i].trim();
+                let prefix = format!("{}=", app_name);
+                if trimmed.starts_with(&prefix) {
+                    if trimmed != key_line {
                         self.lines[i] = key_line.clone();
                         self.modified = true;
                     }
@@ -238,10 +247,12 @@ impl ShortcutFile {
 
     fn remove(&mut self, app_name: &str) {
         let section_header = "[services][dev.nabaxo.ruake.desktop]";
-        if let Some(sec_idx) = self.lines.iter().position(|l| l == section_header) {
+        if let Some(sec_idx) = self.lines.iter().position(|l| l.trim().eq_ignore_ascii_case(section_header)) {
             let mut i = sec_idx + 1;
-            while i < self.lines.len() && !self.lines[i].starts_with('[') {
-                if self.lines[i].starts_with(&format!("{}=", app_name)) {
+            while i < self.lines.len() && !self.lines[i].trim().starts_with('[') {
+                let trimmed = self.lines[i].trim();
+                let prefix = format!("{}=", app_name);
+                if trimmed.starts_with(&prefix) {
                     self.lines.remove(i);
                     self.modified = true;
                 } else {
@@ -252,12 +263,15 @@ impl ShortcutFile {
     }
 
     fn save(&self) -> Result<()> {
-        if !self.modified { return Ok(()); }
+        if !self.modified {
+            return Ok(());
+        }
         use std::io::Write;
         let mut file = std::fs::File::create(&self.path)?;
         for line in &self.lines {
             writeln!(file, "{}", line)?;
         }
+        println!("Hotkey: kglobalshortcutsrc file updated at {:?}", self.path);
         Ok(())
     }
 }
@@ -269,11 +283,73 @@ pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) ->
 
     let mut sf = ShortcutFile::load()?;
 
-    // 1. D-BUS UNREGISTER: Release all shortcuts first to avoid clobbering kglobalshortcutsrc
-    // This avoids rapid-fire D-Bus calls that can trigger KWin race conditions
-    let mut actions_to_remove = Vec::new();
+    // 1. Check if we actually need to update kglobalshortcutsrc
+    let mut desired_keys = Vec::new();
+    for app_name in &config.app_order {
+        if let Some(app_cfg) = config.app.get(app_name) {
+            let hotkeys = app_cfg.hotkey.as_vec();
+            if hotkeys.is_empty() { continue; }
+            let mut normalized_parts = Vec::with_capacity(hotkeys.len());
+            for hk in &hotkeys {
+                normalized_parts.push(normalize_shortcut_for_kde(hk));
+            }
+            let normalized_joined = normalized_parts.join("\t");
+            let val = format!("{},{},Toggle {}", normalized_joined, normalized_joined, app_name);
+            desired_keys.push((app_name.clone(), val));
+        }
+    }
+
+    for (app_name, val) in &desired_keys {
+        sf.upsert(app_name, val);
+    }
+
+    // 2. Fetch current D-Bus state to see if registration is already correct
+    let mut dbus_correct = true;
     let components_to_clean = ["ruake-dev.nabaxo.ruake.desktop", "dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
 
+    // We only care about dev.nabaxo.ruake.desktop for "correctness", others are just for cleanup
+    if let Ok(all_actions) = proxy.all_actions_for_component(vec![component.to_string()]).await {
+        let mut found_apps = std::collections::HashSet::new();
+        for action_info in all_actions {
+            if action_info.len() >= 2 {
+                let action_name = &action_info[1];
+
+                // Ignore internal/default actions
+                if action_name == "_launch" {
+                    continue;
+                }
+
+                found_apps.insert(action_name.clone());
+
+                // Check if this action should exist
+                if !config.app.contains_key(action_name) {
+                    dbus_correct = false;
+                    break;
+                }
+            }
+        }
+        if dbus_correct {
+            for app_name in &config.app_order {
+                if !found_apps.contains(app_name) {
+                    dbus_correct = false;
+                    break;
+                }
+            }
+        }
+    } else {
+        dbus_correct = false;
+    }
+
+    if dbus_correct {
+        if sf.modified {
+            sf.save()?;
+        }
+        println!("Hotkey: Shortcuts already correct in D-Bus. Skipping disruptive sync.");
+        return Ok(());
+    }
+
+    // 3. D-BUS UNREGISTER: Release actions
+    let mut actions_to_remove = Vec::new();
     println!("Hotkey: Collecting actions to unregister...");
     for comp in components_to_clean {
         if let Ok(all_actions) = proxy.all_actions_for_component(vec![comp.to_string()]).await {
@@ -310,22 +386,8 @@ pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) ->
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     }
 
-    // 3. Update kglobalshortcutsrc file with current configuration
-    println!("Hotkey: Updating kglobalshortcutsrc file...");
-    for app_name in &config.app_order {
-        if let Some(app_cfg) = config.app.get(app_name) {
-            let hotkeys = app_cfg.hotkey.as_vec();
-            let mut normalized_parts = Vec::with_capacity(hotkeys.len());
-            for hk in &hotkeys {
-                normalized_parts.push(normalize_shortcut_for_kde(hk));
-            }
-            let normalized_joined = normalized_parts.join("\t");
-            let val = format!("{},{},Toggle {}", normalized_joined, normalized_joined, app_name);
-            sf.upsert(app_name, &val);
-        }
-    }
+    // 4. Save kglobalshortcutsrc
     sf.save()?;
-    println!("Hotkey: kglobalshortcutsrc file updated.");
 
     // 4. Force KDE to reload desktop files
     println!("Hotkey: Forcing KDE to reload desktop files with kbuildsycoca6...");
