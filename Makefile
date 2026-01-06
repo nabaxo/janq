@@ -1,6 +1,12 @@
 DIST_DIR := dist
 
-build: build-linux build-windows
+build: lint build-linux build-windows
+
+lint:
+	cargo fmt --all -- --check
+
+format:
+	cargo fmt --all
 
 prepare-dist:
 	mkdir -p $(DIST_DIR)
