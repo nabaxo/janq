@@ -164,7 +164,7 @@ impl ShortcutFile {
     }
 
     pub fn scrub(&mut self) -> Result<()> {
-        let sections = ["[services][ruake-dev.nabaxo.ruake.desktop]"]; // Only legacy ones
+        let sections: [&str; 0] = []; // Removed legacy ones as requested to clear up codebase
         let original_lines = self.lines.clone();
 
         for section_header in sections {
@@ -305,7 +305,7 @@ pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) ->
 
     // 2. Fetch current D-Bus state to see if registration is already correct
     let mut dbus_correct = true;
-    let components_to_clean = ["ruake-dev.nabaxo.ruake.desktop", "dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
+    let components_to_clean = ["dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
 
     // We only care about dev.nabaxo.ruake.desktop for "correctness", others are just for cleanup
     if let Ok(all_actions) = proxy.all_actions_for_component(vec![component.to_string()]).await {

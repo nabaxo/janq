@@ -5,20 +5,18 @@
 echo "Cleaning up Ruake desktop files..."
 
 APP_DIR="$HOME/.local/share/applications"
-DEPRECATED_FILE="$APP_DIR/ruake.desktop"
+DEPRECATED_FILES=(
+    "$APP_DIR/ruake.desktop"
+    "$APP_DIR/ruake-dev.nabaxo.ruake.desktop"
+)
 
-if [ -f "$DEPRECATED_FILE" ]; then
-    echo "Found deprecated file: $DEPRECATED_FILE"
-    rm "$DEPRECATED_FILE"
-    if [ $? -eq 0 ]; then
-        echo "Successfully removed $DEPRECATED_FILE"
-    else
-        echo "Error: Failed to remove $DEPRECATED_FILE"
-        exit 1
+for file in "${DEPRECATED_FILES[@]}"; do
+    if [ -f "$file" ]; then
+        echo "Found deprecated file: $file"
+        rm "$file"
+        echo "Successfully removed $file"
     fi
-else
-    echo "No deprecated 'ruake.desktop' file found."
-fi
+done
 
 # Optional: Check for other potential stale files (e.g. if we ever had other names)
 # find "$APP_DIR" -name "*ruake*.desktop" -not -name "dev.nabaxo.ruake.desktop" -print
