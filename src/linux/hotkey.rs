@@ -271,7 +271,6 @@ impl ShortcutFile {
         for line in &self.lines {
             writeln!(file, "{}", line)?;
         }
-        println!("Hotkey: kglobalshortcutsrc file updated at {:?}", self.path);
         Ok(())
     }
 }
@@ -358,13 +357,11 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
         if sf.modified {
             sf.save()?;
         }
-        println!("Hotkey: Shortcuts already correct in D-Bus. Skipping disruptive sync.");
         return Ok(());
     }
 
     // 3. D-BUS UNREGISTER: Release actions
     let mut actions_to_remove = Vec::new();
-    println!("Hotkey: Collecting actions to unregister...");
     for comp in components_to_clean {
         if let Ok(all_actions) = proxy.all_actions_for_component(vec![comp.to_string()]).await {
             for action_info in all_actions {
@@ -389,11 +386,8 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
         }
     }
 
-    println!("Hotkey: Found {} actions to unregister.", actions_to_remove.len());
-
     // Process removals with delays
     for (comp, action_name) in &actions_to_remove {
-        println!("Hotkey: Releasing shortcut '{}' from component '{}'", action_name, comp);
         tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
         let _ = proxy.unregister(comp, action_name).await;
         if comp == component {
@@ -402,7 +396,6 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
     }
 
     if !actions_to_remove.is_empty() {
-        println!("Hotkey: Finished unregistering actions. Waiting for KWin to settle...");
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     }
 
@@ -410,17 +403,15 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
     sf.save()?;
 
     // 4. Force KDE to reload desktop files
-    println!("Hotkey: Forcing KDE to reload desktop files with kbuildsycoca6...");
     let status = tokio::process::Command::new("kbuildsycoca6").arg("--noincremental").status().await;
     match status {
-        Ok(s) if s.success() => println!("Hotkey: kbuildsycoca6 completed successfully."),
+        Ok(s) if s.success() => {},
         Ok(s) => eprintln!("WARN: kbuildsycoca6 failed with status: {}", s),
         Err(e) => eprintln!("WARN: Failed to execute kbuildsycoca6: {}", e),
     }
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await; // Solid 1s delay
 
     // 5. Register actions and set shortcuts via D-Bus
-    println!("Hotkey: Registering and setting shortcuts via D-Bus...");
     for app_name in &config.app_order {
         if !apps_to_change.contains(app_name) { continue; }
 
@@ -436,12 +427,8 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
                 display_name.clone(),
             ];
 
-            println!("Hotkey: Syncing app '{}'...", app_name);
-
             if let Err(e) = proxy.do_register(action_id.clone()).await {
                  eprintln!("WARN: doRegister failed for '{}': {}", app_name, e);
-            } else {
-                println!("Hotkey: Registered action for '{}'.", app_name);
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
@@ -451,26 +438,20 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
             }
 
             if key_seq[0] != 0 {
-                println!("Hotkey: Setting keys for '{}': {:?}", app_name, hotkeys);
                 match proxy.set_shortcut(action_id.clone(), key_seq.clone(), 3).await {
                     Ok(res) => {
                         if res.is_empty() {
                              eprintln!("WARN: KGlobalAccel REJECTED shortcuts for '{}'. Conflict or KDE limit.", app_name);
                         } else if res.len() < hotkeys.len() {
                              eprintln!("WARN: KGlobalAccel partially accepted shortcuts for '{}' ({}/{}).", app_name, res.len(), hotkeys.len());
-                        } else {
-                            println!("Hotkey: Successfully set shortcuts for '{}'.", app_name);
                         }
                     },
                     Err(e) => eprintln!("WARN: setShortcut failed for '{}': {}", app_name, e),
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-            } else {
-                println!("Hotkey: No valid key sequence for '{}', skipping setShortcut.", app_name);
             }
         }
     }
-    println!("Hotkey: All applications synced.");
 
     // 6. Final safety delay
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
