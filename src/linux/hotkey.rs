@@ -134,287 +134,91 @@ trait KGlobalAccel {
     fn unregister(&self, component_unique: &str, shortcut_unique: &str) -> zbus::Result<bool>;
 }
 
-struct ShortcutFile {
-    path: std::path::PathBuf,
-    lines: Vec<String>,
-    modified: bool,
-}
-
-impl ShortcutFile {
-    fn load() -> Result<Self> {
-        let path = dirs::config_dir()
-            .unwrap_or_else(|| dirs::home_dir().unwrap().join(".config"))
-            .join("kglobalshortcutsrc");
-
-        let content = if path.exists() {
-            std::fs::read_to_string(&path)?
-        } else {
-            String::new()
-        };
-
-        let mut sf = Self {
-            path,
-            lines: content.lines().map(|s| s.to_string()).collect(),
-            modified: false,
-        };
-
-        sf.scrub()?;
-
-        Ok(sf)
-    }
-
-    pub fn scrub(&mut self) -> Result<()> {
-        let sections: [&str; 0] = []; // Removed legacy ones as requested to clear up codebase
-        let original_lines = self.lines.clone();
-
-        for section_header in sections {
-            let mut new_lines = Vec::new();
-            let mut in_section = false;
-            for line in &self.lines {
-                let trimmed = line.trim();
-                if trimmed.eq_ignore_ascii_case(section_header) {
-                    in_section = true;
-                    continue;
-                }
-                if in_section && trimmed.starts_with('[') {
-                    in_section = false;
-                }
-                if !in_section {
-                    new_lines.push(line.clone());
-                }
-            }
-            self.lines = new_lines;
-        }
-
-        if original_lines != self.lines {
-            self.modified = true;
-        }
-
-        Ok(())
-    }
-
-    fn upsert(&mut self, app_name: &str, value: &str) {
-        let section_header = "[services][dev.nabaxo.ruake.desktop]";
-        let key_line = format!("{}={}", app_name, value);
-
-        let mut section_idx = None;
-        for (i, line) in self.lines.iter().enumerate() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('[') {
-                if trimmed.eq_ignore_ascii_case(section_header) {
-                    section_idx = Some(i);
-                    break;
-                }
-            }
-        }
-
-        if let Some(sec_idx) = section_idx {
-            let mut next_section_idx = self.lines.len();
-            for i in (sec_idx + 1)..self.lines.len() {
-                if self.lines[i].trim().starts_with('[') {
-                    next_section_idx = i;
-                    break;
-                }
-            }
-
-            let mut key_found = false;
-            for i in (sec_idx + 1)..next_section_idx {
-                let trimmed = self.lines[i].trim();
-                let prefix = format!("{}=", app_name);
-                if trimmed.starts_with(&prefix) {
-                    if trimmed != key_line {
-                        self.lines[i] = key_line.clone();
-                        self.modified = true;
-                    }
-                    key_found = true;
-                    break;
-                }
-            }
-
-            if !key_found {
-                self.lines.insert(sec_idx + 1, key_line);
-                self.modified = true;
-            }
-        } else {
-            if !self.lines.is_empty() && !self.lines.last().is_some_and(|s| s.is_empty()) {
-                self.lines.push(String::new());
-            }
-            self.lines.push(section_header.to_string());
-            self.lines.push(key_line);
-            self.modified = true;
-        }
-    }
-
-    fn remove(&mut self, app_name: &str) {
-        let section_header = "[services][dev.nabaxo.ruake.desktop]";
-        if let Some(sec_idx) = self.lines.iter().position(|l| l.trim().eq_ignore_ascii_case(section_header)) {
-            let mut i = sec_idx + 1;
-            while i < self.lines.len() && !self.lines[i].trim().starts_with('[') {
-                let trimmed = self.lines[i].trim();
-                let prefix = format!("{}=", app_name);
-                if trimmed.starts_with(&prefix) {
-                    self.lines.remove(i);
-                    self.modified = true;
-                } else {
-                    i += 1;
-                }
-            }
-        }
-    }
-
-    fn save(&self) -> Result<()> {
-        if !self.modified {
-            return Ok(());
-        }
-        use std::io::Write;
-        let mut file = std::fs::File::create(&self.path)?;
-        for line in &self.lines {
-            writeln!(file, "{}", line)?;
-        }
-        Ok(())
-    }
-}
+// ShortcutFile removed: Manual management of kglobalshortcutsrc is replaced by robust D-Bus sync.
 
 pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> Result<()> {
     let component = "dev.nabaxo.ruake.desktop";
     let conn = zbus::Connection::session().await?;
     let proxy = KGlobalAccelProxy::new(&conn).await?;
 
-    let mut sf = ShortcutFile::load()?;
+    // Determine if we need a full refresh
+    let mut needs_refresh = old_config.is_none();
 
-    // Calculate which apps actually need a refresh (Diffing)
-    let mut apps_to_change = Vec::new();
     if let Some(old) = old_config {
-        for (name, app_cfg) in &config.app {
-            match old.app.get(name) {
-                Some(old_cfg) if old_cfg.hotkey != app_cfg.hotkey => apps_to_change.push(name.clone()),
-                None => apps_to_change.push(name.clone()),
-                _ => {}
-            }
-        }
-    } else {
-        apps_to_change = config.app.keys().cloned().collect();
-    }
-
-    // 1. Check if we actually need to update kglobalshortcutsrc
-    let mut desired_keys = Vec::new();
-    for app_name in &config.app_order {
-        if let Some(app_cfg) = config.app.get(app_name) {
-            let hotkeys = app_cfg.hotkey.as_vec();
-            if hotkeys.is_empty() { continue; }
-            let mut normalized_parts = Vec::with_capacity(hotkeys.len());
-            for hk in &hotkeys {
-                normalized_parts.push(normalize_shortcut_for_kde(hk));
-            }
-            let normalized_joined = normalized_parts.join("\t");
-            let val = format!("{},{},Toggle {}", normalized_joined, normalized_joined, app_name);
-            desired_keys.push((app_name.clone(), val));
-        }
-    }
-
-    for (app_name, val) in &desired_keys {
-        sf.upsert(app_name, val);
-    }
-
-    // 2. Fetch current D-Bus state to see if registration is already correct
-    let mut dbus_correct = true;
-    let components_to_clean = ["dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
-
-    // We only care about dev.nabaxo.ruake.desktop for "correctness", others are just for cleanup
-    if let Ok(all_actions) = proxy.all_actions_for_component(vec![component.to_string()]).await {
-        let mut found_apps = std::collections::HashSet::new();
-        for action_info in all_actions {
-            if action_info.len() >= 2 {
-                let action_name = &action_info[1];
-
-                // Ignore internal/default actions
-                if action_name == "_launch" {
-                    continue;
-                }
-
-                found_apps.insert(action_name.clone());
-
-                // Check if this action should exist
-                if !config.app.contains_key(action_name) {
-                    dbus_correct = false;
-                    break;
+        if old.app.len() != config.app.len() || old.app_order != config.app_order {
+            needs_refresh = true;
+        } else {
+            for (name, app_cfg) in &config.app {
+                match old.app.get(name) {
+                    Some(old_cfg) if old_cfg.hotkey != app_cfg.hotkey => {
+                        needs_refresh = true;
+                        break;
+                    }
+                    None => {
+                        needs_refresh = true;
+                        break;
+                    }
+                    _ => {}
                 }
             }
         }
-        if dbus_correct {
-            for app_name in &config.app_order {
-                if !found_apps.contains(app_name) {
-                    dbus_correct = false;
-                    break;
-                }
-            }
-        }
-    } else {
-        dbus_correct = false;
     }
 
-    if dbus_correct {
-        if sf.modified {
-            sf.save()?;
-        }
+    // Surgical Check: Even if configs match, verify D-Bus state actually has our apps
+    if !needs_refresh {
+         if let Ok(all_actions) = proxy.all_actions_for_component(vec![component.to_string()]).await {
+             let mut found_apps = std::collections::HashSet::new();
+             for action_info in all_actions {
+                 if action_info.len() >= 2 {
+                     let action_name = &action_info[1];
+                     if action_name == "_launch" { continue; }
+                     found_apps.insert(action_name.clone());
+                     if !config.app.contains_key(action_name) {
+                         needs_refresh = true;
+                         break;
+                     }
+                 }
+             }
+             if !needs_refresh {
+                 for app_name in &config.app_order {
+                     if !found_apps.contains(app_name) {
+                         needs_refresh = true;
+                         break;
+                     }
+                 }
+             }
+         } else {
+             needs_refresh = true;
+         }
+    }
+
+    if !needs_refresh {
         return Ok(());
     }
 
-    // 3. D-BUS UNREGISTER: Release actions
-    let mut actions_to_remove = Vec::new();
+    println!("Hotkey: Shortcut configuration changed or missing, performing full KDE sync...");
+
+    // 1. D-BUS UNREGISTER: Release legacy and current actions to ensure a clean slate
+    let components_to_clean = ["dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
     for comp in components_to_clean {
         if let Ok(all_actions) = proxy.all_actions_for_component(vec![comp.to_string()]).await {
             for action_info in all_actions {
                 if action_info.len() >= 2 {
                     let action_name = &action_info[1];
-
-                    // Surgical: only unregister if removed from config OR in refresh list
-                    if !config.app.contains_key(action_name) || apps_to_change.contains(action_name) {
-                        actions_to_remove.push((comp.to_string(), action_name.clone()));
-                    }
+                    let _ = proxy.unregister(comp, action_name).await;
                 }
             }
         }
     }
 
-    // Add current apps to the list just in case they aren't listed
+    // 2. Force KDE to reload desktop files (where our X-KDE-Shortcuts defaults are)
+    let _ = tokio::process::Command::new("kbuildsycoca6").arg("--noincremental").status().await;
+
+    // CRITICAL: Delay to let KDE process the kbuildsycoca6 output and desktop file changes
+    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+
+    // 3. Register current apps and set shortcuts
     for app_name in &config.app_order {
-        if apps_to_change.contains(app_name) {
-            if !actions_to_remove.iter().any(|(c, a)| c == component && a == app_name) {
-                actions_to_remove.push((component.to_string(), app_name.clone()));
-            }
-        }
-    }
-
-    // Process removals with delays
-    for (comp, action_name) in &actions_to_remove {
-        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-        let _ = proxy.unregister(comp, action_name).await;
-        if comp == component {
-            sf.remove(action_name);
-        }
-    }
-
-    if !actions_to_remove.is_empty() {
-        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-    }
-
-    // 4. Save kglobalshortcutsrc
-    sf.save()?;
-
-    // 4. Force KDE to reload desktop files
-    let status = tokio::process::Command::new("kbuildsycoca6").arg("--noincremental").status().await;
-    match status {
-        Ok(s) if s.success() => {},
-        Ok(s) => eprintln!("WARN: kbuildsycoca6 failed with status: {}", s),
-        Err(e) => eprintln!("WARN: Failed to execute kbuildsycoca6: {}", e),
-    }
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await; // Solid 1s delay
-
-    // 5. Register actions and set shortcuts via D-Bus
-    for app_name in &config.app_order {
-        if !apps_to_change.contains(app_name) { continue; }
-
         if let Some(app_cfg) = config.app.get(app_name) {
             let hotkeys = app_cfg.hotkey.as_vec();
             if hotkeys.is_empty() { continue; }
@@ -424,37 +228,28 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
                 component.to_string(),
                 app_name.to_string(),
                 "Ruake".to_string(),
-                display_name.clone(),
+                display_name,
             ];
 
+            // Register the action
             if let Err(e) = proxy.do_register(action_id.clone()).await {
-                 eprintln!("WARN: doRegister failed for '{}': {}", app_name, e);
+                 eprintln!("WARN: do_register failed for '{}': {}", app_name, e);
             }
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
+            // Set the shortcut. We send a single sequence for the primary hotkey.
+            // Using flag 3 (Default | Active)
             let mut key_seq = vec![0; 4];
-            for (i, hk) in hotkeys.iter().enumerate().take(4) {
-                key_seq[i] = shortcut_to_keycode(hk);
-            }
+            key_seq[0] = shortcut_to_keycode(&hotkeys[0]);
 
             if key_seq[0] != 0 {
-                match proxy.set_shortcut(action_id.clone(), key_seq.clone(), 3).await {
-                    Ok(res) => {
-                        if res.is_empty() {
-                             eprintln!("WARN: KGlobalAccel REJECTED shortcuts for '{}'. Conflict or KDE limit.", app_name);
-                        } else if res.len() < hotkeys.len() {
-                             eprintln!("WARN: KGlobalAccel partially accepted shortcuts for '{}' ({}/{}).", app_name, res.len(), hotkeys.len());
-                        }
-                    },
-                    Err(e) => eprintln!("WARN: setShortcut failed for '{}': {}", app_name, e),
+                if let Err(e) = proxy.set_shortcut(action_id.clone(), key_seq, 3).await {
+                    eprintln!("WARN: set_shortcut failed for '{}': {}", app_name, e);
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
         }
     }
-
-    // 6. Final safety delay
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     Ok(())
 }
