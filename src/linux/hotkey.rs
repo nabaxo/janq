@@ -276,12 +276,26 @@ impl ShortcutFile {
     }
 }
 
-pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) -> Result<()> {
+pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> Result<()> {
     let component = "dev.nabaxo.ruake.desktop";
     let conn = zbus::Connection::session().await?;
     let proxy = KGlobalAccelProxy::new(&conn).await?;
 
     let mut sf = ShortcutFile::load()?;
+
+    // Calculate which apps actually need a refresh (Diffing)
+    let mut apps_to_change = Vec::new();
+    if let Some(old) = old_config {
+        for (name, app_cfg) in &config.app {
+            match old.app.get(name) {
+                Some(old_cfg) if old_cfg.hotkey != app_cfg.hotkey => apps_to_change.push(name.clone()),
+                None => apps_to_change.push(name.clone()),
+                _ => {}
+            }
+        }
+    } else {
+        apps_to_change = config.app.keys().cloned().collect();
+    }
 
     // 1. Check if we actually need to update kglobalshortcutsrc
     let mut desired_keys = Vec::new();
@@ -356,7 +370,11 @@ pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) ->
             for action_info in all_actions {
                 if action_info.len() >= 2 {
                     let action_name = &action_info[1];
-                    actions_to_remove.push((comp.to_string(), action_name.clone()));
+
+                    // Surgical: only unregister if removed from config OR in refresh list
+                    if !config.app.contains_key(action_name) || apps_to_change.contains(action_name) {
+                        actions_to_remove.push((comp.to_string(), action_name.clone()));
+                    }
                 }
             }
         }
@@ -364,8 +382,10 @@ pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) ->
 
     // Add current apps to the list just in case they aren't listed
     for app_name in &config.app_order {
-        if !actions_to_remove.iter().any(|(c, a)| c == component && a == app_name) {
-            actions_to_remove.push((component.to_string(), app_name.clone()));
+        if apps_to_change.contains(app_name) {
+            if !actions_to_remove.iter().any(|(c, a)| c == component && a == app_name) {
+                actions_to_remove.push((component.to_string(), app_name.clone()));
+            }
         }
     }
 
@@ -402,6 +422,8 @@ pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) ->
     // 5. Register actions and set shortcuts via D-Bus
     println!("Hotkey: Registering and setting shortcuts via D-Bus...");
     for app_name in &config.app_order {
+        if !apps_to_change.contains(app_name) { continue; }
+
         if let Some(app_cfg) = config.app.get(app_name) {
             let hotkeys = app_cfg.hotkey.as_vec();
             if hotkeys.is_empty() { continue; }
@@ -457,8 +479,6 @@ pub async fn register_via_dbus(config: &Config, _old_config: Option<&Config>) ->
 }
 
 pub async fn sync_kde_shortcuts(config: &Config, old_config: Option<&Config>) -> Result<()> {
-    // SAFEGUARD: Debounce delay before syncing shortcuts
-    // This helps avoid rapid successive calls from config reloads
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     register_via_dbus(config, old_config).await
 }
