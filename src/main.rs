@@ -102,7 +102,7 @@ fn main() -> anyhow::Result<()> {
 
             let target_app_owned = target_app.map(|s| s.to_string());
             if args.daemon {
-                daemon::run_daemon(config, config_path, false, target_app_owned).await?;
+                daemon::run_daemon(config, config_path, target_app_owned).await?;
                 return Ok(());
             }
 
@@ -111,7 +111,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             println!("Daemon not running (or reachable). Starting new daemon instance...");
-            daemon::run_daemon(config, config_path, true, target_app_owned).await?;
+            daemon::run_daemon(config, config_path, target_app_owned).await?;
             Ok(())
         })
     }
@@ -128,7 +128,7 @@ fn main() -> anyhow::Result<()> {
 
         let target_app_owned = target_app.map(|s| s.to_string());
         if args.daemon {
-            daemon::run_daemon(config, config_path, false, target_app_owned)?;
+            daemon::run_daemon(config, config_path, target_app_owned)?;
             return Ok(());
         }
 
@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
 
         println!("Daemon not running (or reachable). Starting new daemon instance...");
         // This takes over the thread with Winit loop
-        daemon::run_daemon(config, config_path, true, target_app_owned)?;
+        daemon::run_daemon(config, config_path, target_app_owned)?;
         Ok(())
     }
 }

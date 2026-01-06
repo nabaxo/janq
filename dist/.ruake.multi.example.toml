@@ -32,6 +32,7 @@ height = "0"
 [window]
 # Monitor selection mode: "follow-mouse", "active", "specific"
 display_mode = "active"
+auto_show = false
 
 # Global default dimensions for apps that don't override them.
 width = "80%"

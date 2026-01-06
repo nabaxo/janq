@@ -29,10 +29,11 @@ fn load_icon() -> tray_icon::Icon {
     let image = image::load_from_memory(bytes).expect("Failed to load icon.ico").to_rgba8();
     let (width, height) = image.dimensions();
     let rgba = image.into_raw();
-    tray_icon::Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon")
+    let tray_icon = tray_icon::Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon");
+    tray_icon
 }
 
-pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_show: bool, target_app: Option<String>) -> Result<()> {
+pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_app: Option<String>) -> Result<()> {
     // 1. Setup Runtime for async tasks (IPC, Animation, Watcher)
     let rt = Runtime::new()?;
     let _guard = rt.enter(); // Keep runtime context active for this thread
@@ -276,7 +277,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, auto_sho
                         });
                     }
 
-                    if auto_show {
+                    if cfg.window.auto_show {
                         let app_to_show = target_app.as_ref();
                         if let Some(app_name) = app_to_show {
                             if let Some(_app_cfg) = cfg.app.get(app_name) {

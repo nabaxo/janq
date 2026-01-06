@@ -43,6 +43,7 @@ height = "50%"
 
 # Stay on top of other windows.
 keep_above = true
+auto_show = false
 
 # --- Animation Settings ---
 [animation]

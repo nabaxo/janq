@@ -70,6 +70,7 @@ Create `.ruake.toml` in `~/.config/ruake/` or your home directory.
 display_mode = "active" # follow-mouse, specific, active
 width = "50%"           # Supports %, px, "0" or "unset" to disable resizing.
 height = "600px"
+auto_show = false       # Show window on daemon startup
 
 [animation]
 show_duration = 350
@@ -109,8 +110,9 @@ hotkey = "Meta+Z"
 | `[window]` | `display_mode` | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific` | ✗ no |
 | | `display_index` | `0` | Monitor index when `display_mode = "specific"` | ✗ no |
 | | `width` | — | Window width (`%` or `px`) | ✓ yes |
-| | `height` | — | Window height (`%` or `px`) | ✓ yes |
+| | | `height` | — | Window height (`%` or `px`) | ✓ yes |
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
+| | `auto_show` | `false` | Show window on daemon startup | ✗ no |
 | `[animation]` | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
 | | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |
 | | `show_easing` | `"ease"` | Easing curve for showing | ✗ no |

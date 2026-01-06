@@ -22,13 +22,8 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
     // 1. Install Icon
     install_icon()?;
 
-    // Determine the Exec command
-    let exec_cmd = if config.app.len() == 1 {
-        let first_app = config.app.keys().next().unwrap();
-        format!("{} --app {}", exe_path, first_app)
-    } else {
-        exe_path.clone()
-    };
+    // Determine the Exec command for the main entry
+    let exec_cmd = format!("{} --daemon", exe_path);
 
     // 2. Desktop File
     let xdg_data = dirs::data_local_dir().unwrap_or_else(|| {

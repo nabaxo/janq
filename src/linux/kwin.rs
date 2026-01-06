@@ -459,10 +459,10 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
 
           if (!app.isVisible) {
               console.log("Ruake: Parking " + app.windowClass + " offscreen.");
+              target.opacity = 0.0;
               target.frameGeometry = { x: finalX, y: area.y - finalHeight - 10, width: finalWidth, height: finalHeight };
           } else {
-              console.log("Ruake: Skipping parking for " + app.windowClass + " (already visible).");
-              target.frameGeometry = { x: finalX, y: area.y, width: finalWidth, height: finalHeight };
+              console.log("Ruake: Skipping position update for " + app.windowClass + " (already visible).");
           }
         } else {
           console.log("Ruake: FAILED to find window for " + app.windowClass);
@@ -479,6 +479,10 @@ const RESTORE_TEMPLATE: &str = r#"
       var cName = (c.resourceName || "").toLowerCase();
       if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) {
           console.log("Ruake: Restoring window " + cClass);
+          var area = workspace.clientArea(KWin.PlacementArea, c);
+          var geo = c.frameGeometry;
+          var needsCenter = (geo.y + geo.height <= area.y + 50 || c.opacity < 0.1 || geo.y < area.y + 10);
+
           c.keepAbove = false;
           c.onAllDesktops = false;
           c.noBorder = false;
@@ -488,11 +492,7 @@ const RESTORE_TEMPLATE: &str = r#"
           c.fullScreen = false;
           c.opacity = 1.0;
 
-          var area = workspace.clientArea(KWin.PlacementArea, c);
-          var geo = c.frameGeometry;
-
-          // If it was hidden offscreen or mostly invisible, move it to center of screen
-          if (geo.y + geo.height <= area.y + 50 || c.opacity < 0.1) {
+          if (needsCenter) {
             c.frameGeometry = {
               x: area.x + (area.width - geo.width) / 2,
               y: area.y + 100,

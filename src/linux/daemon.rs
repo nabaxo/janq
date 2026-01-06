@@ -18,8 +18,8 @@ struct QuakeApplication {
 #[interface(name = "org.freedesktop.Application")]
 impl QuakeApplication {
     async fn activate(&self, _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>) {
-        let daemon = QuakeDaemon { config: self.config.clone(), conn: self.conn.clone() };
-        daemon.toggle().await;
+        // No-op: Satisfaction of D-Bus Application activation.
+        // Clicking the launcher icon should only start the background process, not toggle a window.
     }
 
     async fn activate_action(
@@ -132,7 +132,7 @@ impl StatusNotifierItem {
     fn item_is_menu(&self) -> bool { false }
 }
 
-pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::PathBuf>, auto_show: bool, target_app: Option<String>) -> anyhow::Result<()> {
+pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::PathBuf>, target_app: Option<String>) -> anyhow::Result<()> {
     // 0. Acquire Lock File
     let lock_path = std::env::temp_dir().join("ruake.lock");
     let lock_file = std::fs::File::create(&lock_path)?;
@@ -224,7 +224,7 @@ pub async fn run_daemon(initial_config: Config, config_path: Option<std::path::P
 
         let _ = grab_apps(&apps_for_grabbing, &conn).await;
 
-        if auto_show {
+        if cfg.window.auto_show {
             let app_to_show = target_app.as_ref();
             if let Some(app_name) = app_to_show {
                 if let Some(_app_cfg) = cfg.app.get(app_name) {
