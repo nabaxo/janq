@@ -168,9 +168,9 @@ pub async fn run_daemon(
 
   // Precompute icon
   let icon_cache = if let Ok(img) = image::load_from_memory(include_bytes!("../../icon.png")) {
-    let mut pixmaps = Vec::new();
+    let mut pixmaps = Vec::with_capacity(3);
     for size in [64, 32, 22] {
-      let resized = img.resize(size, size, image::imageops::FilterType::Lanczos3);
+      let resized = img.resize(size, size, image::imageops::FilterType::Triangle);
       let (w, h) = resized.dimensions();
       let data = resized.to_rgba8().into_raw();
       let mut pixels = Vec::with_capacity(data.len());
@@ -198,7 +198,6 @@ pub async fn run_daemon(
   let activatable_path = "/dev/nabaxo/ruake";
   let xdg_path = "/org/freedesktop/Application/dev/nabaxo/ruake";
   let daemon_path = "/dev/nabaxo/ruake/daemon";
-  let root_path = "/";
 
   let app_instance = QuakeApplication {
     config: config.clone(),
@@ -209,7 +208,7 @@ pub async fn run_daemon(
     conn: conn.clone(),
   };
 
-  for path in &[activatable_path, xdg_path, daemon_path, root_path] {
+  for path in &[activatable_path, xdg_path, daemon_path] {
     let _ = conn.object_server().at(*path, app_instance.clone()).await;
     let _ = conn.object_server().at(*path, daemon_instance.clone()).await;
   }
@@ -280,15 +279,20 @@ pub async fn run_daemon(
     }
   }
 
-  // Config Watcher (Thread)
+  // Config Watcher (Task)
   let config_for_watcher = config.clone();
   let conn_for_watcher = conn.clone();
   let path_to_watch = config_path.clone();
-  let rt_handle = tokio::runtime::Handle::current();
 
-  std::thread::spawn(move || {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
+  tokio::spawn(async move {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+    let mut watcher = RecommendedWatcher::new(
+      move |res| {
+        let _ = tx.blocking_send(res);
+      },
+      NotifyConfig::default(),
+    )
+    .unwrap();
 
     if let Some(path) = &path_to_watch {
       if let Ok(abs_path) = path.canonicalize() {
@@ -304,18 +308,17 @@ pub async fn run_daemon(
     }
 
     let debounce_duration = Duration::from_millis(500);
-    let mut last_event = std::time::Instant::now();
     let mut pending = false;
 
     loop {
-      let timeout = if pending {
-        debounce_duration.saturating_sub(last_event.elapsed())
+      let next_event = if pending {
+        tokio::time::timeout(debounce_duration, rx.recv()).await
       } else {
-        Duration::from_secs(60)
+        Ok(rx.recv().await)
       };
 
-      match rx.recv_timeout(timeout) {
-        Ok(Ok(event)) => {
+      match next_event {
+        Ok(Some(Ok(event))) => {
           let mut is_config_file = false;
           if let Some(target_path) = &path_to_watch {
             let target_path_abs = target_path.canonicalize().unwrap_or(target_path.clone());
@@ -329,12 +332,13 @@ pub async fn run_daemon(
           }
 
           if is_config_file {
-            last_event = std::time::Instant::now();
             pending = true;
           }
         }
-        Ok(Err(e)) => println!("Watcher error: {:?}", e),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+        Ok(Some(Err(e))) => println!("Watcher error: {:?}", e),
+        Ok(None) => break, // Channel closed
+        Err(_) => {
+          // Timeout reached, process the pending event
           if pending {
             pending = false;
             println!("Watcher: Debounced event triggered config reload...");
@@ -348,10 +352,8 @@ pub async fn run_daemon(
                 // Restore all apps before shutting down
                 let current_cfg = config_for_watcher.read().unwrap().clone();
                 let conn_shutdown = conn_for_watcher.clone();
-                rt_handle.block_on(async move {
-                  println!("Watcher: Restoring all apps before shutdown...");
-                  let _ = restore_quake(&current_cfg, &conn_shutdown).await;
-                });
+                println!("Watcher: Restoring all apps before shutdown...");
+                let _ = restore_quake(&current_cfg, &conn_shutdown).await;
 
                 crate::linux::show_error(&err_msg);
                 std::process::exit(1);
@@ -368,73 +370,69 @@ pub async fn run_daemon(
             let conn_in_async = conn_for_watcher.clone();
             let new_config_in_async = new_config.clone();
 
-            rt_handle.block_on(async move {
-              println!("Watcher: Starting/Restoring apps as needed...");
+            println!("Watcher: Starting/Restoring apps as needed...");
 
-              // 1. Restore removed apps
-              for (name, app_cfg) in &old_config.app {
-                if !new_config_in_async.app.contains_key(name) {
-                  println!("Watcher: Restoring app '{}' (removed from config)", name);
-                  let _ = crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
-                }
+            // 1. Restore removed apps
+            for (name, app_cfg) in &old_config.app {
+              if !new_config_in_async.app.contains_key(name) {
+                println!("Watcher: Restoring app '{}' (removed from config)", name);
+                let _ = crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
               }
+            }
 
-              reset_visibility(&new_config_in_async).await;
+            reset_visibility(&new_config_in_async).await;
 
-              // 2. Ensure all terminals are running and grabbed
-              let mut apps_for_grabbing = Vec::new();
-              for (name, app_cfg) in &new_config_in_async.app {
-                if !old_config.app.contains_key(name) {
-                  println!("Watcher: New app detected: {}. Starting terminal...", name);
-                }
-                // We ensure terminal is running for ALL apps (in case one crashed)
-                let _ = ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
-                apps_for_grabbing.push((app_cfg.clone(), new_config_in_async.clone()));
+            // 2. Ensure all terminals are running and grabbed
+            let mut apps_for_grabbing = Vec::new();
+            for (name, app_cfg) in &new_config_in_async.app {
+              if !old_config.app.contains_key(name) {
+                println!("Watcher: New app detected: {}. Starting terminal...", name);
               }
-              let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
+              // We ensure terminal is running for ALL apps (in case one crashed)
+              let _ = ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
+              apps_for_grabbing.push((app_cfg.clone(), new_config_in_async.clone()));
+            }
+            let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
 
-              // 3. Update desktop file (don't run kbuild inside, we'll do it last)
-              let desktop_changed = match crate::linux::desktop::generate_desktop_file_headless(&new_config_in_async) {
-                Ok(changed) => changed,
-                Err(e) => {
-                  eprintln!("Watcher: Desktop file generation failed: {}", e);
-                  false
-                }
-              };
+            // 3. Update desktop file (don't run kbuild inside, we'll do it last)
+            let desktop_changed = match crate::linux::desktop::generate_desktop_file_headless(&new_config_in_async) {
+              Ok(changed) => changed,
+              Err(e) => {
+                eprintln!("Watcher: Desktop file generation failed: {}", e);
+                false
+              }
+            };
 
-              // 4. Check if hotkeys changed
-              let mut hotkeys_changed = false;
-              if old_config.app.len() != new_config_in_async.app.len()
-                || old_config.app_order != new_config_in_async.app_order
-              {
-                hotkeys_changed = true;
-              } else {
-                for (name, old_app) in &old_config.app {
-                  if let Some(new_app) = new_config_in_async.app.get(name) {
-                    if old_app.hotkey != new_app.hotkey || old_app.window_class != new_app.window_class {
-                      hotkeys_changed = true;
-                      break;
-                    }
-                  } else {
+            // 4. Check if hotkeys changed
+            let mut hotkeys_changed = false;
+            if old_config.app.len() != new_config_in_async.app.len()
+              || old_config.app_order != new_config_in_async.app_order
+            {
+              hotkeys_changed = true;
+            } else {
+              for (name, old_app) in &old_config.app {
+                if let Some(new_app) = new_config_in_async.app.get(name) {
+                  if old_app.hotkey != new_app.hotkey || old_app.window_class != new_app.window_class {
                     hotkeys_changed = true;
                     break;
                   }
+                } else {
+                  hotkeys_changed = true;
+                  break;
                 }
               }
+            }
 
-              if hotkeys_changed || desktop_changed {
-                println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
-                if let Err(e) = crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await
-                {
-                  eprintln!("Watcher: Failed to sync shortcuts: {}", e);
-                }
-              } else {
-                println!("Config: No shortcut/desktop changes detected.");
+            if hotkeys_changed || desktop_changed {
+              println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
+              if let Err(e) = crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await {
+                eprintln!("Watcher: Failed to sync shortcuts: {}", e);
               }
-            });
+            } else {
+              println!("Config: No shortcut/desktop changes detected.");
+            }
           }
         }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
       }
     }
   });
