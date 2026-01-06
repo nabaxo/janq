@@ -112,6 +112,7 @@ hotkey = "Meta+Z"
 | | `width` | — | Window width (`%` or `px`) | ✓ yes |
 | | | `height` | — | Window height (`%` or `px`) | ✓ yes |
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
+| | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. Disables window chrome/borders. | ✗ no |
 | | `auto_show` | `false` | Show window on daemon startup | ✗ no |
 | `[animation]` | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
 | | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |

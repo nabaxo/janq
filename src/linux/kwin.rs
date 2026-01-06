@@ -67,7 +67,8 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 (function(
     windowClass, displayMode, displayIndex, width, height,
     duration, easingType, shouldShow, keepAbove, animateOpacity,
-    opacityPoint, prevWindowId, targetWindowId, targetPid, ruakeClasses
+    opacityPoint, prevWindowId, targetWindowId, targetPid, ruakeClasses,
+    forcePriority
 ) {
     var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
     var target = null;
@@ -287,7 +288,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
                 if (firstFrame) {
                     // Restore visibility and fullscreen only on the first frame to ensure teleport has finished
-                    target.fullScreen = true;
+                    if (forcePriority) target.fullScreen = true;
                     if (animateOpacity) target.opacity = 0.0;
                     else target.opacity = 1.0;
                     firstFrame = false;
@@ -446,6 +447,7 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
           target.skipTaskbar = true;
           target.skipPager = true;
           if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+          if (app.forcePriority) target.fullScreen = true;
 
           var screens = workspace.screens;
           var area = null;
@@ -619,11 +621,11 @@ async fn run_toggle_script(app_cfg: &AppConfig, config: &Config, conn: &Connecti
     let opacity_point = if params.visible { config.animation.show_opacity_point } else { config.animation.hide_opacity_point };
 
     let script_content = format!(
-        "{}(\n  \"{}\", \"{}\", {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, \"{}\", \"{}\", {}, \"{}\"\n);",
+        "{}(\n  \"{}\", \"{}\", {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, \"{}\", \"{}\", {}, \"{}\", {}\n);",
         TOGGLE_SCRIPT_TEMPLATE,
         app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height,
         duration, easing, params.visible, config.window.keep_above, animate_opacity,
-        opacity_point, params.prev_id, params.target_id, params.target_pid, params.ruake_classes
+        opacity_point, params.prev_id, params.target_id, params.target_pid, params.ruake_classes, config.window.force_priority
     );
 
     run_kwin_script(conn, "ruake_toggle_engine", &script_content, None).await
@@ -649,9 +651,9 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
 
         let is_visible = state.visible_app.as_deref() == Some(app_name);
         apps_json.push(format!(
-            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, height: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {} }}",
+            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, height: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {} }}",
             app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height,
-            config.window.keep_above, target_id, target_pid, is_visible
+            config.window.keep_above, target_id, target_pid, is_visible, config.window.force_priority
         ));
     }
 

@@ -120,6 +120,7 @@ pub struct WindowConfig {
     pub width: Option<Dimension>,
     pub height: Option<Dimension>,
     pub keep_above: bool,
+    pub force_priority: bool,
     pub auto_show: bool,
 }
 
@@ -131,6 +132,7 @@ impl Default for WindowConfig {
             width: None,
             height: None,
             keep_above: false,
+            force_priority: false,
             auto_show: false,
         }
     }
