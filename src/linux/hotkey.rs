@@ -141,47 +141,50 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
     let conn = zbus::Connection::session().await?;
     let proxy = KGlobalAccelProxy::new(&conn).await?;
 
-    // Determine if we need a full refresh
-    let mut needs_refresh = old_config.is_none();
+    // 1. FAST PATH: Return immediately if state is correct
+    let mut needs_refresh = false;
 
+    // Detection A: Configuration Change (Compared to memory)
     if let Some(old) = old_config {
         if old.app.len() != config.app.len() || old.app_order != config.app_order {
             needs_refresh = true;
         } else {
             for (name, app_cfg) in &config.app {
-                match old.app.get(name) {
-                    Some(old_cfg) if old_cfg.hotkey != app_cfg.hotkey => {
+                if let Some(old_app) = old.app.get(name) {
+                    if old_app.hotkey != app_cfg.hotkey {
                         needs_refresh = true;
                         break;
                     }
-                    None => {
-                        needs_refresh = true;
-                        break;
-                    }
-                    _ => {}
+                } else {
+                    needs_refresh = true;
+                    break;
                 }
             }
         }
     }
 
-    // Surgical Check: Even if configs match, verify D-Bus state actually has our apps
+    // Detection B: D-Bus State Validation (Startup or corruption check)
     if !needs_refresh {
          if let Ok(all_actions) = proxy.all_actions_for_component(vec![component.to_string()]).await {
-             let mut found_apps = std::collections::HashSet::new();
+             let mut found_actions = std::collections::HashSet::new();
              for action_info in all_actions {
                  if action_info.len() >= 2 {
                      let action_name = &action_info[1];
                      if action_name == "_launch" { continue; }
-                     found_apps.insert(action_name.clone());
-                     if !config.app.contains_key(action_name) {
-                         needs_refresh = true;
-                         break;
-                     }
+                     found_actions.insert(action_name.clone());
+                 }
+             }
+
+             // Refresh if we are missing any apps or have extras we shouldn't
+             for app_name in &config.app_order {
+                 if !found_actions.contains(app_name) {
+                     needs_refresh = true;
+                     break;
                  }
              }
              if !needs_refresh {
-                 for app_name in &config.app_order {
-                     if !found_apps.contains(app_name) {
+                 for action_name in &found_actions {
+                     if !config.app.contains_key(action_name) {
                          needs_refresh = true;
                          break;
                      }
@@ -196,9 +199,10 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
         return Ok(());
     }
 
-    println!("Hotkey: Shortcut configuration changed or missing, performing full KDE sync...");
+    // 2. SLOW PATH: Full Refresh (Proven working method for "Default" status)
+    println!("Hotkey: Shortcut configuration changed or missing in KDE, performing full sync...");
 
-    // 1. D-BUS UNREGISTER: Release legacy and current actions to ensure a clean slate
+    // D-BUS UNREGISTER: Release legacy and current actions to ensure a clean slate
     let components_to_clean = ["dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
     for comp in components_to_clean {
         if let Ok(all_actions) = proxy.all_actions_for_component(vec![comp.to_string()]).await {
@@ -211,13 +215,13 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
         }
     }
 
-    // 2. Force KDE to reload desktop files (where our X-KDE-Shortcuts defaults are)
+    // Force KDE to reload desktop files (where our X-KDE-Shortcuts defaults are)
     let _ = tokio::process::Command::new("kbuildsycoca6").arg("--noincremental").status().await;
 
-    // CRITICAL: Delay to let KDE process the kbuildsycoca6 output and desktop file changes
+    // CRITICAL: Robust 1500ms delay from working example
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
 
-    // 3. Register current apps and set shortcuts
+    // Register all apps and set shortcuts
     for app_name in &config.app_order {
         if let Some(app_cfg) = config.app.get(app_name) {
             let hotkeys = app_cfg.hotkey.as_vec();
@@ -231,19 +235,18 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
                 display_name,
             ];
 
-            // Register the action
+            // Re-register exactly as in the working example
             if let Err(e) = proxy.do_register(action_id.clone()).await {
                  eprintln!("WARN: do_register failed for '{}': {}", app_name, e);
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-            // Set the shortcut. We send a single sequence for the primary hotkey.
-            // Using flag 3 (Default | Active)
+            // Set shortcut with Flag 3 (Default | Active)
             let mut key_seq = vec![0; 4];
             key_seq[0] = shortcut_to_keycode(&hotkeys[0]);
 
             if key_seq[0] != 0 {
-                if let Err(e) = proxy.set_shortcut(action_id.clone(), key_seq, 3).await {
+                if let Err(e) = proxy.set_shortcut(action_id, key_seq, 3).await {
                     eprintln!("WARN: set_shortcut failed for '{}': {}", app_name, e);
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
