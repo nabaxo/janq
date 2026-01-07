@@ -166,8 +166,8 @@ impl Default for AnimationConfig {
       show_easing: "ease".to_string(),
       hide_easing: "ease".to_string(),
       animate_opacity: false,
-      show_opacity_point: 0.2,
-      hide_opacity_point: 0.8,
+      show_opacity_point: 0.0,
+      hide_opacity_point: 0.0,
     }
   }
 }

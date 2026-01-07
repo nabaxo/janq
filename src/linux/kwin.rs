@@ -1,6 +1,5 @@
 use crate::config::{AppConfig, Config};
 use std::fs;
-use std::process::Command;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 
@@ -43,13 +42,9 @@ async fn run_kwin_script(
 // Global state
 struct KWinState {
   visible_app: Option<String>,
-  previous_window_id: String, // Last window active before ANY quake window was shown
 }
 
-static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
-  visible_app: None,
-  previous_window_id: String::new(),
-});
+static STATE: Mutex<KWinState> = Mutex::const_new(KWinState { visible_app: None });
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -77,514 +72,178 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     opacityPoint, prevWindowId, targetWindowId, targetPid, ruakeClasses,
     forcePriority
 ) {
-    var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+    var clients = workspace.windowList();
     var target = null;
-    var bestScore = -1;
-    var siblingsToHide = [];
-    var wasActive = false;
 
-    var safeTargetId = targetWindowId ? targetWindowId.toString() : "";
-    var safeTargetPid = targetPid || 0;
-    var rawClasses = (ruakeClasses || "").toLowerCase().split(",");
-    var allClasses = [];
-    for (var k = 0; k < rawClasses.length; k++) {
-        var trimmed = rawClasses[k].replace(/^\s+|\s+$/g, "");
-        if (trimmed) allClasses.push(trimmed);
-    }
-
-    function normalizeId(id) {
-        if (!id) return "";
-        return id.toString().replace(/[{}]/g, "");
-    }
-
-    var cleanTargetId = normalizeId(safeTargetId);
-
-
-    // 1. Identification
     for (var i = 0; i < clients.length; i++) {
         var c = clients[i];
-        var cClass = (c.resourceClass || "").toLowerCase();
-        var cName = (c.resourceName || "").toLowerCase();
-
-        // Match siblings for cross-sliding
-        var isRuake = false;
-        for (var j = 0; j < allClasses.length; j++) {
-            var siblingClass = allClasses[j];
-            if (cClass.indexOf(siblingClass) !== -1 || cName.indexOf(siblingClass) !== -1) {
-                isRuake = true;
-                break;
-            }
-        }
-
-        // Identify Target
-        var score = -1;
-        if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) {
-            score = 1000;
-        } else if (safeTargetPid > 0 && c.pid == safeTargetPid) {
-            score = 500;
-        } else if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) {
-            score = 100;
-        } else if (c.desktopFileName && c.desktopFileName.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) {
-            score = 50;
-        }
-
-        if (score > 0) {
-            if (c.normalWindow) score += 2000;
-            if (c.caption && c.caption.length > 0) score += 10;
-            if (score > bestScore) {
-                bestScore = score;
-                target = c;
-            }
-        } else if (isRuake && shouldShow) {
-            // It's a sibling that should slide UP while target slides DOWN
-            var area = workspace.clientArea(KWin.PlacementArea, c);
-            if (c.opacity > 0 && c.frameGeometry.y + c.frameGeometry.height > area.y) {
-                siblingsToHide.push(c);
-            }
-        }
+        if (targetWindowId && c.internalId && c.internalId.toString().includes(targetWindowId)) { target = c; break; }
+        if (targetPid > 0 && c.pid == targetPid) { target = c; break; }
+        if (c.resourceClass && c.resourceClass.toLowerCase().includes(windowClass.toLowerCase())) { target = c; break; }
     }
 
     if (!target) return;
 
-    function getEasing(progress, type) {
-      if (type === "windows") {
-          // Cubic Bezier solver for (0.25, 0, 0, 1)
-          var t = progress;
-          for (var i = 0; i < 5; i++) {
-              var xt = 3 * (1 - t) * (1 - t) * t * 0.25 + t * t * t;
-              var dxt = 3 * (1 - t) * (1 - t) * 0.25 + 6 * (1 - t) * t * (0.5 - 0.25) + 3 * t * t;
-              t -= (xt - progress) / dxt;
-          }
-          return 3 * (1 - t) * (1 - t) * t * 0 + 3 * (1 - t) * t * t * 1 + t * t * t;
-      }
-      switch (type) {
-        case "linear": return progress;
-        case "ease-in": return progress * progress;
-        case "ease-out": return progress * (2 - progress);
-        case "ease":
-        case "ease-in-out":
-          return progress < .5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-        case "quart-in": case "ease-in-quart": return Math.pow(progress, 4);
-        case "quart-out": case "ease-out-quart": return 1 - Math.pow(1 - progress, 4);
-        case "quart":
-        case "quart-in-out":
-        case "ease-in-out-quart":
-          return progress < 0.5 ? 8 * Math.pow(progress, 4) : 1 - Math.pow(-2 * progress + 2, 4) / 2;
-        case "cubic-in":
-        case "ease-in-cubic":
-          return Math.pow(progress, 3);
-        case "cubic-out": case "ease-out-cubic": return 1 - Math.pow(1 - progress, 3);
-        case "cubic":
-        case "cubic-in-out":
-        case "ease-in-out-cubic":
-          return progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-        case "sine-in":
-        case "ease-in-sine":
-          return 1 - Math.cos((progress * Math.PI) / 2);
-        case "sine-out": case "ease-out-sine": return Math.sin((progress * Math.PI) / 2);
-        case "sine":
-        case "sine-in-out":
-        case "ease-in-out-sine":
-          return -(Math.cos(Math.PI * progress) - 1) / 2;
-        case "back-in": case "ease-in-back":
-          var c1 = 1.70158; var c3 = c1 + 1;
-          return c3 * progress * progress * progress - c1 * progress * progress;
-        case "back-out": case "ease-out-back":
-          var c1 = 1.70158; var c3 = c1 + 1;
-          return 1 + c3 * Math.pow(progress - 1, 3) + c1 * Math.pow(progress - 1, 2);
-        case "back":
-        case "back-in-out": case "ease-in-out-back":
-          var c1 = 1.70158; var c2 = c1 * 1.525;
-          return progress < 0.5
-            ? (Math.pow(2 * progress, 2) * ((c2 + 1) * 2 * progress - c2)) / 2
-            : (Math.pow(2 * progress - 2, 2) * ((c2 + 1) * (progress * 2 - 2) + c2) + 2) / 2;
-        default: return progress * (2 - progress);
-      }
-    }
-
-    var screens = workspace.screens;
-    var targetArea = null;
-
-    if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) {
-        targetArea = screens[displayIndex].geometry;
-    } else if (displayMode === "active") {
-        var activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
-        if (activeWin && activeWin !== target) {
-          targetArea = workspace.clientArea(KWin.PlacementArea, activeWin);
-        } else {
-          targetArea = workspace.activeScreen.geometry;
+    if (shouldShow) {
+        if (workspace.activeWindow && workspace.activeWindow !== target) {
+            target.ruakePrevWindowId = workspace.activeWindow.internalId.toString();
         }
-    } else {
-        var cursorPos = workspace.cursorPos;
-        for (var i = 0; i < screens.length; i++) {
-          var geo = screens[i].geometry;
-          if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
-            cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
-            targetArea = geo;
-            break;
-          }
-        }
-        if (!targetArea) targetArea = workspace.activeScreen.geometry;
+        target.onAllDesktops = true;
+        target.keepAbove = keepAbove;
+        target.noBorder = true;
+        target.skipTaskbar = true;
+        target.skipPager = true;
+        target.skipSwitcher = true;
+        if (forcePriority) target.fullScreen = true;
     }
 
     var currentArea = workspace.clientArea(KWin.PlacementArea, target);
-    var area = shouldShow ? targetArea : currentArea;
+    var targetArea = shouldShow ? ((displayMode === "specific" && displayIndex >= 0 && displayIndex < workspace.screens.length)
+        ? workspace.screens[displayIndex].geometry : workspace.activeScreen.geometry) : currentArea;
 
-    var startX = target.frameGeometry.x;
+    var finalWidth = width > 0 ? (isWidthPercent ? targetArea.width * width : width) : target.frameGeometry.width;
+    var finalHeight = height > 0 ? (isHeightPercent ? targetArea.height * height : height) : target.frameGeometry.height;
+    var finalX = shouldShow ? (targetArea.x + (targetArea.width - finalWidth) / 2) : target.frameGeometry.x;
+
     var startY = target.frameGeometry.y;
+    var endY = shouldShow ? targetArea.y : targetArea.y - finalHeight - 10;
     var startOpacity = target.opacity;
-    var areaTop = area.y;
-    var isMostlyHidden = (startY + target.frameGeometry.height <= areaTop + 50) || (target.opacity < 0.1);
-
-    // MONITOR AWARENESS: Check if we are on the wrong monitor horizontally
-    var onWrongMonitor = (startX < area.x - 10) || (startX > area.x + area.width + 10);
-    var needsReposition = isMostlyHidden || (startY > areaTop + 50 || startY < areaTop - 50) || onWrongMonitor;
-
-    var finalWidth = target.frameGeometry.width;
-    var finalHeight = target.frameGeometry.height;
-
-    if (needsReposition) {
-        if (width > 0) {
-            if (isWidthPercent) finalWidth = area.width * width;
-            else finalWidth = width;
-        }
-        if (height > 0) {
-            if (isHeightPercent) finalHeight = area.height * height;
-            else finalHeight = height;
-        }
-    }
-
-    var finalX = area.x + (area.width - finalWidth) / 2;
-    var finalY = area.y;
-
-    target.keepAbove = keepAbove;
-    target.onAllDesktops = true;
-    target.noBorder = true;
-    target.skipTaskbar = true;
-    target.skipPager = true;
-    if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+    var endOpacity = shouldShow ? 1.0 : 0.0;
 
     if (shouldShow) {
-        if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
-        else workspace.activeClient = target;
+        target.minimized = false;
+        var onWrongMonitor = (Math.abs(target.frameGeometry.x - finalX) > 100);
+        var isHidden = (target.opacity < 0.05 || target.frameGeometry.y + target.frameGeometry.height <= targetArea.y + 10);
 
-        // Defined inside the scope to capture variables (startX, startY, finalX, finalY, etc.)
-        function startAnimation() {
-            if (duration > 0) {
-              var startTime = Date.now();
-              var diff = finalY - startY;
-              var siblingDatas = [];
-              for (var s = 0; s < siblingsToHide.length; s++) {
-                  var sib = siblingsToHide[s];
-                  siblingDatas.push({
-                      client: sib,
-                      startY: sib.frameGeometry.y,
-                      startOpacity: sib.opacity,
-                      endY: area.y - sib.frameGeometry.height
-                  });
-              }
-
-              var firstFrame = true;
-              var timer = new QTimer();
-              timer.interval = 16;
-              timer.timeout.connect(function() {
-                var now = Date.now();
-                var elapsed = now - startTime;
-                var progress = Math.min(elapsed / duration, 1.0);
-                var ease = getEasing(progress, easingType);
-
-                if (firstFrame) {
-                    // Restore visibility and fullscreen only on the first frame to ensure teleport has finished
-                    if (forcePriority) target.fullScreen = true;
-                    if (animateOpacity) target.opacity = 0.0;
-                    else target.opacity = 1.0;
-                    firstFrame = false;
-                }
-
-                var currentY = startY + diff * ease;
-                if (animateOpacity) {
-                    var denom = 1.0 - opacityPoint;
-                    var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-                    target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * opacityEase);
-                } else {
-                    target.opacity = 1.0;
-                }
-                target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
-
-                for (var d = 0; d < siblingDatas.length; d++) {
-                    var data = siblingDatas[d];
-                    var sibY = data.startY + (data.endY - data.startY) * ease;
-                    data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-                    if (animateOpacity) {
-                        var denom = 1.0 - opacityPoint;
-                        var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-                        data.client.opacity = Math.max(0, data.startOpacity * (1.0 - opacityEase));
-                    }
-                }
-
-                if (progress >= 1.0) {
-                  timer.stop();
-                  target.opacity = 1.0;
-                  target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
-                  if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
-                  else workspace.activeClient = target;
-                  for (var d = 0; d < siblingDatas.length; d++) {
-                      var data = siblingDatas[d];
-                      data.client.opacity = 0.0;
-                      data.client.frameGeometry = { x: data.client.frameGeometry.x, y: area.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-                  }
-                }
-              });
-              timer.start();
-            } else {
-              target.opacity = 1.0;
-              target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
-            }
-        }
-
-        if (needsReposition) {
-             target.opacity = 0.0;
-             target.fullScreen = false; // MUST be false to move between screens
-             var jumpY = areaTop - finalHeight;
-             target.frameGeometry = { x: finalX, y: jumpY, width: finalWidth, height: finalHeight };
-
-             // Ground truth update: use the values we just set!
-             startX = finalX;
-             startY = jumpY;
-
-             if (animateOpacity) startOpacity = 0.0;
-             else startOpacity = 1.0;
-
-             // Sync delay: Wait for KWin to process the geometry change before starting animation
-             var delayTimer = new QTimer();
-             delayTimer.interval = 100;
-             delayTimer.singleShot = true;
-             delayTimer.timeout.connect(startAnimation);
-             delayTimer.start();
-        } else {
-             // No reposition needed, start immediately
-             startAnimation();
-        }
-    } else {
-        var endY = area.y - finalHeight;
-        wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
-
-        if (duration > 0) {
-          var startTime = Date.now();
-          var diff = endY - startY;
-          var timer = new QTimer();
-          timer.interval = 16;
-          timer.timeout.connect(function() {
-            var now = Date.now();
-            var elapsed = now - startTime;
-            var progress = Math.min(elapsed / duration, 1.0);
-            var ease = getEasing(progress, easingType);
-            var currentY = startY + diff * ease;
-
-            if (animateOpacity) {
-               var denom = 1.0 - opacityPoint;
-               var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-               target.opacity = Math.min(target.opacity, startOpacity * (1.0 - opacityEase));
-            }
-
-            target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
-
-            if (progress >= 1.0) {
-              timer.stop();
-              target.opacity = 0.0;
-              target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
-              target.fullScreen = false;
-              if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
-
-              if (wasActive && prevWindowId && prevWindowId !== "") {
-                var allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-                for (var j = 0; j < allClients.length; j++) {
-                  var c = allClients[j];
-                  if (c.internalId && normalizeId(c.internalId) === normalizeId(prevWindowId)) {
-                    if (workspace.activeWindow !== undefined) workspace.activeWindow = c;
-                    else workspace.activeClient = c;
-                    break;
-                  }
-                }
-              }
-            }
-          });
-          timer.start();
-        } else {
-          target.opacity = 0.0;
-          target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
-          target.fullScreen = false;
-          if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+        if (onWrongMonitor || isHidden) {
+            target.opacity = 0;
+            target.frameGeometry = { x: finalX, y: targetArea.y - finalHeight - 10, width: finalWidth, height: finalHeight };
+            startY = target.frameGeometry.y;
+            startOpacity = 0;
         }
     }
+
+    var actualDuration = (finalHeight > 0) ? (duration * (Math.abs(endY - startY) / finalHeight)) : duration;
+
+    var startTime = Date.now();
+    var timer = new QTimer();
+    timer.interval = 16;
+    timer.repeat = true;
+    timer.timeout.connect(function() {
+        var elapsed = Date.now() - startTime;
+        var progress = Math.min(elapsed / (actualDuration || 1), 1.0);
+        var ease = (easingType === "linear") ? progress : (progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2);
+
+        target.frameGeometry = { x: finalX, y: startY + (endY - startY) * ease, width: finalWidth, height: finalHeight };
+
+        if (animateOpacity) {
+            var denom = 1.0 - opacityPoint;
+            var opProg = Math.max(0, Math.min(1, (ease - opacityPoint) / (denom || 0.001)));
+            target.opacity = startOpacity + (endOpacity - startOpacity) * opProg;
+        } else {
+            if (shouldShow) target.opacity = 1.0;
+        }
+
+        if (progress >= 1.0) {
+            timer.stop();
+            if (!shouldShow) {
+                target.opacity = 0;
+                if (target.ruakePrevWindowId) {
+                    var allC = workspace.windowList();
+                    for (var f = 0; f < allC.length; f++) {
+                        if (allC[f].internalId.toString() === target.ruakePrevWindowId) {
+                            workspace.activeWindow = allC[f];
+                            break;
+                        }
+                    }
+                }
+            } else workspace.activeWindow = target;
+        }
+    });
+    timer.start();
+    target.ruakeTimer = timer;
 })"#;
 
 const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
 (function(apps) {
-    var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-
-    function normalizeId(id) {
-        if (!id) return "";
-        return id.toString().replace(/[{}]/g, "");
-    }
-
+    var clients = workspace.windowList();
     for (var a = 0; a < apps.length; a++) {
         var app = apps[a];
         var target = null;
-        var bestScore = -1;
-        var cleanTargetId = normalizeId(app.targetWindowId);
-
         for (var i = 0; i < clients.length; i++) {
             var c = clients[i];
-            var score = 0;
-            var cClass = (c.resourceClass || "").toLowerCase();
-            var cName = (c.resourceName || "").toLowerCase();
-
-            if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) score += 1000;
-            if (app.targetPid > 0 && c.pid == app.targetPid) score += 500;
-            if (cClass.indexOf(app.windowClass.toLowerCase()) !== -1 || cName.indexOf(app.windowClass.toLowerCase()) !== -1) score += 100;
-            if (c.desktopFileName && c.desktopFileName.toLowerCase().indexOf(app.windowClass.toLowerCase()) !== -1) score += 50;
-
-            if (score > 0) {
-                if (c.normalWindow) score += 2000;
-                if (score > bestScore) {
-                    bestScore = score;
-                    target = c;
-                }
-            }
+            if (app.targetWindowId && c.internalId && c.internalId.toString().includes(app.targetWindowId)) { target = c; break; }
+            if (app.targetPid > 0 && c.pid == app.targetPid) { target = c; break; }
+            if (c.resourceClass && c.resourceClass.toLowerCase().includes(app.windowClass.toLowerCase())) { target = c; break; }
         }
 
         if (target) {
-          console.log("Ruake: Grabbing window for " + app.windowClass + " (id: " + target.internalId + ", pid: " + target.pid + ")");
           target.onAllDesktops = true;
           target.keepAbove = app.keepAbove;
           target.noBorder = true;
           target.skipTaskbar = true;
           target.skipPager = true;
-          if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+          target.skipSwitcher = true;
           if (app.forcePriority) target.fullScreen = true;
 
-          var screens = workspace.screens;
-          var area = null;
-          if (app.displayMode === "specific" && app.displayIndex >= 0 && app.displayIndex < screens.length) area = screens[app.displayIndex].geometry;
-          else if (app.displayMode === "active") area = (workspace.activeWindow ? workspace.clientArea(KWin.PlacementArea, workspace.activeWindow) : workspace.activeScreen.geometry);
-          else area = workspace.activeScreen.geometry;
+          var area = (app.displayMode === "specific" && app.displayIndex >= 0 && app.displayIndex < workspace.screens.length)
+                     ? workspace.screens[app.displayIndex].geometry : workspace.activeScreen.geometry;
 
           var finalWidth = app.width > 0 ? (app.isWidthPercent ? area.width * app.width : app.width) : target.frameGeometry.width;
           var finalHeight = app.height > 0 ? (app.isHeightPercent ? area.height * app.height : app.height) : target.frameGeometry.height;
           var finalX = area.x + (area.width - finalWidth) / 2;
 
           if (!app.isVisible) {
-              console.log("Ruake: Parking " + app.windowClass + " offscreen.");
               target.opacity = 0.0;
               target.frameGeometry = { x: finalX, y: area.y - finalHeight - 10, width: finalWidth, height: finalHeight };
-          } else {
-              console.log("Ruake: Skipping position update for " + app.windowClass + " (already visible).");
           }
-        } else {
-          console.log("Ruake: FAILED to find window for " + app.windowClass);
         }
     }
 })"#;
 
 const RESTORE_TEMPLATE: &str = r#"
 (function(windowClass) {
-    var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+    var clients = workspace.windowList();
     for (var i = 0; i < clients.length; i++) {
-      var c = clients[i];
-      var cClass = (c.resourceClass || "").toLowerCase();
-      var cName = (c.resourceName || "").toLowerCase();
-      if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) {
-          console.log("Ruake: Restoring window " + cClass);
-          var area = workspace.clientArea(KWin.PlacementArea, c);
-          var geo = c.frameGeometry;
-          var needsCenter = (geo.y + geo.height <= area.y + 50 || c.opacity < 0.1 || geo.y < area.y + 10);
-
-          c.keepAbove = false;
-          c.onAllDesktops = false;
-          c.noBorder = false;
-          c.skipTaskbar = false;
-          c.skipPager = false;
-          if (c.skipSwitcher !== undefined) c.skipSwitcher = false;
-          c.fullScreen = false;
-          c.opacity = 1.0;
-
-          if (needsCenter) {
-            c.frameGeometry = {
-              x: area.x + (area.width - geo.width) / 2,
-              y: area.y + 100,
-              width: geo.width,
-              height: geo.height
-            };
-          }
-      }
+        var c = clients[i];
+        if (c.resourceClass && c.resourceClass.toLowerCase().includes(windowClass.toLowerCase())) {
+            var area = workspace.clientArea(KWin.PlacementArea, c);
+            c.keepAbove = false;
+            c.onAllDesktops = false;
+            c.noBorder = false;
+            c.skipTaskbar = false;
+            c.skipPager = false;
+            c.skipSwitcher = false;
+            c.fullScreen = false;
+            c.opacity = 1.0;
+            if (c.frameGeometry.y + c.frameGeometry.height <= area.y + 10) {
+                c.frameGeometry = { x: area.x + (area.width - c.frameGeometry.width) / 2, y: area.y + 50, width: c.frameGeometry.width, height: c.frameGeometry.height };
+            }
+        }
     }
 })"#;
 
-fn update_focus_state(state: &mut KWinState, ruake_classes: &[String]) {
-  let id_output = Command::new("kdotool").arg("getactivewindow").output();
-  let current_id = match id_output {
-    Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-    _ => return,
-  };
-  if current_id.is_empty() {
-    return;
-  }
-
-  let class_output = Command::new("kdotool")
-    .args(["getwindowclassname", &current_id])
-    .output();
-  match class_output {
-    Ok(o) if o.status.success() => {
-      let class_name = String::from_utf8_lossy(&o.stdout).trim().to_string();
-      let class_lower = class_name.to_lowercase();
-      for ruake_class in ruake_classes {
-        if class_lower.contains(&ruake_class.to_lowercase()) {
-          return;
-        }
-      }
-      state.previous_window_id = current_id;
-    }
-    _ => {}
-  }
-}
+// Focus state is now tracked internally by the KWin script for zero latency.
 
 fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
   // 1. Check Cache
   {
     if let Ok(cache) = get_window_cache().try_lock() {
       if let Some((id, pid)) = cache.get(app_name) {
-        // Verify window still exists and has matching class (light check)
-        let check_cmd = Command::new("kdotool").args(["getwindowclassname", id]).output();
-        if let Ok(o) = check_cmd {
-          if o.status.success() {
-            let name = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if name.to_lowercase().contains(&class.to_lowercase()) {
-              return Some((id.clone(), *pid));
-            }
-          }
-        }
+        // We no longer verify with kdotool here to avoid latency.
+        // The KWin script will fall back to class search if the ID is invalid.
+        return Some((id.clone(), *pid));
       }
     }
   }
 
   // 2. Fallback to Search
   if let Some(id) = crate::linux::terminal::check_window_exists(class) {
-    let mut pid = 0;
-    if let Ok(pid_out) = Command::new("kdotool").args(["getwindowpid", &id]).output() {
-      if pid_out.status.success() {
-        let pid_str = String::from_utf8_lossy(&pid_out.stdout).trim().to_string();
-        if let Ok(parsed_pid) = pid_str.parse::<u32>() {
-          pid = parsed_pid;
-        }
-      }
-    }
-
+    let pid = 0;
     // 3. Update Cache
     if let Ok(mut cache) = get_window_cache().try_lock() {
       cache.insert(app_name.to_string(), (id.clone(), pid));
     }
-
     return Some((id, pid));
   }
   None
@@ -604,11 +263,18 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
   let classes_string = ruake_classes.join(",");
 
   if should_show {
-    let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
-    if state.visible_app.is_none() {
-      update_focus_state(&mut state, &ruake_classes);
+    // 1. Fast ID lookup (Checks cache first, no shell-out)
+    let (mut target_id, mut target_pid) =
+      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+
+    // 2. Only check/start terminal if we don't have a cached ID
+    if target_id.is_empty() {
+      let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
+      // Re-fetch after spawn attempt
+      let res = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+      target_id = res.0;
+      target_pid = res.1;
     }
-    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
 
     run_toggle_script(
       app_cfg,
@@ -616,7 +282,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
       conn,
       ToggleParams {
         visible: true,
-        prev_id: "",
+        prev_id: "", // Script manages focus restoration internally
         target_id: &target_id,
         target_pid,
         ruake_classes: &classes_string,
@@ -627,14 +293,13 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
   } else {
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
 
-    let prev_id = state.previous_window_id.clone();
     run_toggle_script(
       app_cfg,
       config,
       conn,
       ToggleParams {
         visible: false,
-        prev_id: &prev_id,
+        prev_id: "",
         target_id: &target_id,
         target_pid,
         ruake_classes: &classes_string,
