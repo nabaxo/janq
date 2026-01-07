@@ -62,20 +62,27 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
   let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buffer);
   let class_name = String::from_utf16_lossy(&class_buffer[..class_len as usize]).to_lowercase();
 
-  let mut proc_name = String::new();
-  if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
-    let mut buffer = [0u16; 1024];
-    let len = GetModuleBaseNameW(process, None, &mut buffer);
-    if len > 0 {
-      proc_name = String::from_utf16_lossy(&buffer[..len as usize]).to_lowercase();
-    }
-  }
-
   let mut title_buf = [0u16; 256];
   let title_len = windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut title_buf);
   let title = String::from_utf16_lossy(&title_buf[..title_len as usize]).to_lowercase();
 
-  if proc_name.contains(&target_struct.name) || class_name.contains(&target_struct.name) {
+  // Fast path: check class_name and title first (no syscall)
+  let matches_class = class_name.contains(&target_struct.name);
+  let matches_title = title.contains(&target_struct.name);
+
+  // Lazy path: only open process if class/title didn't match and target looks like exe
+  let mut proc_name = String::new();
+  if !matches_class && !matches_title && target_struct.name.ends_with(".exe") {
+    if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+      let mut buffer = [0u16; 1024];
+      let len = GetModuleBaseNameW(process, None, &mut buffer);
+      if len > 0 {
+        proc_name = String::from_utf16_lossy(&buffer[..len as usize]).to_lowercase();
+      }
+    }
+  }
+
+  if matches_class || matches_title || proc_name.contains(&target_struct.name) {
     target_struct.found_data.push(FoundWindow {
       hwnd,
       class_name,
