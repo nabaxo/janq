@@ -114,7 +114,7 @@ hotkey = "Meta+Z"
 | | `width` | — | Window width (`%` or `px`) | ✓ yes |
 | | | `height` | — | Window height (`%` or `px`) | ✓ yes |
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
-| | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. Disables window chrome/borders. | ✗ no |
+| | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: Ruake removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
 | | `auto_show` | `false` | Show window on daemon startup | ✗ no |
 | `[animation]` | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
 | | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |
@@ -136,7 +136,12 @@ hotkey = "Meta+Z"
 | `quart`* | Very sharp deceleration (popular for UI). |
 | `back`* | Overshoots slightly before settling. |
 
-\* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`.
+\* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`. **If an invalid string is provided, Ruake falls back to an `ease-out` curve.**
+
+### Premium Features
+
+#### Sticky Swipe (Linux)
+When using `display_mode = "active"`, Ruake features "Sticky Swipe." If you toggle between two different applications while one is already visible, the new application will appear on the **same monitor** as the outgoing one, even if your mouse or focus has moved. This keeps the coordinated "swipe" animation grounded on a single screen for a more premium feel.
 
 ### Keycodes
 

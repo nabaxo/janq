@@ -279,20 +279,15 @@ pub async fn run_daemon(
     }
   }
 
-  // Config Watcher (Task)
+  // Config Watcher (Thread)
   let config_for_watcher = config.clone();
   let conn_for_watcher = conn.clone();
   let path_to_watch = config_path.clone();
+  let rt_handle = tokio::runtime::Handle::current();
 
-  tokio::spawn(async move {
-    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
-    let mut watcher = RecommendedWatcher::new(
-      move |res| {
-        let _ = tx.blocking_send(res);
-      },
-      NotifyConfig::default(),
-    )
-    .unwrap();
+  std::thread::spawn(move || {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
 
     if let Some(path) = &path_to_watch {
       if let Ok(abs_path) = path.canonicalize() {
@@ -308,17 +303,18 @@ pub async fn run_daemon(
     }
 
     let debounce_duration = Duration::from_millis(500);
+    let mut last_event = std::time::Instant::now();
     let mut pending = false;
 
     loop {
-      let next_event = if pending {
-        tokio::time::timeout(debounce_duration, rx.recv()).await
+      let timeout = if pending {
+        debounce_duration.saturating_sub(last_event.elapsed())
       } else {
-        Ok(rx.recv().await)
+        Duration::from_secs(60)
       };
 
-      match next_event {
-        Ok(Some(Ok(event))) => {
+      match rx.recv_timeout(timeout) {
+        Ok(Ok(event)) => {
           let mut is_config_file = false;
           if let Some(target_path) = &path_to_watch {
             let target_path_abs = target_path.canonicalize().unwrap_or(target_path.clone());
@@ -332,13 +328,12 @@ pub async fn run_daemon(
           }
 
           if is_config_file {
+            last_event = std::time::Instant::now();
             pending = true;
           }
         }
-        Ok(Some(Err(e))) => println!("Watcher error: {:?}", e),
-        Ok(None) => break, // Channel closed
-        Err(_) => {
-          // Timeout reached, process the pending event
+        Ok(Err(e)) => println!("Watcher error: {:?}", e),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
           if pending {
             pending = false;
             println!("Watcher: Debounced event triggered config reload...");
@@ -352,8 +347,10 @@ pub async fn run_daemon(
                 // Restore all apps before shutting down
                 let current_cfg = config_for_watcher.read().unwrap().clone();
                 let conn_shutdown = conn_for_watcher.clone();
-                println!("Watcher: Restoring all apps before shutdown...");
-                let _ = restore_quake(&current_cfg, &conn_shutdown).await;
+                rt_handle.block_on(async move {
+                  println!("Watcher: Restoring all apps before shutdown...");
+                  let _ = restore_quake(&current_cfg, &conn_shutdown).await;
+                });
 
                 crate::linux::show_error(&err_msg);
                 std::process::exit(1);
@@ -370,69 +367,73 @@ pub async fn run_daemon(
             let conn_in_async = conn_for_watcher.clone();
             let new_config_in_async = new_config.clone();
 
-            println!("Watcher: Starting/Restoring apps as needed...");
+            rt_handle.block_on(async move {
+              println!("Watcher: Starting/Restoring apps as needed...");
 
-            // 1. Restore removed apps
-            for (name, app_cfg) in &old_config.app {
-              if !new_config_in_async.app.contains_key(name) {
-                println!("Watcher: Restoring app '{}' (removed from config)", name);
-                let _ = crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
+              // 1. Restore removed apps
+              for (name, app_cfg) in &old_config.app {
+                if !new_config_in_async.app.contains_key(name) {
+                  println!("Watcher: Restoring app '{}' (removed from config)", name);
+                  let _ = crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
+                }
               }
-            }
 
-            reset_visibility(&new_config_in_async).await;
+              reset_visibility(&new_config_in_async).await;
 
-            // 2. Ensure all terminals are running and grabbed
-            let mut apps_for_grabbing = Vec::new();
-            for (name, app_cfg) in &new_config_in_async.app {
-              if !old_config.app.contains_key(name) {
-                println!("Watcher: New app detected: {}. Starting terminal...", name);
+              // 2. Ensure all terminals are running and grabbed
+              let mut apps_for_grabbing = Vec::new();
+              for (name, app_cfg) in &new_config_in_async.app {
+                if !old_config.app.contains_key(name) {
+                  println!("Watcher: New app detected: {}. Starting terminal...", name);
+                }
+                // We ensure terminal is running for ALL apps (in case one crashed)
+                let _ = ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
+                apps_for_grabbing.push((app_cfg.clone(), new_config_in_async.clone()));
               }
-              // We ensure terminal is running for ALL apps (in case one crashed)
-              let _ = ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
-              apps_for_grabbing.push((app_cfg.clone(), new_config_in_async.clone()));
-            }
-            let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
+              let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
 
-            // 3. Update desktop file (don't run kbuild inside, we'll do it last)
-            let desktop_changed = match crate::linux::desktop::generate_desktop_file_headless(&new_config_in_async) {
-              Ok(changed) => changed,
-              Err(e) => {
-                eprintln!("Watcher: Desktop file generation failed: {}", e);
-                false
-              }
-            };
+              // 3. Update desktop file (don't run kbuild inside, we'll do it last)
+              let desktop_changed = match crate::linux::desktop::generate_desktop_file_headless(&new_config_in_async) {
+                Ok(changed) => changed,
+                Err(e) => {
+                  eprintln!("Watcher: Desktop file generation failed: {}", e);
+                  false
+                }
+              };
 
-            // 4. Check if hotkeys changed
-            let mut hotkeys_changed = false;
-            if old_config.app.len() != new_config_in_async.app.len()
-              || old_config.app_order != new_config_in_async.app_order
-            {
-              hotkeys_changed = true;
-            } else {
-              for (name, old_app) in &old_config.app {
-                if let Some(new_app) = new_config_in_async.app.get(name) {
-                  if old_app.hotkey != new_app.hotkey || old_app.window_class != new_app.window_class {
+              // 4. Check if hotkeys changed
+              let mut hotkeys_changed = false;
+              if old_config.app.len() != new_config_in_async.app.len()
+                || old_config.app_order != new_config_in_async.app_order
+              {
+                hotkeys_changed = true;
+              } else {
+                for (name, old_app) in &old_config.app {
+                  if let Some(new_app) = new_config_in_async.app.get(name) {
+                    if old_app.hotkey != new_app.hotkey || old_app.window_class != new_app.window_class {
+                      hotkeys_changed = true;
+                      break;
+                    }
+                  } else {
                     hotkeys_changed = true;
                     break;
                   }
-                } else {
-                  hotkeys_changed = true;
-                  break;
                 }
               }
-            }
 
-            if hotkeys_changed || desktop_changed {
-              println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
-              if let Err(e) = crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await {
-                eprintln!("Watcher: Failed to sync shortcuts: {}", e);
+              if hotkeys_changed || desktop_changed {
+                println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
+                if let Err(e) = crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await
+                {
+                  eprintln!("Watcher: Failed to sync shortcuts: {}", e);
+                }
+              } else {
+                println!("Config: No shortcut/desktop changes detected.");
               }
-            } else {
-              println!("Config: No shortcut/desktop changes detected.");
-            }
+            });
           }
         }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
       }
     }
   });

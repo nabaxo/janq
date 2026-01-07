@@ -136,50 +136,64 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
       }
     }
 
-    for res in rx {
-      match res {
+    let debounce_duration = std::time::Duration::from_millis(500);
+    let mut last_event = std::time::Instant::now();
+    let mut pending = false;
+
+    loop {
+      let timeout = if pending {
+        debounce_duration.saturating_sub(last_event.elapsed())
+      } else {
+        std::time::Duration::from_secs(60)
+      };
+
+      match rx.recv_timeout(timeout) {
         Ok(_) => {
-          println!("Config change detected, reloading...");
-          let (new_config, _) = match load_config() {
-            Ok(c) => c,
-            Err(e) => {
-              // Restore all apps from current config before shutting down
-              let current_cfg = config_clone_watcher.read().unwrap().clone();
-              for (_name, app_cfg) in &current_cfg.app {
-                crate::windows::window::restore_app_window("", &app_cfg.window_class);
-              }
-
-              crate::windows::show_error(&e);
-              let _ = watcher_proxy.send_event(DaemonEvent::Exit);
-              return;
-            }
-          };
-          {
-            let mut w = config_clone_watcher.write().unwrap();
-            let old_config = (**w).clone();
-            *w = Arc::new(new_config.clone());
-
-            for (name, app_cfg) in &old_config.app {
-              // Only restore if the window_class is NOT present in the new config.
-              // This prevents releasing windows when switching from [app.name] to [app] (single app).
-              let still_managed = new_config
-                .app
-                .values()
-                .any(|new_app_cfg| new_app_cfg.window_class == app_cfg.window_class);
-              if !still_managed {
-                crate::windows::window::restore_app_window(name, &app_cfg.window_class);
-              }
-            }
-
-            // Clear the HWND cache so that the next invocation or the 2-second loop re-finds and maps windows to their new names.
-            {
-              let mut cache = crate::windows::window::get_hwnd_cache().write().unwrap();
-              cache.clear();
-            }
-          }
-          let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
+          last_event = std::time::Instant::now();
+          pending = true;
         }
-        Err(e) => println!("Watch error: {:?}", e),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+          if pending {
+            pending = false;
+            println!("Config change detected, reloading...");
+            let (new_config, _) = match load_config() {
+              Ok(c) => c,
+              Err(e) => {
+                // Restore all apps from current config before shutting down
+                let current_cfg = config_clone_watcher.read().unwrap().clone();
+                for (_name, app_cfg) in &current_cfg.app {
+                  crate::windows::window::restore_app_window("", &app_cfg.window_class);
+                }
+
+                crate::windows::show_error(&e);
+                let _ = watcher_proxy.send_event(DaemonEvent::Exit);
+                return;
+              }
+            };
+            {
+              let mut w = config_clone_watcher.write().unwrap();
+              let old_config = (**w).clone();
+              *w = Arc::new(new_config.clone());
+
+              for (name, app_cfg) in &old_config.app {
+                let still_managed = new_config
+                  .app
+                  .values()
+                  .any(|new_app_cfg| new_app_cfg.window_class == app_cfg.window_class);
+                if !still_managed {
+                  crate::windows::window::restore_app_window(name, &app_cfg.window_class);
+                }
+              }
+
+              {
+                let mut cache = crate::windows::window::get_hwnd_cache().write().unwrap();
+                cache.clear();
+              }
+            }
+            let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
+          }
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
       }
     }
   });
@@ -280,35 +294,45 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
         // 4. Initial app spawning
         {
           let cfg = config_clone_loop.read().unwrap().clone();
+          let mut spawn_tasks = Vec::new();
+
           for (name, app_cfg) in &cfg.app {
             let name = name.clone();
             let app_cfg = app_cfg.clone();
             let cfg = cfg.clone();
-            rt.spawn(async move {
+            spawn_tasks.push(rt.spawn(async move {
               let _ = crate::windows::terminal::ensure_terminal_running(&name, &app_cfg, &cfg).await;
-            });
+            }));
           }
 
-          if cfg.window.auto_show {
-            let app_to_show = target_app.as_ref();
-            if let Some(app_name) = app_to_show {
-              if let Some(_app_cfg) = cfg.app.get(app_name) {
+          let target_app_clone = target_app.clone();
+          let rt_clone = rt.handle().clone();
+          rt.spawn(async move {
+            for task in spawn_tasks {
+              let _ = task.await;
+            }
+
+            if cfg.window.auto_show {
+              let app_to_show = target_app_clone.as_ref();
+              if let Some(app_name) = app_to_show {
+                if let Some(_app_cfg) = cfg.app.get(app_name) {
+                  let cfg = (*cfg).clone();
+                  let app_name = app_name.clone();
+                  rt_clone.spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    toggle_window(&app_name, &cfg).await;
+                  });
+                }
+              } else if let Some(first_app) = cfg.app_order.first() {
                 let cfg = (*cfg).clone();
-                let app_name = app_name.clone();
-                rt.spawn(async move {
+                let app_name = first_app.clone();
+                rt_clone.spawn(async move {
                   tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                   toggle_window(&app_name, &cfg).await;
                 });
               }
-            } else if let Some(first_app) = cfg.app_order.first() {
-              let cfg = (*cfg).clone();
-              let app_name = first_app.clone();
-              rt.spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                toggle_window(&app_name, &cfg).await;
-              });
             }
-          }
+          });
         }
       }
       Event::LoopExiting => {

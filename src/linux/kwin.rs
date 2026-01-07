@@ -72,7 +72,7 @@ struct ToggleParams<'a> {
 // Template bodies that take arguments in their IIFE
 const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 (function(
-    windowClass, displayMode, displayIndex, width, height,
+    windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
     duration, easingType, shouldShow, keepAbove, animateOpacity,
     opacityPoint, prevWindowId, targetWindowId, targetPid, ruakeClasses,
     forcePriority
@@ -245,11 +245,11 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
     if (needsReposition) {
         if (width > 0) {
-            if (width <= 1.0) finalWidth = area.width * width;
+            if (isWidthPercent) finalWidth = area.width * width;
             else finalWidth = width;
         }
         if (height > 0) {
-            if (height <= 1.0) finalHeight = area.height * height;
+            if (isHeightPercent) finalHeight = area.height * height;
             else finalHeight = height;
         }
     }
@@ -303,7 +303,9 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
                 var currentY = startY + diff * ease;
                 if (animateOpacity) {
-                    target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * progress);
+                    var denom = 1.0 - opacityPoint;
+                    var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+                    target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * opacityEase);
                 } else {
                     target.opacity = 1.0;
                 }
@@ -313,7 +315,11 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                     var data = siblingDatas[d];
                     var sibY = data.startY + (data.endY - data.startY) * ease;
                     data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-                    if (animateOpacity) data.client.opacity = Math.max(0, data.startOpacity * (1.0 - progress));
+                    if (animateOpacity) {
+                        var denom = 1.0 - opacityPoint;
+                        var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+                        data.client.opacity = Math.max(0, data.startOpacity * (1.0 - opacityEase));
+                    }
                 }
 
                 if (progress >= 1.0) {
@@ -376,7 +382,9 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
             var currentY = startY + diff * ease;
 
             if (animateOpacity) {
-               target.opacity = Math.min(target.opacity, startOpacity * (1.0 - progress));
+               var denom = 1.0 - opacityPoint;
+               var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+               target.opacity = Math.min(target.opacity, startOpacity * (1.0 - opacityEase));
             }
 
             target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
@@ -462,8 +470,8 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
           else if (app.displayMode === "active") area = (workspace.activeWindow ? workspace.clientArea(KWin.PlacementArea, workspace.activeWindow) : workspace.activeScreen.geometry);
           else area = workspace.activeScreen.geometry;
 
-          var finalWidth = app.width > 0 ? (app.width <= 1.0 ? area.width * app.width : app.width) : target.frameGeometry.width;
-          var finalHeight = app.height > 0 ? (app.height <= 1.0 ? area.height * app.height : app.height) : target.frameGeometry.height;
+          var finalWidth = app.width > 0 ? (app.isWidthPercent ? area.width * app.width : app.width) : target.frameGeometry.width;
+          var finalHeight = app.height > 0 ? (app.isHeightPercent ? area.height * app.height : app.height) : target.frameGeometry.height;
           var finalX = area.x + (area.width - finalWidth) / 2;
 
           if (!app.isVisible) {
@@ -649,7 +657,7 @@ async fn run_toggle_script(
   } else {
     config.animation.hide_duration
   };
-  let (width, height) = app_cfg.resolve_dimensions(&config.window);
+  let ((width, is_width_percent), (height, is_height_percent)) = app_cfg.resolve_dimensions(&config.window);
   let animate_opacity = app_cfg.get_animate_opacity(config.animation.animate_opacity);
   let easing = if params.visible {
     &config.animation.show_easing
@@ -663,13 +671,15 @@ async fn run_toggle_script(
   };
 
   let script_content = format!(
-    "{}(\n  \"{}\", \"{}\", {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, \"{}\", \"{}\", {}, \"{}\", {}\n);",
+    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, \"{}\", \"{}\", {}, \"{}\", {}\n);",
     TOGGLE_SCRIPT_TEMPLATE,
     app_cfg.window_class,
     config.window.display_mode,
     config.window.display_index,
     width,
+    is_width_percent,
     height,
+    is_height_percent,
     duration,
     easing,
     params.visible,
@@ -706,12 +716,11 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
       .unwrap_or("");
 
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
-    let (width, height) = app_cfg.resolve_dimensions(&config.window);
-
+    let ((width, is_width_percent), (height, is_height_percent)) = app_cfg.resolve_dimensions(&config.window);
     let is_visible = state.visible_app.as_deref() == Some(app_name);
     apps_json.push(format!(
-            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, height: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {} }}",
-            app_cfg.window_class, config.window.display_mode, config.window.display_index, width, height,
+            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {} }}",
+            app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
             config.window.keep_above, target_id, target_pid, is_visible, config.window.force_priority
         ));
   }

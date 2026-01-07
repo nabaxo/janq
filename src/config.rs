@@ -102,19 +102,19 @@ impl AppConfig {
     self.animate_opacity.unwrap_or(default_val)
   }
 
-  pub fn resolve_dimensions(&self, global: &WindowConfig) -> (f64, f64) {
+  pub fn resolve_dimensions(&self, global: &WindowConfig) -> ((f64, bool), (f64, bool)) {
     let w = self.width.as_ref().or(global.width.as_ref());
     let h = self.height.as_ref().or(global.height.as_ref());
 
     let rw = match w {
-      Some(Dimension::Percent(p)) => *p,
-      Some(Dimension::Pixels(px)) => *px as f64,
-      None => 0.0,
+      Some(Dimension::Percent(p)) => (*p, true),
+      Some(Dimension::Pixels(px)) => (*px as f64, false),
+      None => (0.0, false),
     };
     let rh = match h {
-      Some(Dimension::Percent(p)) => *p,
-      Some(Dimension::Pixels(px)) => *px as f64,
-      None => 0.0,
+      Some(Dimension::Percent(p)) => (*p, true),
+      Some(Dimension::Pixels(px)) => (*px as f64, false),
+      None => (0.0, false),
     };
     (rw, rh)
   }

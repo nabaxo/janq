@@ -372,13 +372,13 @@ fn run_animation_task_sync(
     let screen_h = work_area.bottom - work_area.top;
 
     // --- Geometry & Current State Capture ---
-    let (width_val, height_val) = app_cfg.resolve_dimensions(&config.window);
+    let ((width_val, width_is_pct), (height_val, height_is_pct)) = app_cfg.resolve_dimensions(&config.window);
 
     let mut r_target = RECT::default();
     let _ = GetWindowRect(target_hwnd.inner(), &mut r_target);
 
     let target_w = if width_val > 0.0 {
-      (if width_val <= 1.0 {
+      (if width_is_pct {
         screen_w as f64 * width_val
       } else {
         width_val
@@ -387,7 +387,7 @@ fn run_animation_task_sync(
       r_target.right - r_target.left
     };
     let target_h = if height_val > 0.0 {
-      (if height_val <= 1.0 {
+      (if height_is_pct {
         screen_h as f64 * height_val
       } else {
         height_val
@@ -552,18 +552,11 @@ fn run_animation_task_sync(
 
         let mut needs_pos_update = false;
         if animate_opacity {
-          let op_progress = if should_show {
-            (progress / op_point).min(1.0)
-          } else {
-            if progress <= (1.0 - op_point) {
-              0.0
-            } else {
-              ((progress - (1.0 - op_point)) / op_point).min(1.0)
-            }
-          };
+          let denom = 1.0 - op_point;
+          let opacity_ease = ((ease_val - op_point) / if denom <= 0.0 { 0.0001 } else { denom }).clamp(0.0, 1.0);
 
           let target_alpha_val = if should_show { 255.0 } else { 0.0 };
-          let t_alpha = (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * op_progress) as u8;
+          let t_alpha = (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * opacity_ease) as u8;
 
           if t_alpha != last_alpha {
             let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
@@ -571,14 +564,11 @@ fn run_animation_task_sync(
           }
 
           for (i, (h, _, _, _, _, _, sa)) in siblings_data.iter().enumerate() {
-            let s_op = if progress <= (1.0 - config.animation.hide_opacity_point) {
-              0.0
-            } else {
-              ((progress - (1.0 - config.animation.hide_opacity_point))
-                / config.animation.hide_opacity_point.clamp(0.01, 1.0))
-              .min(1.0)
-            };
-            let s_target_alpha = (*sa as f64 * (1.0 - s_op)) as u8;
+            let s_denom = 1.0 - config.animation.hide_opacity_point;
+            let s_opacity_ease = ((ease_val - config.animation.hide_opacity_point)
+              / if s_denom <= 0.0 { 0.0001 } else { s_denom })
+            .clamp(0.0, 1.0);
+            let s_target_alpha = (*sa as f64 * (1.0 - s_opacity_ease)) as u8;
             if s_target_alpha != last_sibling_alphas[i] {
               let _ = SetLayeredWindowAttributes(h.inner(), COLORREF(0), s_target_alpha, LWA_ALPHA);
               last_sibling_alphas[i] = s_target_alpha;
@@ -741,16 +731,16 @@ pub async fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConf
     let mut mi = MONITORINFO::default();
     mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
     if GetMonitorInfoW(mon, &mut mi).as_bool() {
-      let (w, h) = app_cfg.resolve_dimensions(&config.window);
+      let ((w, w_is_pct), (h, h_is_pct)) = app_cfg.resolve_dimensions(&config.window);
       let work_area = mi.rcWork;
       let sw = work_area.right - work_area.left;
       let tw = if w > 0.0 {
-        (if w <= 1.0 { sw as f64 * w } else { w }) as i32
+        (if w_is_pct { sw as f64 * w } else { w }) as i32
       } else {
         cur_w
       };
       let th = if h > 0.0 {
-        (if h <= 1.0 {
+        (if h_is_pct {
           (work_area.bottom - work_area.top) as f64 * h
         } else {
           h
