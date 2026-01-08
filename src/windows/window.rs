@@ -70,19 +70,17 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
   let matches_class = class_name.contains(&target_struct.name);
   let matches_title = title.contains(&target_struct.name);
 
-  // Lazy path: only open process if class/title didn't match
+  // Always open process for technical ID
   let mut proc_name = String::new();
-  if !matches_class && !matches_title {
-    if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
-      let mut buffer = [0u16; 1024];
-      let len = GetModuleBaseNameW(process, None, &mut buffer);
-      if len > 0 {
-        proc_name = String::from_utf16_lossy(&buffer[..len as usize]).to_lowercase();
-      }
+  if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+    let mut buffer = [0u16; 1024];
+    let len = GetModuleBaseNameW(process, None, &mut buffer);
+    if len > 0 {
+      proc_name = String::from_utf16_lossy(&buffer[..len as usize]).to_lowercase();
     }
   }
 
-  if matches_class || matches_title || proc_name.contains(&target_struct.name) {
+  if matches_class || matches_title || proc_name.contains(&target_struct.name) || (!target_struct.compact_name.is_empty() && proc_name.contains(&target_struct.compact_name)) {
     target_struct.found_data.push(FoundWindow {
       hwnd,
       class_name,
@@ -102,13 +100,16 @@ struct FoundWindow {
 
 struct TargetSearch {
   name: String,
+  compact_name: String,
   found_data: Vec<FoundWindow>,
 }
 
 pub fn find_window_by_process(name: &str) -> Option<HWND> {
   let lower_name = name.to_lowercase();
+  let compact_name = lower_name.replace(" ", "");
   let mut search = TargetSearch {
     name: lower_name,
+    compact_name,
     found_data: Vec::new(),
   };
   unsafe {
@@ -137,6 +138,9 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
           score += 5000;
         } else if data.class_name.contains(&search.name) {
           score += 1000;
+        }
+        if data._proc_name.contains(&search.name) || (!search.compact_name.is_empty() && data._proc_name.contains(&search.compact_name)) {
+          score += 4500;
         }
         if is_visible {
           score += 2000;

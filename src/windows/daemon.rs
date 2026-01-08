@@ -373,7 +373,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
                 let cfg = config_clone_loop.read().unwrap().clone();
                 let app_name = app_name.clone();
 
-                rt.block_on(async {
+                rt.spawn(async move {
                   if let Some(app_cfg) = cfg.app.get(&app_name) {
                     if !toggle_window(&app_name, &cfg).await {
                       crate::windows::terminal::ensure_terminal_running(&app_name, app_cfg, &cfg).await;

@@ -49,16 +49,32 @@ Ruake generates a `.desktop` file and syncs your hotkeys to **KDE System Setting
 
 Ruake handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
 
+### Windows Specifics: `window_class`
+
+On Windows, the `window_class` field is highly flexible and matches against several properties. Ruake uses a **priority-based scoring system** to ensure it always grabs the correct window:
+
+1.  **Process Name** (Highest Priority): The filename of the executable (e.g., `windowsterminal`, `wezterm-gui`, `zed`). Ruake even supports **fuzzy matching** (e.g., searching for "Windows Terminal" will correctly find `windowsterminal.exe`).
+2.  **Window Class**: The technical internal class name (e.g., `CASCADIA_HOST_WINDOW_CLASS`).
+3.  **Window Title**: The text shown in the title bar (e.g., "Windows Terminal").
+
+#### Recommended setup for Windows Terminal:
+If `wt` is in your system `PATH`, this is the most reliable setup:
+```toml
+window_class = "windowsterminal" # Or simply "Windows Terminal" (fuzzy match)
+start_command = "wt"
+```
+
 #### Path Formatting (Windows)
 
-When configuring `start_command` for Windows apps with backslashes and spaces, **use single quotes (`'`)** to treat the string as a literal.
+When configuring `start_command` for local paths with backslashes or spaces, **use single quotes (`'`)** to treat the string as a literal:
 
 ```toml
+window_class = "windowsterminal"
 start_command = 'C:\Program Files\Terminal\wt.exe'
 ```
 
 > [!TIP]
-> **Pro Tip:** If the application is in your system `PATH` (like `wt` for Windows Terminal), you can simply use the executable name: `start_command = "wt"`.
+> **Pro Tip:** For most modern terminals (Windows Terminal, WezTerm, etc.), using the simple executable name (e.g., `start_command = "wt"` or `"wezterm"`) is preferred if they are in your system PATH.
 
 ## Configuration
 
