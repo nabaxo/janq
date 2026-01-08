@@ -1,8 +1,8 @@
-# Ruake - Quake-Style Terminal Manager
+# janq - Janky Quake-Style Terminal Manager
 
-## Ruake is 100%, unadultareted vibe coded slop. User discretion is advised.
+## janq is 100%, unadultareted vibe coded slop. User discretion is advised.
 
-**Ruake** is a lightweight, high-performance Quake-style terminal wrapper. It manages your favorite terminal emulator (WezTerm, Alacritty, Kitty, Zed, etc.), allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
+**janq** is a lightweight, high-performance Quake-style terminal wrapper. It manages your favorite terminal emulator (WezTerm, Alacritty, Kitty, Zed, etc.), allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
 ## Supported Platforms
 
@@ -12,13 +12,13 @@
 ## Key Features
 
 - **Atomic Switching (Cross-Platform)**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows.
-- **Zero-Config Hotkeys (Cross-Platform)**: Ruake automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
+- **Zero-Config Hotkeys (Cross-Platform)**: janq automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu. The topmost application is the one that toggles when left-clicking the systray icon.
 - **Robust Identification (Cross-Platform)**: Advanced scoring system (Visibility > Class > Title > Size) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
 - **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves)
 - **Focus Restoration**: Remembers your previous window and restores focus instantly.
-- **CLI Power**: Control your setup via `./ruake --app <name>`.
+- **CLI Power**: Control your setup via `./janq --app <name>`.
 
 ## Installation
 
@@ -28,26 +28,34 @@
 
 ### Build
 ```bash
-make build-linux   # Binary: ./dist/ruake
-make build-windows # Binary: ./dist/ruake.exe
+make build-linux   # Binary: ./dist/janq
+make build-windows # Binary: ./dist/janq.exe
 ```
 
 ## Usage
 
 ### Smart Startup & Toggling
-- Run `./ruake` to start the daemon.
+- Run `./janq` to start the daemon.
 - Subsequent calls toggle the primary window.
-- Use `./ruake --app name` to toggle a specific application from your config.
+- Use `./janq --app name` to toggle a specific application from your config.
 
 > [!TIP]
-> **Single-App Peace of Mind**: If you only have one app configured, Ruake ignores typos and always picks that app. In multi-app mode, it validates your input and shows a helpful error window if an app isn't found.
+> **Single-App Peace of Mind**: If you only have one app configured, janq ignores typos and always picks that app. In multi-app mode, it validates your input and shows a helpful error window if an app isn't found.
 
 ### Linux (KDE)
-Ruake generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
+janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
 
 ### Windows
 
-Ruake handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
+janq handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
+
+#### Windows Startup (Manual)
+
+To make janq start automatically when you log in:
+1.  Press `Win + R`, type `shell:startup`, and press Enter.
+2.  Right-click in the folder and select **New > Shortcut**.
+3.  Browse to your `janq.exe` location.
+4.  **Important**: To start in background mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\janq.exe" --daemon`).
 
 #### Windows Startup (Manual)
 
@@ -59,9 +67,9 @@ To make Ruake start automatically when you log in:
 
 ### Windows Specifics: `window_class`
 
-On Windows, the `window_class` field is highly flexible and matches against several properties. Ruake uses a **priority-based scoring system** to ensure it always grabs the correct window:
+On Windows, the `window_class` field is highly flexible and matches against several properties. janq uses a **priority-based scoring system** to ensure it always grabs the correct window:
 
-1.  **Process Name** (Highest Priority): The filename of the executable (e.g., `windowsterminal`, `wezterm-gui`, `zed`). Ruake even supports **fuzzy matching** (e.g., searching for "Windows Terminal" will correctly find `windowsterminal.exe`).
+1.  **Process Name** (Highest Priority): The filename of the executable (e.g., `windowsterminal`, `wezterm-gui`, `zed`). janq even supports **fuzzy matching** (e.g., searching for "Windows Terminal" will correctly find `windowsterminal.exe`).
 2.  **Window Class**: The technical internal class name (e.g., `CASCADIA_HOST_WINDOW_CLASS`).
 3.  **Window Title**: The text shown in the title bar (e.g., "Windows Terminal").
 
@@ -88,20 +96,20 @@ start_command = 'C:\Program Files\Terminal\wt.exe'
 
 ### Search Priority
 
-Ruake searches for a configuration file in the following order:
+janq searches for a configuration file in the following order:
 
 1.  **User Configuration** (Recommended):
-    - `~/.ruake.toml` or `~/.goake.toml`
-    - `~/.config/ruake/ruake.toml`
+    - `~/.janq.toml`
+    - `~/.config/janq/janq.toml`
 2.  **Binary Directory** (Portable Mode):
-    - Same folder as the `ruake` executable.
+    - Same folder as the `janq` executable.
 
 > [!CAUTION]
-> **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. Ruake includes a safeguard to prevent destroying your system integration.
+> **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. janq includes a safeguard to prevent destroying your system integration.
 
 ### Setup
 
-Create `.ruake.toml` in `~/.config/ruake/` or your home directory.
+Create `.janq.toml` in `~/.config/janq/` or your home directory.
 
 ### Global settings
 ```toml
@@ -151,7 +159,7 @@ hotkey = "Meta+Z"
 | | `width` | — | Window width (`%` or `px`) | ✓ yes |
 | | | `height` | — | Window height (`%` or `px`) | ✓ yes |
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
-| | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: Ruake removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
+| | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: janq removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
 | | `auto_show` | `false` | Show window on daemon startup | ✗ no |
 | `[animation]` | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
 | | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |
@@ -173,16 +181,16 @@ hotkey = "Meta+Z"
 | `quart`* | Very sharp deceleration (popular for UI). |
 | `back`* | Overshoots slightly before settling. |
 
-\* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`. **If an invalid string is provided, Ruake falls back to an `ease-out` curve.**
+\* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`. **If an invalid string is provided, janq falls back to an `ease-out` curve.**
 
 ### Premium Features
 
 #### Sticky Swipe (Linux)
-When using `display_mode = "active"`, Ruake features "Sticky Swipe." If you toggle between two different applications while one is already visible, the new application will appear on the **same monitor** as the outgoing one, even if your mouse or focus has moved. This keeps the coordinated "swipe" animation grounded on a single screen for a more premium feel.
+When using `display_mode = "active"`, janq features "Sticky Swipe." If you toggle between two different applications while one is already visible, the new application will appear on the **same monitor** as the outgoing one, even if your mouse or focus has moved. This keeps the coordinated "swipe" animation grounded on a single screen for a more premium feel.
 
 ### Keycodes
 
-Ruake supports a wide range of keycodes for defining hotkeys. Keys are case-insensitive.
+janq supports a wide range of keycodes for defining hotkeys. Keys are case-insensitive.
 
 **Modifiers:** `Ctrl`, `Alt`, `Shift`, `Meta` (Super/Windows/Cmd).
 Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl+alt+shift+meta+z`, whatever floats your boat).

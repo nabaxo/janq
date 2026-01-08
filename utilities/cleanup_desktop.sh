@@ -8,6 +8,8 @@ APP_DIR="$HOME/.local/share/applications"
 DEPRECATED_FILES=(
     "$APP_DIR/ruake.desktop"
     "$APP_DIR/ruake-dev.nabaxo.ruake.desktop"
+    "$APP_DIR/dev.nabaxo.ruake.desktop"
+    "$APP_DIR/janq.desktop"
 )
 
 for file in "${DEPRECATED_FILES[@]}"; do
@@ -21,4 +23,4 @@ done
 # Optional: Check for other potential stale files (e.g. if we ever had other names)
 # find "$APP_DIR" -name "*ruake*.desktop" -not -name "dev.nabaxo.ruake.desktop" -print
 
-echo "Desktop cleanup complete. Please ensure 'dev.nabaxo.ruake.desktop' is present after running Ruake."
+echo "Desktop cleanup complete. Please ensure 'dev.nabaxo.janq.desktop' is present after running janq daemon."

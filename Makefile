@@ -13,11 +13,11 @@ prepare-dist:
 
 build-linux: prepare-dist
 	cargo build --release
-	cp target/release/ruake $(DIST_DIR)/ruake
+	cp target/release/janq $(DIST_DIR)/janq
 
 build-windows: prepare-dist
 	cargo build --release --target x86_64-pc-windows-gnu
-	cp target/x86_64-pc-windows-gnu/release/ruake.exe $(DIST_DIR)/ruake.exe
+	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq.exe
 
 build-all: build-linux build-windows
 

@@ -57,7 +57,7 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn:
   let process_running = check_process_running(window_class);
 
   if start_command.is_empty() {
-    eprintln!("Ruake: No start_command for app with class '{}'", window_class);
+    eprintln!("janq: No start_command for app with class '{}'", window_class);
     return false;
   }
 
@@ -65,7 +65,7 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn:
   // (e.g. for terminals that open new windows on command even if daemon is running)
   if process_running {
     println!(
-      "Ruake: Process for '{}' exists but no window found. Attempting to start/reanimate...",
+      "janq: Process for '{}' exists but no window found. Attempting to start/reanimate...",
       window_class
     );
   }
@@ -101,7 +101,7 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn:
     }
     if i % 5 == 0 && i > 0 {
       println!(
-        "Ruake: Still waiting for window '{}' to appear (attempt {}/20)...",
+        "janq: Still waiting for window '{}' to appear (attempt {}/20)...",
         window_class, i
       );
     }
@@ -110,12 +110,15 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn:
 
   // Fallback: check if process is at least running
   if check_process_running(window_class) {
-    println!("Ruake: Process for '{}' is running, but no window appeared after 8 seconds. This might be a configuration issue.", window_class);
+    println!(
+      "janq: Process for '{}' is running, but no window appeared after 8 seconds. This might be a configuration issue.",
+      window_class
+    );
     return true;
   }
 
   println!(
-    "Ruake: Failed to detect process or window for '{}' after spawning.",
+    "janq: Failed to detect process or window for '{}' after spawning.",
     window_class
   );
   false
@@ -152,7 +155,7 @@ fn run_kdotool_search(pattern: &str) -> Option<String> {
       if !s.is_empty() {
         let lines: Vec<&str> = s.lines().collect();
         if lines.len() > 1 {
-          println!("Ruake: Warning: Multiple windows ({}) found for pattern '{}'. Picking the first one ({}). Ensure each app has a unique window_class for best results.", lines.len(), pattern, lines[0]);
+          println!("janq: Warning: Multiple windows ({}) found for pattern '{}'. Picking the first one ({}). Ensure each app has a unique window_class for best results.", lines.len(), pattern, lines[0]);
         }
         return Some(lines[0].to_string());
       }

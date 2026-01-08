@@ -4,7 +4,7 @@ set -e
 # Get the directory of this script
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
-echo "=== STARTING FULL RUAKE RESET ==="
+echo "=== STARTING FULL janq/RUAKE RESET ==="
 
 # 1. Clean processes and lock files first
 if [ -f "$DIR/cleanup_processes.sh" ]; then

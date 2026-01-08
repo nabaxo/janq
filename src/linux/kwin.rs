@@ -66,7 +66,7 @@ struct ToggleParams<'a> {
   prev_id: &'a str,
   target_id: &'a str,
   target_pid: u32,
-  ruake_classes: &'a str,
+  janq_classes: &'a str,
 }
 
 const COMMON_KWIN_JS: &str = r#"
@@ -112,7 +112,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 (function(
     windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
     duration, easingType, shouldShow, keepAbove, animateOpacity,
-    showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, ruakeClasses,
+    showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, janqClasses,
     forcePriority
 ) {
     {{COMMON_KWIN_JS}}
@@ -125,7 +125,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
     if (shouldShow) {
         var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-        var rawClasses = (ruakeClasses || "").toLowerCase().split(",");
+        var rawClasses = (janqClasses || "").toLowerCase().split(",");
         var allClasses = [];
         for (var k = 0; k < rawClasses.length; k++) {
             var trimmed = rawClasses[k].replace(/^\s+|\s+$/g, "");
@@ -138,16 +138,16 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
             var cClass = (c.resourceClass || "").toLowerCase();
             var cName = (c.resourceName || "").toLowerCase();
 
-            var isRuake = false;
+            var isManaged = false;
             for (var j = 0; j < allClasses.length; j++) {
                 var siblingClass = allClasses[j];
                 if (cClass.indexOf(siblingClass) !== -1 || cName.indexOf(siblingClass) !== -1) {
-                    isRuake = true;
+                    isManaged = true;
                     break;
                 }
             }
 
-            if (isRuake) {
+            if (isManaged) {
                 var area = workspace.clientArea(KWin.PlacementArea, c);
                 if (c.opacity > 0 && c.frameGeometry.y + c.frameGeometry.height > area.y) {
                     siblingsToHide.push(c);
@@ -444,7 +444,7 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
         var target = findTarget(app.windowClass, app.targetWindowId, app.targetPid);
 
         if (target) {
-          console.log("Ruake: Grabbing window for " + app.windowClass + " (id: " + target.internalId + ", pid: " + target.pid + ")");
+          console.log("janq_grab: Grabbing window for " + app.windowClass + " (id: " + target.internalId + ", pid: " + target.pid + ")");
           target.onAllDesktops = true;
           target.keepAbove = app.keepAbove;
           target.noBorder = true;
@@ -464,14 +464,14 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
           var finalX = area.x + (area.width - finalWidth) / 2;
 
           if (!app.isVisible) {
-              console.log("Ruake: Parking " + app.windowClass + " offscreen.");
+              console.log("janq_grab: Parking " + app.windowClass + " offscreen.");
               target.opacity = 0.0;
               target.frameGeometry = { x: finalX, y: area.y - finalHeight - 10, width: finalWidth, height: finalHeight };
           } else {
-              console.log("Ruake: Skipping position update for " + app.windowClass + " (already visible).");
+              console.log("janq_grab: Skipping position update for " + app.windowClass + " (already visible).");
           }
         } else {
-          console.log("Ruake: FAILED to find window for " + app.windowClass);
+          console.log("janq_grab: FAILED to find window for " + app.windowClass);
         }
     }
 })"#;
@@ -484,7 +484,7 @@ const RESTORE_TEMPLATE: &str = r#"
       var cClass = (c.resourceClass || "").toLowerCase();
       var cName = (c.resourceName || "").toLowerCase();
       if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) {
-          console.log("Ruake: Restoring window " + cClass);
+          console.log("janq_restore: Restoring window " + cClass);
           var area = workspace.clientArea(KWin.PlacementArea, c);
           var geo = c.frameGeometry;
           var needsCenter = (geo.y + geo.height <= area.y + 50 || c.opacity < 0.1 || geo.y < area.y + 10);
@@ -510,7 +510,7 @@ const RESTORE_TEMPLATE: &str = r#"
     }
 })"#;
 
-fn update_focus_state(state: &mut KWinState, ruake_classes: &[String]) {
+fn update_focus_state(state: &mut KWinState, janq_classes: &[String]) {
   let id_output = Command::new("kdotool").arg("getactivewindow").output();
   let current_id = match id_output {
     Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
@@ -527,8 +527,8 @@ fn update_focus_state(state: &mut KWinState, ruake_classes: &[String]) {
     Ok(o) if o.status.success() => {
       let class_name = String::from_utf8_lossy(&o.stdout).trim().to_string();
       let class_lower = class_name.to_lowercase();
-      for ruake_class in ruake_classes {
-        if class_lower.contains(&ruake_class.to_lowercase()) {
+      for managed_class in janq_classes {
+        if class_lower.contains(&managed_class.to_lowercase()) {
           return;
         }
       }
@@ -589,13 +589,13 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
   let is_currently_visible = state.visible_app.as_deref() == Some(app_name);
   let should_show = !is_currently_visible;
 
-  let ruake_classes: Vec<String> = config.app.values().map(|v| v.window_class.to_string()).collect();
-  let classes_string = ruake_classes.join(",");
+  let janq_classes: Vec<String> = config.app.values().map(|v| v.window_class.to_string()).collect();
+  let classes_string = janq_classes.join(",");
 
   if should_show {
     let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
     if state.visible_app.is_none() {
-      update_focus_state(&mut state, &ruake_classes);
+      update_focus_state(&mut state, &janq_classes);
     }
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
 
@@ -608,7 +608,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
         prev_id: "",
         target_id: &target_id,
         target_pid,
-        ruake_classes: &classes_string,
+        janq_classes: &classes_string,
       },
     )
     .await?;
@@ -626,7 +626,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
         prev_id: &prev_id,
         target_id: &target_id,
         target_pid,
-        ruake_classes: &classes_string,
+        janq_classes: &classes_string,
       },
     )
     .await?;
@@ -677,11 +677,11 @@ async fn run_toggle_script(
     params.prev_id,
     params.target_id,
     params.target_pid,
-    params.ruake_classes,
+    params.janq_classes,
     config.window.force_priority
   );
 
-  run_kwin_script(conn, "ruake_toggle_engine", &script_content, None).await
+  run_kwin_script(conn, "janq_toggle_engine", &script_content, None).await
 }
 
 pub async fn ensure_grabbed(app_cfg: &AppConfig, config: &Config, conn: &Connection) -> Result<()> {
@@ -716,14 +716,14 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
   let script_body = ENSURE_GRABBED_BATCH_TEMPLATE.replace("{{COMMON_KWIN_JS}}", COMMON_KWIN_JS);
   let script_content = format!("{}([\n  {}\n]);", script_body, apps_json.join(",\n  "));
 
-  run_kwin_script(conn, "ruake_init_script", &script_content, Some(Duration::ZERO)).await
+  run_kwin_script(conn, "janq_init_script", &script_content, Some(Duration::ZERO)).await
 }
 
 pub async fn restore_app(window_class: &str, conn: &Connection) -> Result<()> {
   let script_content = format!("{}(\"{}\");", RESTORE_TEMPLATE, window_class);
   run_kwin_script(
     conn,
-    "ruake_restore_script",
+    "janq_restore_script",
     &script_content,
     Some(Duration::from_millis(300)),
   )

@@ -189,7 +189,7 @@ trait KGlobalAccel {
 // Shortcut synchronization via D-Bus.
 
 pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> Result<()> {
-  let component = "dev.nabaxo.ruake.desktop";
+  let component = "dev.nabaxo.janq.desktop";
   let conn = zbus::Connection::session().await?;
   let proxy = KGlobalAccelProxy::new(&conn).await?;
 
@@ -257,7 +257,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
   println!("Hotkey: Configuration changed or missing in KDE, performing full sync...");
 
   // D-BUS UNREGISTER: Release legacy and current actions to ensure a clean slate
-  let components_to_clean = ["dev.nabaxo.ruake.desktop", "dev_nabaxo_ruake_desktop", "ruake"];
+  let components_to_clean = ["dev.nabaxo.janq.desktop", "janq"];
   for comp in components_to_clean {
     if let Ok(all_actions) = proxy.all_actions_for_component(vec![comp.to_string()]).await {
       for action_info in all_actions {
@@ -290,7 +290,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
       let action_id = vec![
         component.to_string(),
         app_name.to_string(),
-        "Ruake".to_string(),
+        "janq".to_string(),
         display_name,
       ];
 

@@ -1,8 +1,8 @@
-# Ruake Multi-App Configuration Example
-# Place this file at ~/.ruake.toml or ~/.config/ruake/ruake.toml
+# janq Multi-App Configuration Example
+# Place this file at ~/.janq.toml or ~/.config/janq/janq.toml
 
 # You can define multiple applications by naming sections like [app.NAME]
-# You can toggle specific ones via `ruake --app NAME` or using their unique hotkeys.
+# You can toggle specific ones via `janq --app NAME` or using their unique hotkeys.
 
 [app.terminal]
 window_class = "wezquake"

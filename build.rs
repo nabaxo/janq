@@ -13,8 +13,8 @@ fn main() {
 
     if target.contains("gnu") {
       let out_dir = env::var("OUT_DIR").unwrap();
-      let rc_path = Path::new(&out_dir).join("ruake_generated.rc");
-      let obj_path = Path::new(&out_dir).join("ruake_icon.o");
+      let rc_path = Path::new(&out_dir).join("janq_generated.rc");
+      let obj_path = Path::new(&out_dir).join("janq_icon.o");
 
       // Generate .rc with absolute path to icon to avoid path resolution issues in windres
       let rc_content = format!("id ICON \"{}\"", icon_path.display().to_string().replace("\\", "/"));

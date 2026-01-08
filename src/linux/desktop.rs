@@ -15,7 +15,7 @@ pub fn generate_desktop_file_headless(config: &Config) -> Result<bool> {
 fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool> {
   let current_exe = std::env::current_exe()
     .and_then(|p| p.canonicalize())
-    .unwrap_or_else(|_| PathBuf::from("ruake"));
+    .unwrap_or_else(|_| PathBuf::from("janq"));
   let exe_path_raw = current_exe.to_string_lossy();
   let exe_path = format!("\"{}\"", exe_path_raw);
 
@@ -30,24 +30,24 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
   let app_dir = xdg_data.join("applications");
   fs::create_dir_all(&app_dir)?;
 
-  let desktop_path = app_dir.join("dev.nabaxo.ruake.desktop");
+  let desktop_path = app_dir.join("dev.nabaxo.janq.desktop");
 
   // Build content in memory to check for changes
   let mut desktop_content = String::new();
   desktop_content.push_str("[Desktop Entry]\n");
-  desktop_content.push_str("Name=Ruake\n");
+  desktop_content.push_str("Name=janq\n");
   desktop_content.push_str("Comment=Quake-style terminal manager\n");
   desktop_content.push_str(&format!("Exec={}\n", exec_cmd));
-  desktop_content.push_str("Icon=ruake\n");
+  desktop_content.push_str("Icon=janq\n");
   desktop_content.push_str("Terminal=false\n");
   desktop_content.push_str("Type=Application\n");
   desktop_content.push_str("DBusActivatable=true\n");
   desktop_content.push_str("Categories=System;TerminalEmulator;\n");
   desktop_content.push_str("X-KDE-StartupNotify=false\n");
   desktop_content.push_str("X-Color-Scheme-Preference=Dark\n");
-  desktop_content.push_str("X-DBus-ServiceName=dev.nabaxo.ruake\n");
+  desktop_content.push_str("X-DBus-ServiceName=dev.nabaxo.janq\n");
   desktop_content.push_str("X-DBus-StartupType=Unique\n");
-  desktop_content.push_str("X-DBus-ObjectPath=/dev/nabaxo/ruake\n");
+  desktop_content.push_str("X-DBus-ObjectPath=/dev/nabaxo/janq\n");
 
   if !config.app.is_empty() {
     let mut keys: Vec<_> = config.app.keys().collect();
@@ -90,7 +90,7 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
       changed = false;
     } else if config.app.is_empty() && existing.contains("Actions=") {
       // Safeguard: Don't overwrite a functional desktop file with one that has no apps
-      // This happens if Ruake is run from a location with a junk/empty config.
+      // This happens if janq is run from a location with a junk/empty config.
       eprintln!("Warning: Current config has no apps, but existing desktop file has actions. Skipping update to preserve shortcuts.");
       changed = false;
     }
@@ -104,8 +104,8 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
   let service_dir = xdg_data.join("dbus-1").join("services");
   fs::create_dir_all(&service_dir)?;
 
-  let service_path = service_dir.join("dev.nabaxo.ruake.service");
-  let service_content = format!("[D-BUS Service]\nName=dev.nabaxo.ruake\nExec={} --daemon\n", exe_path);
+  let service_path = service_dir.join("dev.nabaxo.janq.service");
+  let service_content = format!("[D-BUS Service]\nName=dev.nabaxo.janq\nExec={} --daemon\n", exe_path);
 
   let mut service_changed = true;
   if let Ok(existing) = fs::read_to_string(&service_path) {
@@ -154,7 +154,7 @@ fn install_icon() -> Result<()> {
     .join("apps");
 
   fs::create_dir_all(&icon_dir)?;
-  let icon_path = icon_dir.join("ruake.svg");
+  let icon_path = icon_dir.join("janq.svg");
   if !icon_path.exists() {
     fs::write(&icon_path, icon_data)?;
   }

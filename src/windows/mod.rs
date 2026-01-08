@@ -11,7 +11,7 @@ pub fn show_error(message: &str) {
   use windows::core::HSTRING;
   use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
-  let title = HSTRING::from("Ruake Configuration Error");
+  let title = HSTRING::from("janq Configuration Error");
   let msg = HSTRING::from(message);
 
   unsafe {

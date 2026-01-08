@@ -80,7 +80,11 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
     }
   }
 
-  if matches_class || matches_title || proc_name.contains(&target_struct.name) || (!target_struct.compact_name.is_empty() && proc_name.contains(&target_struct.compact_name)) {
+  if matches_class
+    || matches_title
+    || proc_name.contains(&target_struct.name)
+    || (!target_struct.compact_name.is_empty() && proc_name.contains(&target_struct.compact_name))
+  {
     target_struct.found_data.push(FoundWindow {
       hwnd,
       class_name,
@@ -139,7 +143,9 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
         } else if data.class_name.contains(&search.name) {
           score += 1000;
         }
-        if data._proc_name.contains(&search.name) || (!search.compact_name.is_empty() && data._proc_name.contains(&search.compact_name)) {
+        if data._proc_name.contains(&search.name)
+          || (!search.compact_name.is_empty() && data._proc_name.contains(&search.compact_name))
+        {
           score += 4500;
         }
         if is_visible {

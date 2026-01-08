@@ -55,7 +55,7 @@ struct QuakeDaemon {
   conn: Connection,
 }
 
-#[interface(name = "dev.nabaxo.ruake")]
+#[interface(name = "dev.nabaxo.janq")]
 impl QuakeDaemon {
   #[zbus(name = "Toggle")]
   async fn toggle(&self) {
@@ -122,11 +122,11 @@ impl StatusNotifierItem {
   }
   #[zbus(property)]
   fn id(&self) -> String {
-    "ruake".to_string()
+    "janq".to_string()
   }
   #[zbus(property)]
   fn title(&self) -> String {
-    "Ruake".to_string()
+    "janq".to_string()
   }
   #[zbus(property)]
   fn status(&self) -> String {
@@ -134,7 +134,7 @@ impl StatusNotifierItem {
   }
   #[zbus(property)]
   fn icon_name(&self) -> String {
-    "ruake".to_string()
+    "janq".to_string()
   }
   #[zbus(property)]
   fn icon_pixmap(&self) -> IconPixmap {
@@ -152,18 +152,18 @@ pub async fn run_daemon(
   target_app: Option<String>,
 ) -> anyhow::Result<()> {
   // 0. Acquire Lock File
-  let lock_path = std::env::temp_dir().join("ruake.lock");
+  let lock_path = std::env::temp_dir().join("janq.lock");
   let lock_file = std::fs::File::create(&lock_path)?;
   if lock_file.try_lock_exclusive().is_err() {
-    return Err(anyhow::anyhow!("Ruake is already running (lock file active)."));
+    return Err(anyhow::anyhow!("janq is already running (lock file active)."));
   }
 
-  println!("Starting Ruake daemon...");
+  println!("Starting janq daemon...");
   let config = Arc::new(RwLock::new(Arc::new(initial_config)));
   let conn = Connection::session().await?;
 
   let pid = std::process::id();
-  let sni_name = format!("org.kde.StatusNotifierItem-ruake-{}", pid);
+  let sni_name = format!("org.kde.StatusNotifierItem-janq-{}", pid);
   conn.request_name(sni_name.clone()).await?;
 
   // Empty pixmap forces KDE to use icon_name (SVG from icon theme)
@@ -176,10 +176,10 @@ pub async fn run_daemon(
   };
   conn.object_server().at("/StatusNotifierItem", sni).await?;
 
-  let activatable_bus = "dev.nabaxo.ruake";
-  let activatable_path = "/dev/nabaxo/ruake";
-  let xdg_path = "/org/freedesktop/Application/dev/nabaxo/ruake";
-  let daemon_path = "/dev/nabaxo/ruake/daemon";
+  let activatable_bus = "dev.nabaxo.janq";
+  let activatable_path = "/dev/nabaxo/janq";
+  let xdg_path = "/org/freedesktop/Application/dev/nabaxo/janq";
+  let daemon_path = "/dev/nabaxo/janq/daemon";
 
   let app_instance = QuakeApplication {
     config: config.clone(),
@@ -196,7 +196,7 @@ pub async fn run_daemon(
   }
 
   conn.request_name(activatable_bus).await?;
-  let _ = conn.request_name("dev.nabaxo.ruake.desktop").await;
+  let _ = conn.request_name("dev.nabaxo.janq.desktop").await;
 
   let watcher_proxy = zbus::Proxy::new(
     &conn,
@@ -247,12 +247,12 @@ pub async fn run_daemon(
       let app_to_show = target_app.as_ref();
       if let Some(app_name) = app_to_show {
         if let Some(_app_cfg) = cfg.app.get(app_name) {
-          println!("Ruake: Auto-showing requested app: {}", app_name);
+          println!("janq: Auto-showing requested app: {}", app_name);
           sleep(Duration::from_millis(500)).await;
           let _ = toggle_quake(app_name, &cfg, &conn).await;
         }
       } else if let Some(first_app) = cfg.app.keys().next() {
-        println!("Ruake: Auto-showing first app: {}", first_app);
+        println!("janq: Auto-showing first app: {}", first_app);
         sleep(Duration::from_millis(500)).await;
         let _ = toggle_quake(first_app, &cfg, &conn).await;
       }
@@ -436,9 +436,9 @@ pub async fn send_toggle(app_name: Option<String>) -> anyhow::Result<()> {
   let conn = Connection::session().await?;
   let proxy = zbus::Proxy::new(
     &conn,
-    "dev.nabaxo.ruake.desktop",
-    "/dev/nabaxo/ruake/daemon",
-    "dev.nabaxo.ruake",
+    "dev.nabaxo.janq.desktop",
+    "/dev/nabaxo/janq/daemon",
+    "dev.nabaxo.janq",
   )
   .await?;
   if let Some(name) = app_name {

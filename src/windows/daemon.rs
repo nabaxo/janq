@@ -17,7 +17,7 @@ use tray_icon::{
 use winit::event::Event;
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
-const PIPE_NAME: &str = r"\\.\pipe\ruake";
+const PIPE_NAME: &str = r"\\.\pipe\janq";
 
 #[derive(Debug)]
 enum DaemonEvent {
@@ -44,10 +44,10 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
   let _guard = rt.enter(); // Keep runtime context active for this thread
 
   // 0. Acquire Lock File
-  let lock_path = std::env::temp_dir().join("ruake.lock");
+  let lock_path = std::env::temp_dir().join("janq.lock");
   let lock_file = std::fs::File::create(&lock_path)?;
   if lock_file.try_lock_exclusive().is_err() {
-    return Err(anyhow::anyhow!("Ruake is already running (lock file active)."));
+    return Err(anyhow::anyhow!("janq is already running (lock file active)."));
   }
 
   // Enable DPI Awareness (Per Monitor V2) to ensure correct coordinates
@@ -121,7 +121,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
         let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
       }
     } else if let Some(home) = dirs::home_dir() {
-      let paths = vec![home.join(".ruake.toml"), home.join(".goake.toml")];
+      let paths = vec![home.join(".janq.toml")];
       for p in paths {
         if p.exists() {
           let _ = watcher.watch(&p, RecursiveMode::NonRecursive);
@@ -267,7 +267,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
         let icon = load_icon();
         match TrayIconBuilder::new()
           .with_menu(Box::new(tray_menu))
-          .with_tooltip("Ruake")
+          .with_tooltip("janq")
           .with_icon(icon)
           .build()
         {

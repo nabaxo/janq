@@ -1,10 +1,11 @@
 #!/bin/bash
 set -e
 
-echo "=== STARTING ULTIMATE RUAKE CLEANUP ==="
+echo "=== STARTING ULTIMATE janq/RUAKE CLEANUP ==="
 
-# 1. Kill Ruake
-echo "[1/5] Killing Ruake daemon..."
+# 1. Kill janq/Ruake
+echo "[1/5] Killing janq/Ruake daemon..."
+pkill -9 janq || true
 pkill -9 ruake || true
 sleep 1
 
@@ -16,6 +17,9 @@ cp ~/.config/kglobalshortcutsrc ~/.config/kglobalshortcutsrc.cleanup_backup_$(da
 echo "[3/5] Unregistering via D-Bus..."
 # We iterate all potential component names we might have used
 COMPONENTS=(
+    "dev.nabaxo.janq.desktop"
+    "dev_nabaxo_janq_desktop"
+    "janq"
     "ruake-dev.nabaxo.ruake.desktop"
     "dev.nabaxo.ruake.desktop"
     "dev_nabaxo_ruake_desktop"
@@ -31,6 +35,8 @@ kquitapp6 kglobalaccel || pkill -f kglobalaccel || true
 
 # 3.2 Remove Desktop and Service files
 echo "[3.2/5] Removing Desktop and Service files..."
+rm -f ~/.local/share/applications/dev.nabaxo.janq.desktop
+rm -f ~/.local/share/dbus-1/services/dev.nabaxo.janq.service
 rm -f ~/.local/share/applications/dev.nabaxo.ruake.desktop
 rm -f ~/.local/share/applications/ruake-dev.nabaxo.ruake.desktop
 rm -f ~/.local/share/applications/dev.nabaxo.goake.desktop
@@ -49,7 +55,7 @@ for comp in "${COMPONENTS[@]}"; do
         # Try listing with simple grep
         qdbus --literal org.kde.kglobalaccel /kglobalaccel allActionsForComponent "$comp" | \
         grep -o '"[^"]*"' | \
-        grep -v "Toggle" | grep -v "Ruake" | grep -v "Goake" | \
+        grep -v "Toggle" | grep -v "janq" | grep -v "Ruake" | grep -v "Goake" | \
         cut -d'"' -f2 | \
         while read action; do
              if [[ -n "$action" ]]; then
@@ -68,10 +74,12 @@ done
 
 # 4. Config File Purge
 echo "[4/5] Scrubbing kglobalshortcutsrc..."
-# Remove lines containing 'ruake' (case insensitive)
+# Remove lines containing 'janq', 'ruake' or 'goake' (case insensitive)
+sed -i '/janq/Id' ~/.config/kglobalshortcutsrc
 sed -i '/ruake/Id' ~/.config/kglobalshortcutsrc
 sed -i '/goake/Id' ~/.config/kglobalshortcutsrc
-# Remove blocks for dev.nabaxo.ruake.desktop if they remain (empty headers)
+# Remove blocks for dev.nabaxo.janq.desktop and dev.nabaxo.ruake.desktop if they remain (empty headers)
+sed -i '/\[dev.nabaxo.janq.desktop\]/d' ~/.config/kglobalshortcutsrc
 sed -i '/\[ruake-dev.nabaxo.ruake.desktop\]/d' ~/.config/kglobalshortcutsrc
 sed -i '/\[dev.nabaxo.ruake.desktop\]/d' ~/.config/kglobalshortcutsrc
 sed -i '/\[dev.nabaxo.goake.desktop\]/d' ~/.config/kglobalshortcutsrc
@@ -82,11 +90,18 @@ for key in "wezquake" "kcalc" "zed" "vscode"; do
     sed -i "/^${key}=/d" ~/.config/kglobalshortcutsrc
 done
 # Check if successful
+if grep -qi "janq" ~/.config/kglobalshortcutsrc; then
+    echo "WARNING: Failed to fully scrub 'janq' from config file."
+    grep -i "janq" ~/.config/kglobalshortcutsrc
+else
+    echo "  Config file scrubbed (janq) successfully."
+fi
+
 if grep -qi "ruake" ~/.config/kglobalshortcutsrc; then
     echo "WARNING: Failed to fully scrub 'ruake' from config file."
     grep -i "ruake" ~/.config/kglobalshortcutsrc
 else
-    echo "  Config file scrubbed successfully."
+    echo "  Config file scrubbed (ruake) successfully."
 fi
 
 

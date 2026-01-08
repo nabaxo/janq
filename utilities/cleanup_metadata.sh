@@ -11,6 +11,7 @@ rm -rf ~/.local/share/Trash/info/* 2>/dev/null || true
 # 2. Clear DrKonqi Crash Reports
 echo "[2/3] Clearing DrKonqi crash reports..."
 # These reports are often indexed by KDE and can cause "zombie" registrations
+rm -rf ~/.cache/drkonqi/crashes/janq.* 2>/dev/null || true
 rm -rf ~/.cache/drkonqi/crashes/ruake.* 2>/dev/null || true
 rm -rf ~/.cache/drkonqi/crashes/goake.* 2>/dev/null || true
 rm -rf ~/.cache/drkonqi/crashes/dev.nabaxo.* 2>/dev/null || true
