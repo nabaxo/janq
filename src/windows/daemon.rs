@@ -178,11 +178,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
                   crate::windows::window::restore_app_window(name, &app_cfg.window_class);
                 }
               }
-
-              {
-                let mut cache = crate::windows::window::get_hwnd_cache().write().unwrap();
-                cache.clear();
-              }
+              // NOTE: Don't clear HWND cache here - let the respawn loop handle cache
+              // invalidation naturally via IsWindow() checks. Clearing causes races.
             }
             let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
           }

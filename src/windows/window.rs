@@ -454,6 +454,7 @@ fn run_animation_task_sync(
           target_h,
           SWP_NOACTIVATE | SWP_NOZORDER,
         );
+        t_curr_alpha = 0; // Reset alpha to match what we just set
         hidden_y
       } else {
         t_curr_y
@@ -563,7 +564,10 @@ fn run_animation_task_sync(
           let opacity_ease = ((ease_val - op_point) / if denom <= 0.0 { 0.0001 } else { denom }).clamp(0.0, 1.0);
 
           let target_alpha_val = if should_show { 255.0 } else { 0.0 };
-          let t_alpha = (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * opacity_ease) as u8;
+          let t_alpha = {
+            let computed = (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * opacity_ease) as u8;
+            if should_show { computed.max(last_alpha) } else { computed.min(last_alpha) }
+          };
 
           if t_alpha != last_alpha {
             let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
@@ -575,7 +579,10 @@ fn run_animation_task_sync(
             let s_opacity_ease = ((ease_val - config.animation.hide_opacity_point)
               / if s_denom <= 0.0 { 0.0001 } else { s_denom })
             .clamp(0.0, 1.0);
-            let s_target_alpha = (*sa as f64 * (1.0 - s_opacity_ease)) as u8;
+            let s_target_alpha = {
+              let computed = (*sa as f64 * (1.0 - s_opacity_ease)) as u8;
+              computed.min(last_sibling_alphas[i])
+            };
             if s_target_alpha != last_sibling_alphas[i] {
               let _ = SetLayeredWindowAttributes(h.inner(), COLORREF(0), s_target_alpha, LWA_ALPHA);
               last_sibling_alphas[i] = s_target_alpha;
