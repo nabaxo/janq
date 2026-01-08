@@ -121,7 +121,7 @@ hotkey = "Meta+Z"
 | | `show_easing` | `"ease"` | Easing curve for showing | ✗ no |
 | | `hide_easing` | `"ease"` | Easing curve for hiding | ✗ no |
 | | `animate_opacity` | `false` | Fade opacity during animations | ✓ yes |
-| | `show_opacity_point` | `0.2` | Animation progress (0-1) when fade-in starts | ✗ no |
+| | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
 
 ### Easing Modes

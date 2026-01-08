@@ -560,13 +560,20 @@ fn run_animation_task_sync(
 
         let mut needs_pos_update = false;
         if animate_opacity {
-          let denom = 1.0 - op_point;
-          let opacity_ease = ((ease_val - op_point) / if denom <= 0.0 { 0.0001 } else { denom }).clamp(0.0, 1.0);
-
           let target_alpha_val = if should_show { 255.0 } else { 0.0 };
           let t_alpha = {
+            let opacity_ease = if should_show {
+              (ease_val / op_point).clamp(0.0, 1.0)
+            } else {
+              let denom = 1.0 - op_point;
+              ((ease_val - op_point) / if denom <= 0.0 { 0.0001 } else { denom }).clamp(0.0, 1.0)
+            };
             let computed = (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * opacity_ease) as u8;
-            if should_show { computed.max(last_alpha) } else { computed.min(last_alpha) }
+            if should_show {
+              computed.max(last_alpha)
+            } else {
+              computed.min(last_alpha)
+            }
           };
 
           if t_alpha != last_alpha {

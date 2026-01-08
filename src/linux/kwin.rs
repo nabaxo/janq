@@ -317,8 +317,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
                 var currentY = startY + diff * ease;
                 if (animateOpacity) {
-                    var denom = 1.0 - showOpacityPoint;
-                    var opacityEase = Math.min(1.0, Math.max(0, (ease - showOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+                    var opacityEase = Math.min(1.0, Math.max(0, ease / (showOpacityPoint <= 0 ? 0.0001 : showOpacityPoint)));
                     target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * opacityEase);
                 } else {
                     target.opacity = 1.0;
