@@ -2,7 +2,7 @@ use crate::config::{load_config, Config};
 use crate::linux::kwin::{grab_apps, reset_visibility, restore_quake, toggle_quake};
 use crate::terminal::ensure_terminal_running;
 use fs2::FileExt;
-use image::GenericImageView;
+
 use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::{Arc, RwLock};
 use tokio::signal;
@@ -166,26 +166,8 @@ pub async fn run_daemon(
   let sni_name = format!("org.kde.StatusNotifierItem-ruake-{}", pid);
   conn.request_name(sni_name.clone()).await?;
 
-  // Precompute icon
-  let icon_cache = if let Ok(img) = image::load_from_memory(include_bytes!("../../icon.png")) {
-    let mut pixmaps = Vec::with_capacity(3);
-    for size in [64, 32, 22] {
-      let resized = img.resize(size, size, image::imageops::FilterType::Triangle);
-      let (w, h) = resized.dimensions();
-      let data = resized.to_rgba8().into_raw();
-      let mut pixels = Vec::with_capacity(data.len());
-      for chunk in data.chunks(4) {
-        pixels.push(chunk[3]);
-        pixels.push(chunk[0]);
-        pixels.push(chunk[1]);
-        pixels.push(chunk[2]);
-      }
-      pixmaps.push((w as i32, h as i32, pixels));
-    }
-    pixmaps
-  } else {
-    vec![]
-  };
+  // Empty pixmap forces KDE to use icon_name (SVG from icon theme)
+  let icon_cache: IconPixmap = vec![];
 
   let sni = StatusNotifierItem {
     config: config.clone(),

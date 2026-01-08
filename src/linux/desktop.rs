@@ -145,16 +145,16 @@ fn run_kbuildsycoca6() {
 }
 
 fn install_icon() -> Result<()> {
-  let icon_data = include_bytes!("../../icon.png");
+  let icon_data = include_bytes!("../../icon.svg");
   let icon_dir = dirs::data_local_dir()
     .context("Failed to get local data dir")?
     .join("icons")
     .join("hicolor")
-    .join("512x512")
+    .join("scalable")
     .join("apps");
 
   fs::create_dir_all(&icon_dir)?;
-  let icon_path = icon_dir.join("ruake.png");
+  let icon_path = icon_dir.join("ruake.svg");
   if !icon_path.exists() {
     fs::write(&icon_path, icon_data)?;
   }
