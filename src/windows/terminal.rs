@@ -130,6 +130,5 @@ pub async fn ensure_terminal_running(app_name: &str, app_cfg: &AppConfig, config
       break;
     }
   }
-
   found
 }

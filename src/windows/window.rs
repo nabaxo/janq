@@ -70,9 +70,9 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
   let matches_class = class_name.contains(&target_struct.name);
   let matches_title = title.contains(&target_struct.name);
 
-  // Lazy path: only open process if class/title didn't match and target looks like exe
+  // Lazy path: only open process if class/title didn't match
   let mut proc_name = String::new();
-  if !matches_class && !matches_title && target_struct.name.ends_with(".exe") {
+  if !matches_class && !matches_title {
     if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
       let mut buffer = [0u16; 1024];
       let len = GetModuleBaseNameW(process, None, &mut buffer);
