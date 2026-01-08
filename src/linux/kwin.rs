@@ -112,7 +112,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 (function(
     windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
     duration, easingType, shouldShow, keepAbove, animateOpacity,
-    opacityPoint, prevWindowId, targetWindowId, targetPid, ruakeClasses,
+    showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, ruakeClasses,
     forcePriority
 ) {
     {{COMMON_KWIN_JS}}
@@ -317,8 +317,8 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
                 var currentY = startY + diff * ease;
                 if (animateOpacity) {
-                    var denom = 1.0 - opacityPoint;
-                    var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+                    var denom = 1.0 - showOpacityPoint;
+                    var opacityEase = Math.min(1.0, Math.max(0, (ease - showOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
                     target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * opacityEase);
                 } else {
                     target.opacity = 1.0;
@@ -330,8 +330,8 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                     var sibY = data.startY + (data.endY - data.startY) * ease;
                     data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
                     if (animateOpacity) {
-                        var denom = 1.0 - opacityPoint;
-                        var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+                        var denom = 1.0 - hideOpacityPoint;
+                        var opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
                         data.client.opacity = Math.max(0, data.startOpacity * (1.0 - opacityEase));
                     }
                 }
@@ -396,8 +396,8 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
             var currentY = startY + diff * ease;
 
             if (animateOpacity) {
-               var denom = 1.0 - opacityPoint;
-               var opacityEase = Math.min(1.0, Math.max(0, (ease - opacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+               var denom = 1.0 - hideOpacityPoint;
+               var opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
                target.opacity = Math.min(target.opacity, startOpacity * (1.0 - opacityEase));
             }
 
@@ -654,15 +654,12 @@ async fn run_toggle_script(
   } else {
     &config.animation.hide_easing
   };
-  let opacity_point = if params.visible {
-    config.animation.show_opacity_point
-  } else {
-    config.animation.hide_opacity_point
-  };
+  let show_opacity_point = config.animation.show_opacity_point;
+  let hide_opacity_point = config.animation.hide_opacity_point;
 
   let script_body = TOGGLE_SCRIPT_TEMPLATE.replace("{{COMMON_KWIN_JS}}", COMMON_KWIN_JS);
   let script_content = format!(
-    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, \"{}\", \"{}\", {}, \"{}\", {}\n);",
+    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}\n);",
     script_body,
     app_cfg.window_class,
     config.window.display_mode,
@@ -676,7 +673,8 @@ async fn run_toggle_script(
     params.visible,
     config.window.keep_above,
     animate_opacity,
-    opacity_point,
+    show_opacity_point,
+    hide_opacity_point,
     params.prev_id,
     params.target_id,
     params.target_pid,
