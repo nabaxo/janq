@@ -38,6 +38,12 @@ auto_show = false
 width = "80%"
 height = "50%"
 
+# Stay on top of other windows.
+keep_above = true
+
+# (Linux only) Use KWin Fullscreen state to sit on top of other fullscreen apps.
+force_priority = false
+
 # --- Animation Settings ---
 [animation]
 show_duration = 400
@@ -45,3 +51,9 @@ hide_duration = 300
 show_easing = "back"
 hide_easing = "windows"
 animate_opacity = true
+
+# Opacity points (0.0 - 1.0)
+# show_opacity_point: point by which the window becomes fully opaque
+# hide_opacity_point: point when fade-out starts
+show_opacity_point = 0.2
+hide_opacity_point = 0.8

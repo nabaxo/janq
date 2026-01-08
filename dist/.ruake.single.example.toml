@@ -45,6 +45,9 @@ height = "50%"
 keep_above = true
 auto_show = false
 
+# (Linux only) Use KWin Fullscreen state to sit on top of other fullscreen apps.
+force_priority = false
+
 # --- Animation Settings ---
 [animation]
 # Durations in milliseconds

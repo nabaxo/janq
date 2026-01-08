@@ -14,6 +14,7 @@
 - **Atomic Switching (Cross-Platform)**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows.
 - **Zero-Config Hotkeys (Cross-Platform)**: Ruake automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
+- **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu. The topmost application is the one that toggles when left-clicking the systray icon.
 - **Robust Identification (Cross-Platform)**: Advanced scoring system (Visibility > Class > Title > Size) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
 - **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves)
 - **Focus Restoration**: Remembers your previous window and restores focus instantly.
