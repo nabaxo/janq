@@ -79,13 +79,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
           let app_name = if msg.starts_with("toggle:") {
             msg.strip_prefix("toggle:").unwrap().trim().to_string()
           } else {
-            // Default to first app from config order
-            cfg.app_order.first().cloned().unwrap_or_else(|| {
-              // Fallback to alphabetical if empty (shouldn't happen if apps exist)
-              let mut apps: Vec<_> = cfg.app.keys().collect();
-              apps.sort();
-              apps.first().cloned().map(|s| s.to_string()).unwrap_or_default()
-            })
+            cfg.app.keys().next().cloned().unwrap_or_default()
           };
 
           let target_app = if cfg.app.len() == 1 {
@@ -256,12 +250,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
         let tray_menu = Menu::new();
         {
           let cfg = config_clone_loop.read().unwrap();
-          let mut keys = cfg.app_order.clone();
-          for k in cfg.app.keys() {
-            if !keys.contains(k) {
-              keys.push(k.clone());
-            }
-          }
+          let keys = cfg.app.keys().cloned().collect::<Vec<_>>();
 
           for name in keys {
             if !cfg.app.contains_key(&name) {
@@ -323,7 +312,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
                     toggle_window(&app_name, &cfg).await;
                   });
                 }
-              } else if let Some(first_app) = cfg.app_order.first() {
+              } else if let Some(first_app) = cfg.app.keys().next() {
                 let cfg = (*cfg).clone();
                 let app_name = first_app.clone();
                 rt_clone.spawn(async move {
@@ -356,12 +345,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
             // 2. Refresh Tray Menu
             let tray_menu = Menu::new();
             app_menu_items.clear();
-            let mut keys = cfg.app_order.clone();
-            for k in cfg.app.keys() {
-              if !keys.contains(k) {
-                keys.push(k.clone());
-              }
-            }
+            let keys = cfg.app.keys().cloned().collect::<Vec<_>>();
 
             for name in keys {
               if !cfg.app.contains_key(&name) {
@@ -413,12 +397,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
                   if button_state == MouseButtonState::Up {
                     if button == MouseButton::Left {
                       let cfg = config_clone_loop.read().unwrap().clone();
-                      // PRIORITIZE app_order for left click
-                      let app_to_toggle = cfg.app_order.first().cloned().or_else(|| {
-                        let mut apps: Vec<_> = cfg.app.keys().cloned().collect();
-                        apps.sort();
-                        apps.first().cloned()
-                      });
+                      let app_to_toggle = cfg.app.keys().next().cloned();
 
                       if let Some(app_name) = app_to_toggle {
                         if let Some(app_cfg) = cfg.app.get(&app_name) {

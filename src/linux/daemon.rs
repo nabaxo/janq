@@ -100,7 +100,7 @@ impl StatusNotifierItem {
     let config = { self.config.read().unwrap().clone() };
     let conn = self.conn.clone();
     tokio::spawn(async move {
-      let app_name = config.app_order.first();
+      let app_name = config.app.keys().next();
       if let Some(name) = app_name {
         let _ = toggle_quake(name, &config, &conn).await;
       }
@@ -239,11 +239,9 @@ pub async fn run_daemon(
   // Initial setup (Parallel)
   {
     let cfg = config.read().unwrap().clone();
-    let app_order = cfg.app_order.clone();
     let mut terminal_tasks = Vec::new();
     let mut apps_for_grabbing = Vec::new();
-
-    for name in &app_order {
+    for name in cfg.app.keys() {
       if let Some(app_cfg) = cfg.app.get(name) {
         let app_cfg_owned = app_cfg.clone();
         let app_cfg_for_spawn = app_cfg_owned.clone();
@@ -271,7 +269,7 @@ pub async fn run_daemon(
           sleep(Duration::from_millis(500)).await;
           let _ = toggle_quake(app_name, &cfg, &conn).await;
         }
-      } else if let Some(first_app) = cfg.app_order.first() {
+      } else if let Some(first_app) = cfg.app.keys().next() {
         println!("Ruake: Auto-showing first app: {}", first_app);
         sleep(Duration::from_millis(500)).await;
         let _ = toggle_quake(first_app, &cfg, &conn).await;
@@ -404,7 +402,7 @@ pub async fn run_daemon(
               // 4. Check if hotkeys changed
               let mut hotkeys_changed = false;
               if old_config.app.len() != new_config_in_async.app.len()
-                || old_config.app_order != new_config_in_async.app_order
+                || old_config.app.keys().ne(new_config_in_async.app.keys())
               {
                 hotkeys_changed = true;
               } else {

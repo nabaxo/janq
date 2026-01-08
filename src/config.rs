@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -36,13 +37,11 @@ impl<'de> serde::Deserialize<'de> for Dimension {
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct Config {
   #[serde(default, alias = "apps", alias = "general", deserialize_with = "deserialize_app")]
-  pub app: HashMap<String, AppConfig>,
+  pub app: IndexMap<String, AppConfig>,
   #[serde(default)]
   pub window: WindowConfig,
   #[serde(default)]
   pub animation: AnimationConfig,
-  #[serde(skip)]
-  pub app_order: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -225,61 +224,8 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
       match fs::read_to_string(&path) {
         Ok(content) => {
           match toml::from_str::<Config>(&content) {
-            Ok(mut c) => {
+            Ok(c) => {
               println!("Loaded config from: {:?}", path);
-
-              // Heuristic to preserve order: Scan lines for [app.NAME], [apps.NAME] or [general.NAME]
-              let mut order = Vec::with_capacity(c.app.len());
-              for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() || trimmed.starts_with('#') {
-                  continue;
-                }
-
-                let name = if trimmed == "[app]" || trimmed == "[apps]" || trimmed == "[general]" {
-                  if c.app.contains_key("default") {
-                    Some("default")
-                  } else {
-                    // Find first app not explicitly named in a subtable
-                    c.app
-                      .keys()
-                      .find(|&k| {
-                        !content.contains(&format!("[app.{}", k))
-                          && !content.contains(&format!("[apps.{}", k))
-                          && !content.contains(&format!("[general.{}", k))
-                      })
-                      .map(|s| s.as_str())
-                  }
-                } else if trimmed.ends_with(']') {
-                  let content = trimmed.trim_start_matches('[').trim_end_matches(']');
-                  if let Some(rest) = content.strip_prefix("app.") {
-                    Some(rest)
-                  } else if let Some(rest) = content.strip_prefix("apps.") {
-                    Some(rest)
-                  } else {
-                    content.strip_prefix("general.")
-                  }
-                } else {
-                  None
-                };
-
-                if let Some(name) = name {
-                  let name_s = name.to_string();
-                  if c.app.contains_key(&name_s) && !order.contains(&name_s) {
-                    order.push(name_s);
-                  }
-                }
-              }
-
-              // If we found ordered keys, use them.
-              // Any keys in c.app not found in scan (e.g. inline definitions) should be appended.
-              if order.len() < c.app.len() {
-                let mut remaining: Vec<_> = c.app.keys().filter(|k| !order.contains(k)).cloned().collect();
-                remaining.sort();
-                order.extend(remaining);
-              }
-
-              c.app_order = order;
 
               // Duplicate hotkey check
               let mut seen_hotkeys = HashMap::new();
@@ -325,14 +271,14 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
 use serde::de::{self, Deserializer, Visitor};
 use std::fmt;
 
-fn deserialize_app<'de, D>(deserializer: D) -> Result<HashMap<String, AppConfig>, D::Error>
+fn deserialize_app<'de, D>(deserializer: D) -> Result<IndexMap<String, AppConfig>, D::Error>
 where
   D: Deserializer<'de>,
 {
   struct AppVisitor;
 
   impl<'de> Visitor<'de> for AppVisitor {
-    type Value = HashMap<String, AppConfig>;
+    type Value = IndexMap<String, AppConfig>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
       formatter.write_str("a map of apps or a single app configuration")
@@ -348,10 +294,10 @@ where
       // A simple trick: try to deserialize as HashMap<String, AppConfig>.
       // If it has keys like "window_class", it will fail if AppConfig doesn't match a map value.
 
-      let raw_map = HashMap::<String, serde_json::Value>::deserialize(MapAccessDeserializer::new(map))?;
+      let raw_map = IndexMap::<String, serde_json::Value>::deserialize(MapAccessDeserializer::new(map))?;
 
       if raw_map.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(IndexMap::new());
       }
 
       // Heuristic: Check if the map contains sub-tables (Objects), which implies a multi-app config.
@@ -363,7 +309,7 @@ where
           return Err(de::Error::custom("Config section '[app]' contains both app definitions (sub-tables like [app.myapp]) and direct keys (window_class). Choose one style."));
         }
         // Treat as a map of apps
-        let mut result = HashMap::new();
+        let mut result = IndexMap::new();
         for (name, value) in raw_map {
           if value.is_object() {
             let config = AppConfig::deserialize(value).map_err(de::Error::custom)?;
@@ -374,7 +320,7 @@ where
       } else if has_flat_keys {
         let config = AppConfig::deserialize(serde_json::Value::Object(raw_map.into_iter().collect()))
           .map_err(de::Error::custom)?;
-        let mut result = HashMap::new();
+        let mut result = IndexMap::new();
 
         // Require window_class for single-app mode
         if config.window_class.is_empty() {
@@ -386,7 +332,7 @@ where
         Ok(result)
       } else {
         // Empty or unknown structure, default to empty map
-        Ok(HashMap::new())
+        Ok(IndexMap::new())
       }
     }
 
@@ -394,7 +340,7 @@ where
     where
       A: de::SeqAccess<'de>,
     {
-      let mut result = HashMap::new();
+      let mut result = IndexMap::new();
       let mut i = 1;
       while let Some(value) = seq.next_element::<serde_json::Value>()? {
         let config = AppConfig::deserialize(value).map_err(de::Error::custom)?;

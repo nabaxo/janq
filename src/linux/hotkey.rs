@@ -198,7 +198,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
 
   // Detection A: Configuration Change (Compared to memory)
   if let Some(old) = old_config {
-    if old.app.len() != config.app.len() || old.app_order != config.app_order {
+    if old.app.len() != config.app.len() || old.app.keys().ne(config.app.keys()) {
       needs_refresh = true;
     } else {
       for (name, app_cfg) in &config.app {
@@ -230,7 +230,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
       }
 
       // Refresh if we are missing any apps or have extras we shouldn't
-      for app_name in &config.app_order {
+      for app_name in config.app.keys() {
         if !found_actions.contains(app_name) {
           needs_refresh = true;
           break;
@@ -279,7 +279,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
   tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
 
   // Register all apps and set shortcuts
-  for app_name in &config.app_order {
+  for app_name in config.app.keys() {
     if let Some(app_cfg) = config.app.get(app_name) {
       let hotkeys = app_cfg.hotkey.as_vec();
       if hotkeys.is_empty() {

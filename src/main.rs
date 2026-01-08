@@ -53,14 +53,8 @@ fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Opt
       }
     }
     None => {
-      // Deterministic fallback: Use the first one from app_order if available, otherwise first alphabetically
-      if !config.app_order.is_empty() {
-        return Ok(Some(&config.app_order[0]));
-      }
-      // Only sort when needed
-      let mut available: Vec<&str> = app.keys().map(|s| s.as_str()).collect();
-      available.sort_unstable();
-      Ok(available.first().copied())
+      // Deterministic fallback: Use the first one defined in the config (IndexMap preserves order)
+      Ok(app.keys().next().map(|s| s.as_str()))
     }
   }
 }
