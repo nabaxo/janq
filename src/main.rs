@@ -16,7 +16,7 @@ mod windows;
 #[command(version, about, long_about = None)]
 struct Args {
   /// Force run in daemon mode
-  #[arg(long, default_value_t = false)]
+  #[arg(long, default_value_t = false, alias = "demon")]
   daemon: bool,
 
   /// Name of the app to toggle (from config)
