@@ -536,9 +536,20 @@ fn run_animation_task_sync(
         );
       }
     };
-    prep_layer(target_hwnd.inner());
+    if !should_show {
+      // During hide, only prep if NOT already layered to minimize noise
+      let ex = GetWindowLongW(target_hwnd.inner(), GWL_EXSTYLE);
+      if (ex & WS_EX_LAYERED.0 as i32) == 0 {
+        prep_layer(target_hwnd.inner());
+      }
+    } else {
+      prep_layer(target_hwnd.inner());
+    }
     for (h, _, _, _, _, _, _) in &siblings_data {
-      prep_layer(h.inner());
+      let ex = GetWindowLongW(h.inner(), GWL_EXSTYLE);
+      if (ex & WS_EX_LAYERED.0 as i32) == 0 {
+        prep_layer(h.inner());
+      }
     }
 
     let start_time = Instant::now();
@@ -717,10 +728,12 @@ fn run_animation_task_sync(
         final_target_y,
         target_w,
         target_h,
-        SWP_SHOWWINDOW | SWP_NOACTIVATE,
+        SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOZORDER,
       );
     } else {
-      let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
+      if IsWindowVisible(target_hwnd.inner()).as_bool() {
+        let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
+      }
       if restore_focus {
         let prev = get_previous_focus().lock().unwrap();
         if let Some(h) = *prev {

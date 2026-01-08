@@ -271,14 +271,14 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     var finalX = area.x + (area.width - finalWidth) / 2;
     var finalY = area.y;
 
-    target.keepAbove = keepAbove;
-    target.onAllDesktops = true;
-    target.noBorder = true;
-    target.skipTaskbar = true;
-    target.skipPager = true;
-    if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
-
     if (shouldShow) {
+        target.keepAbove = keepAbove;
+        target.onAllDesktops = true;
+        target.noBorder = true;
+        target.skipTaskbar = true;
+        target.skipPager = true;
+        if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+
         if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
         else workspace.activeClient = target;
 
