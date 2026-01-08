@@ -46,7 +46,19 @@ make build-windows # Binary: ./dist/ruake.exe
 Ruake generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
 
 ### Windows
+
 Ruake handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
+
+#### Path Formatting (Windows)
+
+When configuring `start_command` for Windows apps with backslashes and spaces, **use single quotes (`'`)** to treat the string as a literal.
+
+```toml
+start_command = 'C:\Program Files\Terminal\wt.exe'
+```
+
+> [!TIP]
+> **Pro Tip:** If the application is in your system `PATH` (like `wt` for Windows Terminal), you can simply use the executable name: `start_command = "wt"`.
 
 ## Configuration
 
