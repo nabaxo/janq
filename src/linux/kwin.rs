@@ -69,6 +69,44 @@ struct ToggleParams<'a> {
   ruake_classes: &'a str,
 }
 
+const COMMON_KWIN_JS: &str = r#"
+    function normalizeId(id) {
+        if (!id) return "";
+        return id.toString().replace(/[{}]/g, "");
+    }
+
+    function findTarget(windowClass, targetWindowId, targetPid) {
+        var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+        var target = null;
+        var bestScore = -1;
+        var cleanTargetId = normalizeId(targetWindowId);
+        var safeTargetPid = targetPid || 0;
+        var lowerClass = (windowClass || "").toLowerCase();
+
+        for (var i = 0; i < clients.length; i++) {
+            var c = clients[i];
+            var score = 0;
+            var cClass = (c.resourceClass || "").toLowerCase();
+            var cName = (c.resourceName || "").toLowerCase();
+
+            if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) score += 1000;
+            if (safeTargetPid > 0 && c.pid == safeTargetPid) score += 500;
+            if (lowerClass && (cClass.indexOf(lowerClass) !== -1 || cName.indexOf(lowerClass) !== -1)) score += 100;
+            if (lowerClass && c.desktopFileName && c.desktopFileName.toLowerCase().indexOf(lowerClass) !== -1) score += 50;
+
+            if (score > 0) {
+                if (c.normalWindow) score += 2000;
+                if (c.caption && c.caption.length > 0) score += 10;
+                if (score > bestScore) {
+                    bestScore = score;
+                    target = c;
+                }
+            }
+        }
+        return target;
+    }
+"#;
+
 // Template bodies that take arguments in their IIFE
 const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 (function(
@@ -77,69 +115,43 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     opacityPoint, prevWindowId, targetWindowId, targetPid, ruakeClasses,
     forcePriority
 ) {
-    var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-    var target = null;
-    var bestScore = -1;
+    {{COMMON_KWIN_JS}}
+
+    var target = findTarget(windowClass, targetWindowId, targetPid);
+    if (!target) return;
+
     var siblingsToHide = [];
     var wasActive = false;
 
-    var safeTargetId = targetWindowId ? targetWindowId.toString() : "";
-    var safeTargetPid = targetPid || 0;
-    var rawClasses = (ruakeClasses || "").toLowerCase().split(",");
-    var allClasses = [];
-    for (var k = 0; k < rawClasses.length; k++) {
-        var trimmed = rawClasses[k].replace(/^\s+|\s+$/g, "");
-        if (trimmed) allClasses.push(trimmed);
-    }
-
-    function normalizeId(id) {
-        if (!id) return "";
-        return id.toString().replace(/[{}]/g, "");
-    }
-
-    var cleanTargetId = normalizeId(safeTargetId);
-
-
-    // 1. Identification
-    for (var i = 0; i < clients.length; i++) {
-        var c = clients[i];
-        var cClass = (c.resourceClass || "").toLowerCase();
-        var cName = (c.resourceName || "").toLowerCase();
-
-        // Match siblings for cross-sliding
-        var isRuake = false;
-        for (var j = 0; j < allClasses.length; j++) {
-            var siblingClass = allClasses[j];
-            if (cClass.indexOf(siblingClass) !== -1 || cName.indexOf(siblingClass) !== -1) {
-                isRuake = true;
-                break;
-            }
+    if (shouldShow) {
+        var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+        var rawClasses = (ruakeClasses || "").toLowerCase().split(",");
+        var allClasses = [];
+        for (var k = 0; k < rawClasses.length; k++) {
+            var trimmed = rawClasses[k].replace(/^\s+|\s+$/g, "");
+            if (trimmed) allClasses.push(trimmed);
         }
 
-        // Identify Target
-        var score = -1;
-        if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) {
-            score = 1000;
-        } else if (safeTargetPid > 0 && c.pid == safeTargetPid) {
-            score = 500;
-        } else if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) {
-            score = 100;
-        } else if (c.desktopFileName && c.desktopFileName.toLowerCase().indexOf(windowClass.toLowerCase()) !== -1) {
-            score = 50;
-        }
+        for (var i = 0; i < clients.length; i++) {
+            var c = clients[i];
+            if (c === target) continue;
+            var cClass = (c.resourceClass || "").toLowerCase();
+            var cName = (c.resourceName || "").toLowerCase();
 
-        if (score > 0) {
-            if (c.normalWindow) score += 2000;
-            if (c.caption && c.caption.length > 0) score += 10;
-            if (score > bestScore) {
-                bestScore = score;
-                target = c;
+            var isRuake = false;
+            for (var j = 0; j < allClasses.length; j++) {
+                var siblingClass = allClasses[j];
+                if (cClass.indexOf(siblingClass) !== -1 || cName.indexOf(siblingClass) !== -1) {
+                    isRuake = true;
+                    break;
+                }
             }
-        } else if (isRuake && shouldShow) {
-            // It's a sibling that should slide UP while target slides DOWN
-            var area = workspace.clientArea(KWin.PlacementArea, c);
-            if (c.opacity > 0 && c.frameGeometry.y + c.frameGeometry.height > area.y) {
-                siblingsToHide.push(c);
+
+            if (isRuake) {
+                var area = workspace.clientArea(KWin.PlacementArea, c);
+                if (c.opacity > 0 && c.frameGeometry.y + c.frameGeometry.height > area.y) {
+                    siblingsToHide.push(c);
+                }
             }
         }
     }
@@ -234,11 +246,13 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     var startY = target.frameGeometry.y;
     var startOpacity = target.opacity;
     var areaTop = area.y;
-    var isMostlyHidden = (startY + target.frameGeometry.height <= areaTop + 50) || (target.opacity < 0.1);
+    var offscreenY = areaTop - target.frameGeometry.height;
 
     // MONITOR AWARENESS: Check if we are on the wrong monitor horizontally
     var onWrongMonitor = (startX < area.x - 10) || (startX > area.x + area.width + 10);
-    var needsReposition = isMostlyHidden || (startY > areaTop + 50 || startY < areaTop - 50) || onWrongMonitor;
+    // Only reposition if we are on the wrong screen or far outside the sliding range.
+    // This allows smooth reversal if the window is already partially visible/animating.
+    var needsReposition = onWrongMonitor || (startY < offscreenY - 50) || (startY > areaTop + 50);
 
     var finalWidth = target.frameGeometry.width;
     var finalHeight = target.frameGeometry.height;
@@ -422,38 +436,13 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
 const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
 (function(apps) {
-    var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+    {{COMMON_KWIN_JS}}
 
-    function normalizeId(id) {
-        if (!id) return "";
-        return id.toString().replace(/[{}]/g, "");
-    }
+    var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
 
     for (var a = 0; a < apps.length; a++) {
         var app = apps[a];
-        var target = null;
-        var bestScore = -1;
-        var cleanTargetId = normalizeId(app.targetWindowId);
-
-        for (var i = 0; i < clients.length; i++) {
-            var c = clients[i];
-            var score = 0;
-            var cClass = (c.resourceClass || "").toLowerCase();
-            var cName = (c.resourceName || "").toLowerCase();
-
-            if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) score += 1000;
-            if (app.targetPid > 0 && c.pid == app.targetPid) score += 500;
-            if (cClass.indexOf(app.windowClass.toLowerCase()) !== -1 || cName.indexOf(app.windowClass.toLowerCase()) !== -1) score += 100;
-            if (c.desktopFileName && c.desktopFileName.toLowerCase().indexOf(app.windowClass.toLowerCase()) !== -1) score += 50;
-
-            if (score > 0) {
-                if (c.normalWindow) score += 2000;
-                if (score > bestScore) {
-                    bestScore = score;
-                    target = c;
-                }
-            }
-        }
+        var target = findTarget(app.windowClass, app.targetWindowId, app.targetPid);
 
         if (target) {
           console.log("Ruake: Grabbing window for " + app.windowClass + " (id: " + target.internalId + ", pid: " + target.pid + ")");
@@ -671,9 +660,10 @@ async fn run_toggle_script(
     config.animation.hide_opacity_point
   };
 
+  let script_body = TOGGLE_SCRIPT_TEMPLATE.replace("{{COMMON_KWIN_JS}}", COMMON_KWIN_JS);
   let script_content = format!(
     "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, \"{}\", \"{}\", {}, \"{}\", {}\n);",
-    TOGGLE_SCRIPT_TEMPLATE,
+    script_body,
     app_cfg.window_class,
     config.window.display_mode,
     config.window.display_index,
@@ -726,11 +716,8 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
         ));
   }
 
-  let script_content = format!(
-    "{}([\n  {}\n]);",
-    ENSURE_GRABBED_BATCH_TEMPLATE,
-    apps_json.join(",\n  ")
-  );
+  let script_body = ENSURE_GRABBED_BATCH_TEMPLATE.replace("{{COMMON_KWIN_JS}}", COMMON_KWIN_JS);
+  let script_content = format!("{}([\n  {}\n]);", script_body, apps_json.join(",\n  "));
 
   run_kwin_script(conn, "ruake_init_script", &script_content, Some(Duration::ZERO)).await
 }
