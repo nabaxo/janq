@@ -44,6 +44,33 @@ pub struct Config {
   pub animation: AnimationConfig,
 }
 
+impl Config {
+  pub fn validate(&self) -> Result<(), String> {
+    let mut seen_hotkeys = HashMap::new();
+    for (app_name, app_cfg) in &self.app {
+      for key in app_cfg.hotkey.as_vec() {
+        if !key.is_empty() {
+          let lower_key = key.to_lowercase();
+          if let Some(other_app) = seen_hotkeys.insert(lower_key.clone(), app_name.clone()) {
+            return Err(format!(
+              "Duplicate hotkey '{}' found in app '{}' and '{}'",
+              key, other_app, app_name
+            ));
+          }
+        }
+      }
+    }
+
+    if self.app.is_empty() {
+      return Err(
+        "No app configured. Add at least one [app] or [app.name] section to your config.".to_string(),
+      );
+    }
+
+    Ok(())
+  }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum HotkeyConfig {
@@ -226,28 +253,7 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
           match toml::from_str::<Config>(&content) {
             Ok(c) => {
               println!("Loaded config from: {:?}", path);
-
-              // Duplicate hotkey check
-              let mut seen_hotkeys = HashMap::new();
-              for (app_name, app_cfg) in &c.app {
-                for key in app_cfg.hotkey.as_vec() {
-                  if !key.is_empty() {
-                    if let Some(other_app) = seen_hotkeys.insert(key.clone(), app_name.clone()) {
-                      return Err(format!(
-                        "Duplicate hotkey '{}' found in app '{}' and '{}'",
-                        key, other_app, app_name
-                      ));
-                    }
-                  }
-                }
-              }
-
-              if c.app.is_empty() {
-                return Err(
-                  "No app configured. Add at least one [app] or [app.name] section to your config.".to_string(),
-                );
-              }
-
+              c.validate()?;
               return Ok((c, Some(path)));
             }
             Err(e) => {
