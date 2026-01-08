@@ -1,6 +1,6 @@
 # Ruake - Quake-Style Terminal Manager
 
-## Ruake is 100%, unadultareted vibe coded. User discretion is advised.
+## Ruake is 100%, unadultareted vibe coded slop. User discretion is advised.
 
 **Ruake** is a lightweight, high-performance Quake-style terminal wrapper. It manages your favorite terminal emulator (WezTerm, Alacritty, Kitty, Zed, etc.), allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
