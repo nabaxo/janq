@@ -407,6 +407,10 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
                           });
                         }
                       }
+                    } else if button == MouseButton::Middle {
+                      let cfg = config_clone_loop.read().unwrap().clone();
+                      crate::windows::window::restore_window_visibility(&cfg);
+                      std::process::exit(0);
                     }
                   }
                 }
