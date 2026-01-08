@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub enum Dimension {
   Percent(f64),
   Pixels(i32),
+  Unset,
 }
 
 impl<'de> serde::Deserialize<'de> for Dimension {
@@ -24,7 +25,7 @@ impl<'de> serde::Deserialize<'de> for Dimension {
       let val = rest.trim().parse::<i32>().map_err(serde::de::Error::custom)?;
       Ok(Dimension::Pixels(val))
     } else if s == "0" || s == "unset" {
-      Ok(Dimension::Pixels(0))
+      Ok(Dimension::Unset)
     } else {
       Err(serde::de::Error::custom(format!(
         "Invalid dimension format: '{}'. Must end with '%' or 'px'.",
@@ -133,12 +134,12 @@ impl AppConfig {
     let rw = match w {
       Some(Dimension::Percent(p)) => (*p, true),
       Some(Dimension::Pixels(px)) => (*px as f64, false),
-      None => (0.0, false),
+      Some(Dimension::Unset) | None => (0.0, false),
     };
     let rh = match h {
       Some(Dimension::Percent(p)) => (*p, true),
       Some(Dimension::Pixels(px)) => (*px as f64, false),
-      None => (0.0, false),
+      Some(Dimension::Unset) | None => (0.0, false),
     };
     (rw, rh)
   }
@@ -381,16 +382,17 @@ mod tests {
       ..Default::default()
     };
 
-    let (w, h) = app.resolve_dimensions(&global);
+    let ((w, _), (h, _)) = app.resolve_dimensions(&global);
     assert_eq!(w, 800.0);
     assert_eq!(h, 600.0);
 
     let app2 = AppConfig {
-      width: Some(Dimension::Pixels(0)),
+      width: Some(Dimension::Unset), // "0" or "unset" means skip resizing
       ..Default::default()
     };
-    let (w2, h2) = app2.resolve_dimensions(&global);
-    assert_eq!(w2, 0.0); // Explicit 0 should override global
-    assert_eq!(h2, 600.0);
+    let ((w2, w2_is_pct), (h2, _)) = app2.resolve_dimensions(&global);
+    assert_eq!(w2, 0.0); // Unset means no resize (0.0)
+    assert!(!w2_is_pct);
+    assert_eq!(h2, 600.0); // Height still inherits from global
   }
 }
