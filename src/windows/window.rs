@@ -493,7 +493,7 @@ fn run_animation_task_sync(
     } else {
       config.animation.hide_opacity_point
     }
-    .clamp(0.01, 1.0);
+    .clamp(0.0, 1.0);
 
     // --- Style & Layering Prep ---
     let _ = DwmSetWindowAttribute(

@@ -653,8 +653,8 @@ async fn run_toggle_script(
   } else {
     &config.animation.hide_easing
   };
-  let show_opacity_point = config.animation.show_opacity_point;
-  let hide_opacity_point = config.animation.hide_opacity_point;
+  let show_opacity_point = config.animation.show_opacity_point.clamp(0.0, 1.0);
+  let hide_opacity_point = config.animation.hide_opacity_point.clamp(0.0, 1.0);
 
   let script_body = TOGGLE_SCRIPT_TEMPLATE.replace("{{COMMON_KWIN_JS}}", COMMON_KWIN_JS);
   let script_content = format!(
