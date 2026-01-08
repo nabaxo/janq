@@ -1,8 +1,17 @@
 use crate::config::{AppConfig, Config};
+use std::collections::HashSet;
 use std::fs;
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+use tokio::time::sleep;
 use zbus::Connection;
+
+static SPAWNING_APPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn get_spawning_apps() -> &'static Mutex<HashSet<String>> {
+  SPAWNING_APPS.get_or_init(|| Mutex::new(HashSet::new()))
+}
 
 pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn: &Connection) -> bool {
   let window_class = &app_cfg.window_class;
@@ -13,7 +22,38 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn:
     return false;
   }
 
-  // 2. Check if process is already running
+  // 2. Idempotency Lock
+  loop {
+    let already_spawning = {
+      let spawning = get_spawning_apps().lock().unwrap();
+      spawning.contains(window_class)
+    };
+
+    if !already_spawning {
+      // Try to acquire the "lock" by adding to the set
+      let mut spawning = get_spawning_apps().lock().unwrap();
+      spawning.insert(window_class.to_string());
+      break;
+    }
+
+    // Wait and re-check if the window exists (the other track might have finished)
+    sleep(Duration::from_millis(200)).await;
+    if check_window_exists(window_class).is_some() {
+      return false;
+    }
+  }
+
+  // Ensure we remove the app from the spawning set even on error/panic
+  struct SpawnGuard(String);
+  impl Drop for SpawnGuard {
+    fn drop(&mut self) {
+      let mut spawning = get_spawning_apps().lock().unwrap();
+      spawning.remove(&self.0);
+    }
+  }
+  let _guard = SpawnGuard(window_class.to_string());
+
+  // 3. Check if process is already running
   let process_running = check_process_running(window_class);
 
   if start_command.is_empty() {
@@ -123,7 +163,6 @@ fn run_kdotool_search(pattern: &str) -> Option<String> {
 }
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
 static PID_CACHE: OnceLock<std::sync::Mutex<HashMap<String, u32>>> = OnceLock::new();
 

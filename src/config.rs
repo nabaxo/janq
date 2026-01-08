@@ -62,9 +62,7 @@ impl Config {
     }
 
     if self.app.is_empty() {
-      return Err(
-        "No app configured. Add at least one [app] or [app.name] section to your config.".to_string(),
-      );
+      return Err("No app configured. Add at least one [app] or [app.name] section to your config.".to_string());
     }
 
     Ok(())
@@ -249,18 +247,16 @@ pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
   for path in config_paths {
     if path.exists() {
       match fs::read_to_string(&path) {
-        Ok(content) => {
-          match toml::from_str::<Config>(&content) {
-            Ok(c) => {
-              println!("Loaded config from: {:?}", path);
-              c.validate()?;
-              return Ok((c, Some(path)));
-            }
-            Err(e) => {
-              return Err(format!("Malformed config file at {:?}: {}", path, e));
-            }
+        Ok(content) => match toml::from_str::<Config>(&content) {
+          Ok(c) => {
+            println!("Loaded config from: {:?}", path);
+            c.validate()?;
+            return Ok((c, Some(path)));
           }
-        }
+          Err(e) => {
+            return Err(format!("Malformed config file at {:?}: {}", path, e));
+          }
+        },
         Err(e) => {
           return Err(format!("Could not read config file at {:?}: {}", path, e));
         }
