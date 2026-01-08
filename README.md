@@ -49,6 +49,14 @@ Ruake generates a `.desktop` file and syncs your hotkeys to **KDE System Setting
 
 Ruake handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
 
+#### Windows Startup (Manual)
+
+To make Ruake start automatically when you log in:
+1.  Press `Win + R`, type `shell:startup`, and press Enter.
+2.  Right-click in the folder and select **New > Shortcut**.
+3.  Browse to your `ruake.exe` location.
+4.  **Important**: To start in background mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\ruake.exe" --daemon`).
+
 ### Windows Specifics: `window_class`
 
 On Windows, the `window_class` field is highly flexible and matches against several properties. Ruake uses a **priority-based scoring system** to ensure it always grabs the correct window:
