@@ -410,15 +410,40 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
               var stillActive = (workspace.activeWindow === target || workspace.activeClient === target);
-              if (wasActive && stillActive && prevWindowId && prevWindowId !== "") {
+              if (wasActive && stillActive) {
                 var allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-                for (var j = 0; j < allClients.length; j++) {
-                  var c = allClients[j];
-                  if (c.internalId && normalizeId(c.internalId) === normalizeId(prevWindowId)) {
-                    if (workspace.activeWindow !== undefined) workspace.activeWindow = c;
-                    else workspace.activeClient = c;
-                    break;
-                  }
+                var stacking = workspace.stackingOrder;
+                var targetBehind = null;
+                var targetIndex = -1;
+                for (var s = 0; s < stacking.length; s++) {
+                    if (stacking[s] === target) {
+                        targetIndex = s;
+                        break;
+                    }
+                }
+                if (targetIndex > 0) {
+                    for (var s = targetIndex - 1; s >= 0; s--) {
+                        var c = stacking[s];
+                        if (c.normalWindow && c.opacity > 0 && (c.resourceClass || c.resourceName)) {
+                            targetBehind = c;
+                            break;
+                        }
+                    }
+                }
+
+                if (targetBehind) {
+                    if (workspace.activeWindow !== undefined) workspace.activeWindow = targetBehind;
+                    else workspace.activeClient = targetBehind;
+                } else if (prevWindowId && prevWindowId !== "") {
+                    // Fallback to saved prevWindowId if no suitable window found behind
+                    for (var j = 0; j < allClients.length; j++) {
+                      var c = allClients[j];
+                      if (c.internalId && normalizeId(c.internalId) === normalizeId(prevWindowId)) {
+                        if (workspace.activeWindow !== undefined) workspace.activeWindow = c;
+                        else workspace.activeClient = c;
+                        break;
+                      }
+                    }
                 }
               }
             }
@@ -594,9 +619,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
 
   if should_show {
     let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
-    if state.visible_app.is_none() {
-      update_focus_state(&mut state, &janq_classes);
-    }
+    update_focus_state(&mut state, &janq_classes);
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
 
     run_toggle_script(

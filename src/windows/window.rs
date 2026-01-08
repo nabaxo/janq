@@ -297,13 +297,11 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
     }
   }
 
-  if should_show {
-    unsafe {
-      let fg_window = GetForegroundWindow();
-      let mut prev = get_previous_focus().lock().unwrap();
-      if !fg_window.is_invalid() && fg_window != target_hwnd.inner() {
-        *prev = Some(SendHwnd(fg_window));
-      }
+  unsafe {
+    let fg_window = GetForegroundWindow();
+    let mut prev = get_previous_focus().lock().unwrap();
+    if !fg_window.is_invalid() && fg_window != target_hwnd.inner() {
+      *prev = Some(SendHwnd(fg_window));
     }
   }
 
@@ -735,6 +733,29 @@ fn run_animation_task_sync(
         let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
       }
       if restore_focus {
+        // Z-order discovery: find the window immediately behind us
+        let mut next = windows::Win32::UI::WindowsAndMessaging::GetWindow(
+          target_hwnd.inner(),
+          windows::Win32::UI::WindowsAndMessaging::GW_HWNDNEXT,
+        );
+        while let Ok(valid_next) = next {
+          if valid_next.is_invalid() {
+            break;
+          }
+          if IsWindowVisible(valid_next).as_bool() {
+            let style = GetWindowLongW(valid_next, GWL_EXSTYLE) as u32;
+            if (style & windows::Win32::UI::WindowsAndMessaging::WS_EX_TOOLWINDOW.0) == 0 {
+              let mut prev = get_previous_focus().lock().unwrap();
+              *prev = Some(SendHwnd(valid_next));
+              break;
+            }
+          }
+          next = windows::Win32::UI::WindowsAndMessaging::GetWindow(
+            valid_next,
+            windows::Win32::UI::WindowsAndMessaging::GW_HWNDNEXT,
+          );
+        }
+
         let prev = get_previous_focus().lock().unwrap();
         if let Some(h) = *prev {
           if IsWindowVisible(h.0).as_bool() {
