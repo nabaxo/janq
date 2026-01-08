@@ -451,7 +451,7 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
           target.skipTaskbar = true;
           target.skipPager = true;
           if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
-          if (app.forcePriority) target.fullScreen = true;
+          if (app.forcePriority && !app.isVisible) target.fullScreen = true;
 
           var screens = workspace.screens;
           var area = null;
