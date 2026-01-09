@@ -152,7 +152,7 @@ hotkey = "Meta+Z"
 | `[window]` | `display_mode` | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific` | ✗ no |
 | | `display_index` | `0` | Monitor index when `display_mode = "specific"` | ✗ no |
 | | `width` | — | Window width (`%` or `px`) | ✓ yes |
-| | | `height` | — | Window height (`%` or `px`) | ✓ yes |
+| | | `height` | Window height (`%` or `px`) | — | ✓ yes |
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
 | | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: janq removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
 | | `auto_show` | `false` | Show window on daemon startup | ✗ no |
