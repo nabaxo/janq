@@ -191,11 +191,6 @@ The `display_mode` setting in the `[window]` section determines which monitor **
 > [!NOTE]
 > When using `display_mode = "specific"`, you must also set `display_index` (0-indexed) to the desired monitor.
 
-### Premium Features
-
-#### Sticky Swipe (Linux)
-When using `display_mode = "active"`, janq features "Sticky Swipe." If you toggle between two different applications while one is already visible, the new application will appear on the **same monitor** as the outgoing one, even if your mouse or focus has moved. This keeps the coordinated "swipe" animation grounded on a single screen for a more premium feel.
-
 ### Keycodes
 
 janq supports a wide range of keycodes for defining hotkeys. Keys are case-insensitive.
