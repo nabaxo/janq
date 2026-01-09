@@ -214,32 +214,42 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
       }
     }
 
-    var screens = workspace.screens;
+    var currentArea = workspace.clientArea(KWin.PlacementArea, target);
+    var screens = workspace.screens || [];
     var targetArea = null;
 
     if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) {
         targetArea = screens[displayIndex].geometry;
-    } else if (displayMode === "active") {
-        var activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
-        if (activeWin && activeWin !== target) {
-          targetArea = workspace.clientArea(KWin.PlacementArea, activeWin);
-        } else {
-          targetArea = workspace.activeScreen.geometry;
-        }
     } else {
-        var cursorPos = workspace.cursorPos;
-        for (var i = 0; i < screens.length; i++) {
-          var geo = screens[i].geometry;
-          if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
-            cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
-            targetArea = geo;
-            break;
-          }
+        var activeWin = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
+        var isTargetActive = (activeWin && activeWin.internalId && target.internalId && normalizeId(activeWin.internalId) === normalizeId(target.internalId));
+
+        if (displayMode === "active") {
+            if (activeWin && !isTargetActive) {
+                targetArea = workspace.clientArea(KWin.PlacementArea, activeWin);
+            } else {
+                // STICKY: Only for 'active' mode to prevent toggle see-sawing
+                if (target.opacity > 0.05 && target.frameGeometry.y + target.frameGeometry.height > currentArea.y + 5) {
+                    targetArea = currentArea;
+                } else {
+                    targetArea = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop);
+                }
+            }
+        } else {
+            // follow-mouse
+            var cursorPos = workspace.cursorPos;
+            for (var i = 0; i < screens.length; i++) {
+                var geo = screens[i].geometry;
+                if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
+                    cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
+                    targetArea = geo;
+                    break;
+                }
+            }
+            if (!targetArea) targetArea = workspace.activeScreen.geometry;
         }
-        if (!targetArea) targetArea = workspace.activeScreen.geometry;
     }
 
-    var currentArea = workspace.clientArea(KWin.PlacementArea, target);
     var area = shouldShow ? targetArea : currentArea;
 
     var startX = target.frameGeometry.x;
@@ -481,7 +491,11 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
           var screens = workspace.screens;
           var area = null;
           if (app.displayMode === "specific" && app.displayIndex >= 0 && app.displayIndex < screens.length) area = screens[app.displayIndex].geometry;
-          else if (app.displayMode === "active") area = (workspace.activeWindow ? workspace.clientArea(KWin.PlacementArea, workspace.activeWindow) : workspace.activeScreen.geometry);
+          else if (app.displayMode === "active") {
+              var activeWin = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
+              if (activeWin) area = workspace.clientArea(KWin.PlacementArea, activeWin);
+              else area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop);
+          }
           else area = workspace.activeScreen.geometry;
 
           var finalWidth = app.width > 0 ? (app.isWidthPercent ? area.width * app.width : app.width) : target.frameGeometry.width;

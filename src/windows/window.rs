@@ -299,9 +299,15 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
 
   unsafe {
     let fg_window = GetForegroundWindow();
-    let mut prev = get_previous_focus().lock().unwrap();
     if !fg_window.is_invalid() && fg_window != target_hwnd.inner() {
-      *prev = Some(SendHwnd(fg_window));
+      // Don't "save" desktop/taskbar as previous focus for restoration, as it's janky
+      let mut class_buf = [0u16; 256];
+      let len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(fg_window, &mut class_buf);
+      let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
+      if class_name != "progman" && class_name != "workerw" && class_name != "shell_traywnd" {
+        let mut prev = get_previous_focus().lock().unwrap();
+        *prev = Some(SendHwnd(fg_window));
+      }
     }
   }
 
@@ -357,16 +363,34 @@ fn run_animation_task_sync(
           }
         }
         "active" => {
-          let prev = get_previous_focus().lock().unwrap();
-          if let Some(h) = *prev {
-            MonitorFromWindow(h.0, MONITOR_DEFAULTTONEAREST)
+          let fg = GetForegroundWindow();
+          let mut use_fallback = fg.is_invalid() || fg == target_hwnd.inner();
+
+          if !use_fallback {
+            let mut class_buf = [0u16; 256];
+            let len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(fg, &mut class_buf);
+            let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
+            // If focus is on Desktop or Taskbar, it's safer to use mouse position
+            if class_name == "progman" || class_name == "workerw" || class_name == "shell_traywnd" {
+              use_fallback = true;
+            }
+          }
+
+          if !use_fallback {
+            MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST)
           } else {
-            let mut cursor_pos = POINT { x: 0, y: 0 };
-            let _ = GetCursorPos(&mut cursor_pos);
-            MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+            // STICKY: Only for 'active' mode fallback to prevent toggle see-sawing
+            if IsWindowVisible(target_hwnd.inner()).as_bool() {
+              MonitorFromWindow(target_hwnd.inner(), MONITOR_DEFAULTTONEAREST)
+            } else {
+              let mut cursor_pos = POINT { x: 0, y: 0 };
+              let _ = GetCursorPos(&mut cursor_pos);
+              MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
+            }
           }
         }
         _ => {
+          // follow-mouse
           let mut cursor_pos = POINT { x: 0, y: 0 };
           let _ = GetCursorPos(&mut cursor_pos);
           MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
