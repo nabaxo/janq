@@ -196,7 +196,8 @@ The `display_mode` setting in the `[window]` section determines which monitor **
 janq supports a wide range of keycodes for defining hotkeys. Keys are case-insensitive.
 
 **Modifiers:** `Ctrl`, `Alt`, `Shift`, `Meta` (Super/Windows/Cmd).
-Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl+alt+shift+meta+z`, whatever floats your boat).
+*   **Aliases:** `Control`, `Super`, `Win`, `Cmd`.
+Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl+alt+shift+meta+z`).
 
 > [!NOTE]
 > **Multi-Hotkey Support**: `janq` supports up to **four hotkeys** per application on both Windows and Linux.
@@ -208,22 +209,22 @@ Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl
 > **Global Hijacking**: If you use a single character key (like `hotkey = "s"`) as a global shortcut, it will act globally across your system while the daemon is running. Pressing that key will toggle your application instead of typing the character. We recommend using **Function keys (`F1`-`F12`)** or **Navigation keys** for single-key hotkeys.
 
 **Standard Keys:**
-*   **Alphanumeric:** `a`-`z`, `0`-`9`
+*   **Alphanumeric:** `a`-`z`, `0`-`9` (Case-insensitive)
 *   **Function:** `f1`-`f12`
-*   **Navigation:** `up`, `down`, `left`, `right`, `home`, `end`, `pgup` (pageup), `pgdn` (pagedown)
-*   **Editing:** `insert`, `delete` (del), `backspace`, `tab`, `enter` (return), `space`, `esc` (escape)
+*   **Navigation:** `up` (`arrowup`), `down` (`arrowdown`), `left` (`arrowleft`), `right` (`arrowright`), `home`, `end`, `pgup` (`pageup`), `pgdn` (`pagedown`)
+*   **Editing:** `insert`, `delete` (`del`), `backspace`, `tab`, `enter` (`return`), `space`, `esc` (`escape`), `capslock` (`caps_lock`)
 
 **Punctuation & Symbols:**
-*   `grave` / `backtick` ( ` )
-*   `minus` ( - ), `equal` ( = )
-*   `bracketleft` ( [ ), `bracketright` ( ] )
-*   `backslash` ( \ ), `slash` ( / )
-*   `semicolon` ( ; ), `quote` ( ' )
-*   `comma` ( , ), `period` ( . )
+*   `grave` / `backtick` / `` ` ``
+*   `minus` ( `-` ), `equal` ( `=` )
+*   `bracketleft` ( `[` ), `bracketright` ( `]` )
+*   `backslash` ( `\` ), `slash` ( `/` )
+*   `semicolon` ( `;` ), `quote` ( `'` )
+*   `comma` ( `,` ), `period` ( `.` )
 
 **International / Special:**
-*   `section` ( § ) - *Mapped to `IntlBackslash` (the key below Esc on some ISO keyboards)*
-*   `plusminus`
+*   `section` ( `§` ) - *Mapped to `IntlBackslash` (the key below Esc on some ISO keyboards)*
+*   `plusminus` ( `±` )
 *   `dead_grave`
 
 ## Related Projects
