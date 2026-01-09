@@ -152,7 +152,7 @@ hotkey = "Meta+Z"
 | `[window]` | `display_mode` | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific` | ✗ no |
 | | `display_index` | `0` | Monitor index when `display_mode = "specific"` | ✗ no |
 | | `width` | — | Window width (`%` or `px`) | ✓ yes |
-| | | `height` | Window height (`%` or `px`) | — | ✓ yes |
+| | `height` | — | Window height (`%` or `px`) | ✓ yes |
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
 | | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: janq removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
 | | `auto_show` | `false` | Show window on daemon startup | ✗ no |
@@ -177,6 +177,19 @@ hotkey = "Meta+Z"
 | `back`* | Overshoots slightly before settling. |
 
 \* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`. **If an invalid string is provided, janq falls back to an `ease-out` curve.**
+
+### Display Modes
+
+The `display_mode` setting in the `[window]` section determines which monitor **janq** uses to display your applications.
+
+| Mode | Description |
+| :--- | :--- |
+| `follow-mouse` | (**Default**) The window appears on the monitor where the mouse cursor is currently located. |
+| `active` | The window appears on the monitor that currently has keyboard focus (the active window). |
+| `specific` | The window always appears on a specific monitor, defined by `display_index`. |
+
+> [!NOTE]
+> When using `display_mode = "specific"`, you must also set `display_index` (0-indexed) to the desired monitor.
 
 ### Premium Features
 
