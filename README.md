@@ -142,6 +142,9 @@ start_command = "zed"
 hotkey = "Meta+Z"
 ```
 
+> [!WARNING]
+> Configuring a multiwindow app as `window_class` will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)_/¯
+
 ### Default Values
 
 | Section | Option | Default | Description | Per-App |
@@ -163,9 +166,6 @@ hotkey = "Meta+Z"
 | | `animate_opacity` | `false` | Fade opacity during animations | ✓ yes |
 | | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
-
-> [!WARNING]
-> Configuring a multiwindow app as `window_class` will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)_/¯
 
 ### Easing Modes
 
