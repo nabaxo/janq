@@ -13,7 +13,11 @@ fn get_spawning_apps() -> &'static Mutex<HashSet<String>> {
   SPAWNING_APPS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn: &Connection) -> bool {
+pub async fn ensure_terminal_running(
+  app_cfg: &AppConfig,
+  config: &Config,
+  conn: &Connection,
+) -> bool {
   let window_class = &app_cfg.window_class;
   let start_command = &app_cfg.start_command;
 
@@ -57,7 +61,10 @@ pub async fn ensure_terminal_running(app_cfg: &AppConfig, config: &Config, conn:
   let process_running = check_process_running(window_class);
 
   if start_command.is_empty() {
-    eprintln!("janq: No start_command for app with class '{}'", window_class);
+    eprintln!(
+      "janq: No start_command for app with class '{}'",
+      window_class
+    );
     return false;
   }
 

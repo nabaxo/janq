@@ -2,19 +2,23 @@ use crate::config::{AppConfig, Config};
 use crate::windows::easing::get_easing;
 use tokio::time::Instant;
 use windows::Win32::Foundation::{BOOL, COLORREF, HWND, LPARAM, POINT, RECT, TRUE};
-use windows::Win32::Graphics::Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
+use windows::Win32::Graphics::Dwm::{
+  DwmFlush, DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED,
+};
 use windows::Win32::Graphics::Gdi::{
-  EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HDC, HMONITOR, MONITORINFO,
-  MONITOR_DEFAULTTONEAREST,
+  EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HDC, HMONITOR,
+  MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 use windows::Win32::UI::WindowsAndMessaging::{
-  BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, EnumWindows, GetCursorPos, GetForegroundWindow,
-  GetLayeredWindowAttributes, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-  SetForegroundWindow, SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
-  HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOCOPYBITS,
-  SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNA, WS_EX_LAYERED,
+  BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, EnumWindows, GetCursorPos,
+  GetForegroundWindow, GetLayeredWindowAttributes, GetWindowLongW, GetWindowRect,
+  GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
+  SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
+  HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+  SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNA,
+  WS_EX_LAYERED,
 };
 
 // Wrapper to make HWND Send/Sync for async tasks
@@ -32,7 +36,8 @@ impl SendHwnd {
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-static ANIMATION_TASK: OnceLock<std::sync::Mutex<Option<tokio::task::AbortHandle>>> = OnceLock::new();
+static ANIMATION_TASK: OnceLock<std::sync::Mutex<Option<tokio::task::AbortHandle>>> =
+  OnceLock::new();
 static VISIBLE_APP: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 static PREVIOUS_FOCUS: OnceLock<std::sync::Mutex<Option<SendHwnd>>> = OnceLock::new();
 static HWND_CACHE: OnceLock<RwLock<HashMap<String, SendHwnd>>> = OnceLock::new();
@@ -117,7 +122,10 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
     found_data: Vec::new(),
   };
   unsafe {
-    let _ = EnumWindows(Some(enum_windows_proc), LPARAM(&mut search as *mut _ as isize));
+    let _ = EnumWindows(
+      Some(enum_windows_proc),
+      LPARAM(&mut search as *mut _ as isize),
+    );
   }
   let mut best_hwnd = None;
   let mut best_score = -5000;
@@ -165,7 +173,8 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
         if data.class_name == "ime" || data.class_name == "msctfime ui" {
           score -= 4500;
         }
-        let style_regular = GetWindowLongW(hwnd, windows::Win32::UI::WindowsAndMessaging::GWL_STYLE) as u32;
+        let style_regular =
+          GetWindowLongW(hwnd, windows::Win32::UI::WindowsAndMessaging::GWL_STYLE) as u32;
         if (style_regular & windows::Win32::UI::WindowsAndMessaging::WS_CAPTION.0) != 0 {
           score += 500;
         }
@@ -186,7 +195,12 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
 struct MonitorEnumCtx {
   monitors: Vec<HMONITOR>,
 }
-unsafe extern "system" fn monitor_enum_proc(hmonitor: HMONITOR, _hdc: HDC, _rect: *mut RECT, lparam: LPARAM) -> BOOL {
+unsafe extern "system" fn monitor_enum_proc(
+  hmonitor: HMONITOR,
+  _hdc: HDC,
+  _rect: *mut RECT,
+  lparam: LPARAM,
+) -> BOOL {
   let ctx = &mut *(lparam.0 as *mut MonitorEnumCtx);
   ctx.monitors.push(hmonitor);
   BOOL(1)
@@ -352,8 +366,15 @@ fn run_animation_task_sync(
     let monitor = if should_show {
       match config.window.display_mode.as_str() {
         "specific" => {
-          let mut ctx = MonitorEnumCtx { monitors: Vec::new() };
-          let _ = EnumDisplayMonitors(None, None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+          let mut ctx = MonitorEnumCtx {
+            monitors: Vec::new(),
+          };
+          let _ = EnumDisplayMonitors(
+            None,
+            None,
+            Some(monitor_enum_proc),
+            LPARAM(&mut ctx as *mut _ as isize),
+          );
           if (config.window.display_index as usize) < ctx.monitors.len() {
             ctx.monitors[config.window.display_index as usize]
           } else {
@@ -411,7 +432,8 @@ fn run_animation_task_sync(
     let screen_h = work_area.bottom - work_area.top;
 
     // --- Geometry & Current State Capture ---
-    let ((width_val, width_is_pct), (height_val, height_is_pct)) = app_cfg.resolve_dimensions(&config.window);
+    let ((width_val, width_is_pct), (height_val, height_is_pct)) =
+      app_cfg.resolve_dimensions(&config.window);
 
     let mut r_target = RECT::default();
     let _ = GetWindowRect(target_hwnd.inner(), &mut r_target);
@@ -445,7 +467,8 @@ fn run_animation_task_sync(
 
     // Capture current Y. We use the current rect, but if perfectly hidden/invisible, we assume start/end state.
     let t_curr_y = r_target.top;
-    let t_on_correct_monitor = MonitorFromWindow(target_hwnd.inner(), MONITOR_DEFAULTTONEAREST) == monitor;
+    let t_on_correct_monitor =
+      MonitorFromWindow(target_hwnd.inner(), MONITOR_DEFAULTTONEAREST) == monitor;
 
     // --- Sibling Data ---
     let mut siblings_data = Vec::new();
@@ -466,7 +489,15 @@ fn run_animation_task_sync(
             // Capture sibling start alpha
             let mut sa: u8 = 255;
             let _ = GetLayeredWindowAttributes(ohwnd.inner(), None, Some(&mut sa), None);
-            siblings_data.push((ohwnd, r.left, r.right - r.left, r.bottom - r.top, osy, oty, sa));
+            siblings_data.push((
+              ohwnd,
+              r.left,
+              r.right - r.left,
+              r.bottom - r.top,
+              osy,
+              oty,
+              sa,
+            ));
           }
         }
       }
@@ -580,8 +611,14 @@ fn run_animation_task_sync(
     if dur_secs > 0.0 {
       let mut last_y = t_start_y;
       let mut last_alpha = t_curr_alpha;
-      let mut last_sibling_ys: Vec<i32> = siblings_data.iter().map(|(_, _, _, _, osy, _, _)| *osy).collect();
-      let mut last_sibling_alphas: Vec<u8> = siblings_data.iter().map(|(_, _, _, _, _, _, sa)| *sa).collect();
+      let mut last_sibling_ys: Vec<i32> = siblings_data
+        .iter()
+        .map(|(_, _, _, _, osy, _, _)| *osy)
+        .collect();
+      let mut last_sibling_alphas: Vec<u8> = siblings_data
+        .iter()
+        .map(|(_, _, _, _, _, _, sa)| *sa)
+        .collect();
 
       loop {
         // 1. Bail Check - Check if we are still the intended animation
@@ -611,7 +648,8 @@ fn run_animation_task_sync(
               let denom = 1.0 - op_point;
               ((ease_val - op_point) / if denom <= 0.0 { 0.0001 } else { denom }).clamp(0.0, 1.0)
             };
-            let computed = (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * opacity_ease) as u8;
+            let computed =
+              (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * opacity_ease) as u8;
             if should_show {
               computed.max(last_alpha)
             } else {
@@ -620,7 +658,8 @@ fn run_animation_task_sync(
           };
 
           if t_alpha != last_alpha {
-            let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
+            let _ =
+              SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
             last_alpha = t_alpha;
           }
 
@@ -662,7 +701,11 @@ fn run_animation_task_sync(
         if needs_pos_update {
           if let Ok(mut hdwp) = BeginDeferWindowPos((1 + siblings_data.len()) as i32) {
             let mut t_flags = SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE;
-            let t_z = if first_frame { z_order } else { HWND::default() };
+            let t_z = if first_frame {
+              z_order
+            } else {
+              HWND::default()
+            };
             if first_frame {
               if should_show {
                 t_flags |= SWP_SHOWWINDOW;
@@ -718,7 +761,15 @@ fn run_animation_task_sync(
             }
             let _ = EndDeferWindowPos(hdwp);
             if !t_ok {
-              let _ = SetWindowPos(target_hwnd.inner(), t_z, target_x, next_y, target_w, target_h, t_flags);
+              let _ = SetWindowPos(
+                target_hwnd.inner(),
+                t_z,
+                target_x,
+                next_y,
+                target_w,
+                target_h,
+                t_flags,
+              );
             }
             last_y = next_y;
           }
@@ -864,7 +915,10 @@ pub fn restore_app_window(_app_name: &str, window_class: &str) {
       let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
       let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
       if IsIconic(hwnd).as_bool() {
-        let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE);
+        let _ = ShowWindow(
+          hwnd,
+          windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
+        );
       } else {
         let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA);
       }

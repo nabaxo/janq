@@ -19,10 +19,16 @@ impl<'de> serde::Deserialize<'de> for Dimension {
     let s = String::deserialize(deserializer)?;
     let s = s.trim().to_lowercase();
     if let Some(rest) = s.strip_suffix('%') {
-      let val = rest.trim().parse::<f64>().map_err(serde::de::Error::custom)?;
+      let val = rest
+        .trim()
+        .parse::<f64>()
+        .map_err(serde::de::Error::custom)?;
       Ok(Dimension::Percent(val / 100.0))
     } else if let Some(rest) = s.strip_suffix("px") {
-      let val = rest.trim().parse::<i32>().map_err(serde::de::Error::custom)?;
+      let val = rest
+        .trim()
+        .parse::<i32>()
+        .map_err(serde::de::Error::custom)?;
       Ok(Dimension::Pixels(val))
     } else if s == "0" || s == "unset" {
       Ok(Dimension::Unset)
@@ -37,7 +43,12 @@ impl<'de> serde::Deserialize<'de> for Dimension {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct Config {
-  #[serde(default, alias = "apps", alias = "general", deserialize_with = "deserialize_app")]
+  #[serde(
+    default,
+    alias = "apps",
+    alias = "general",
+    deserialize_with = "deserialize_app"
+  )]
   pub app: IndexMap<String, AppConfig>,
   #[serde(default)]
   pub window: WindowConfig,
@@ -63,7 +74,10 @@ impl Config {
     }
 
     if self.app.is_empty() {
-      return Err("No app configured. Add at least one [app] or [app.name] section to your config.".to_string());
+      return Err(
+        "No app configured. Add at least one [app] or [app.name] section to your config."
+          .to_string(),
+      );
     }
 
     Ok(())
@@ -306,7 +320,8 @@ where
       // A simple trick: try to deserialize as HashMap<String, AppConfig>.
       // If it has keys like "window_class", it will fail if AppConfig doesn't match a map value.
 
-      let raw_map = IndexMap::<String, serde_json::Value>::deserialize(MapAccessDeserializer::new(map))?;
+      let raw_map =
+        IndexMap::<String, serde_json::Value>::deserialize(MapAccessDeserializer::new(map))?;
 
       if raw_map.is_empty() {
         return Ok(IndexMap::new());
@@ -314,7 +329,8 @@ where
 
       // Heuristic: Check if the map contains sub-tables (Objects), which implies a multi-app config.
       let has_subtables = raw_map.values().any(|v| v.is_object());
-      let has_flat_keys = raw_map.contains_key("window_class") || raw_map.contains_key("start_command");
+      let has_flat_keys =
+        raw_map.contains_key("window_class") || raw_map.contains_key("start_command");
 
       if has_subtables {
         if has_flat_keys {
@@ -330,13 +346,16 @@ where
         }
         Ok(result)
       } else if has_flat_keys {
-        let config = AppConfig::deserialize(serde_json::Value::Object(raw_map.into_iter().collect()))
-          .map_err(de::Error::custom)?;
+        let config =
+          AppConfig::deserialize(serde_json::Value::Object(raw_map.into_iter().collect()))
+            .map_err(de::Error::custom)?;
         let mut result = IndexMap::new();
 
         // Require window_class for single-app mode
         if config.window_class.is_empty() {
-          return Err(de::Error::custom("[app] section requires 'window_class' field"));
+          return Err(de::Error::custom(
+            "[app] section requires 'window_class' field",
+          ));
         }
         let name = config.window_class.clone();
 
@@ -388,7 +407,10 @@ mod tests {
 
     let err = toml::from_str::<Test>("d = \"50\"");
     assert!(err.is_err());
-    assert!(err.unwrap_err().to_string().contains("Must end with '%' or 'px'"));
+    assert!(err
+      .unwrap_err()
+      .to_string()
+      .contains("Must end with '%' or 'px'"));
   }
 
   #[test]

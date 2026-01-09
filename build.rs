@@ -17,7 +17,10 @@ fn main() {
       let obj_path = Path::new(&out_dir).join("janq_icon.o");
 
       // Generate .rc with absolute path to icon to avoid path resolution issues in windres
-      let rc_content = format!("id ICON \"{}\"", icon_path.display().to_string().replace("\\", "/"));
+      let rc_content = format!(
+        "id ICON \"{}\"",
+        icon_path.display().to_string().replace("\\", "/")
+      );
       std::fs::write(&rc_path, rc_content).unwrap();
 
       let windres_path = "/usr/bin/x86_64-w64-mingw32-windres";

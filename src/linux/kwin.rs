@@ -14,11 +14,15 @@ async fn run_kwin_script(
   script_content: &str,
   delay_before_unload: Option<Duration>,
 ) -> Result<()> {
-  let scripting_proxy = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
-  let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
+  let scripting_proxy =
+    zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+  let _ = scripting_proxy
+    .call_method("unloadScript", &(script_name))
+    .await;
 
   let tmp_path = std::env::temp_dir().join(format!("{}.js", script_name));
-  fs::write(&tmp_path, script_content).map_err(|e| zbus::Error::Failure(format!("Failed to write script: {}", e)))?;
+  fs::write(&tmp_path, script_content)
+    .map_err(|e| zbus::Error::Failure(format!("Failed to write script: {}", e)))?;
 
   let tmp_path_str = tmp_path.to_string_lossy().to_string();
   let reply = scripting_proxy
@@ -28,12 +32,15 @@ async fn run_kwin_script(
 
   if script_id >= 0 {
     let script_obj_path = format!("/Scripting/Script{}", script_id);
-    let script_proxy = zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+    let script_proxy =
+      zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
     script_proxy.call_method("run", &()).await?;
 
     if let Some(delay) = delay_before_unload {
       sleep(delay).await;
-      let _ = scripting_proxy.call_method("unloadScript", &(script_name)).await;
+      let _ = scripting_proxy
+        .call_method("unloadScript", &(script_name))
+        .await;
     }
     let _ = fs::remove_file(tmp_path);
   }
@@ -583,7 +590,9 @@ fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
     if let Ok(cache) = get_window_cache().try_lock() {
       if let Some((id, pid)) = cache.get(app_name) {
         // Verify window still exists and has matching class (light check)
-        let check_cmd = Command::new("kdotool").args(["getwindowclassname", id]).output();
+        let check_cmd = Command::new("kdotool")
+          .args(["getwindowclassname", id])
+          .output();
         if let Ok(o) = check_cmd {
           if o.status.success() {
             let name = String::from_utf8_lossy(&o.stdout).trim().to_string();
@@ -628,13 +637,18 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
   let is_currently_visible = state.visible_app.as_deref() == Some(app_name);
   let should_show = !is_currently_visible;
 
-  let janq_classes: Vec<String> = config.app.values().map(|v| v.window_class.to_string()).collect();
+  let janq_classes: Vec<String> = config
+    .app
+    .values()
+    .map(|v| v.window_class.to_string())
+    .collect();
   let classes_string = janq_classes.join(",");
 
   if should_show {
     let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
     update_focus_state(&mut state, &janq_classes);
-    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+    let (target_id, target_pid) =
+      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
 
     run_toggle_script(
       app_cfg,
@@ -651,7 +665,8 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     .await?;
     state.visible_app = Some(app_name.to_string());
   } else {
-    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+    let (target_id, target_pid) =
+      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
 
     let prev_id = state.previous_window_id.clone();
     run_toggle_script(
@@ -683,7 +698,8 @@ async fn run_toggle_script(
   } else {
     config.animation.hide_duration
   };
-  let ((width, is_width_percent), (height, is_height_percent)) = app_cfg.resolve_dimensions(&config.window);
+  let ((width, is_width_percent), (height, is_height_percent)) =
+    app_cfg.resolve_dimensions(&config.window);
   let animate_opacity = app_cfg.get_animate_opacity(config.animation.animate_opacity);
   let easing = if params.visible {
     &config.animation.show_easing
@@ -740,8 +756,10 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
       .map(|(name, _)| name.as_str())
       .unwrap_or("");
 
-    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
-    let ((width, is_width_percent), (height, is_height_percent)) = app_cfg.resolve_dimensions(&config.window);
+    let (target_id, target_pid) =
+      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+    let ((width, is_width_percent), (height, is_height_percent)) =
+      app_cfg.resolve_dimensions(&config.window);
     let is_visible = state.visible_app.as_deref() == Some(app_name);
     apps_json.push(format!(
             "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {} }}",
@@ -753,7 +771,13 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
   let script_body = ENSURE_GRABBED_BATCH_TEMPLATE.replace("{{COMMON_KWIN_JS}}", COMMON_KWIN_JS);
   let script_content = format!("{}([\n  {}\n]);", script_body, apps_json.join(",\n  "));
 
-  run_kwin_script(conn, "janq_init_script", &script_content, Some(Duration::ZERO)).await
+  run_kwin_script(
+    conn,
+    "janq_init_script",
+    &script_content,
+    Some(Duration::ZERO),
+  )
+  .await
 }
 
 pub async fn restore_app(window_class: &str, conn: &Connection) -> Result<()> {

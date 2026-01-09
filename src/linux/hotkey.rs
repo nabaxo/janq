@@ -171,13 +171,26 @@ trait KGlobalAccel {
   fn all_actions_for_component(&self, action_id: Vec<String>) -> zbus::Result<Vec<Vec<String>>>;
 
   #[zbus(name = "setShortcutKeys")]
-  fn set_shortcut_keys(&self, action_id: Vec<String>, keys: Vec<(Vec<i32>,)>) -> zbus::Result<Vec<(Vec<i32>,)>>;
+  fn set_shortcut_keys(
+    &self,
+    action_id: Vec<String>,
+    keys: Vec<(Vec<i32>,)>,
+  ) -> zbus::Result<Vec<(Vec<i32>,)>>;
 
   #[zbus(name = "setShortcut")]
-  fn set_shortcut(&self, action_id: Vec<String>, keys: Vec<i32>, flags: u32) -> zbus::Result<Vec<i32>>;
+  fn set_shortcut(
+    &self,
+    action_id: Vec<String>,
+    keys: Vec<i32>,
+    flags: u32,
+  ) -> zbus::Result<Vec<i32>>;
 
   #[zbus(name = "setForeignShortcutKeys")]
-  fn set_foreign_shortcut_keys(&self, action_id: Vec<String>, keys: Vec<(Vec<i32>,)>) -> zbus::Result<()>;
+  fn set_foreign_shortcut_keys(
+    &self,
+    action_id: Vec<String>,
+    keys: Vec<(Vec<i32>,)>,
+  ) -> zbus::Result<()>;
 
   #[zbus(name = "doRegister")]
   fn do_register(&self, action_id: Vec<String>) -> zbus::Result<()>;
@@ -217,7 +230,10 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
 
   // Detection B: D-Bus State Validation (Startup or corruption check)
   if !needs_refresh {
-    if let Ok(all_actions) = proxy.all_actions_for_component(vec![component.to_string()]).await {
+    if let Ok(all_actions) = proxy
+      .all_actions_for_component(vec![component.to_string()])
+      .await
+    {
       let mut found_actions = std::collections::HashSet::new();
       for action_info in all_actions {
         if action_info.len() >= 2 {
@@ -259,7 +275,10 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
   // D-BUS UNREGISTER: Release legacy and current actions to ensure a clean slate
   let components_to_clean = ["dev.nabaxo.janq.desktop", "janq"];
   for comp in components_to_clean {
-    if let Ok(all_actions) = proxy.all_actions_for_component(vec![comp.to_string()]).await {
+    if let Ok(all_actions) = proxy
+      .all_actions_for_component(vec![comp.to_string()])
+      .await
+    {
       for action_info in all_actions {
         if action_info.len() >= 2 {
           let action_name = &action_info[1];

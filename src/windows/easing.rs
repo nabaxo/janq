@@ -72,7 +72,8 @@ fn cubic_bezier(x: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
   for _ in 0..8 {
     let x_t = 3.0 * (1.0 - t).powi(2) * t * x1 + 3.0 * (1.0 - t) * t.powi(2) * x2 + t.powi(3);
 
-    let dx_t = 3.0 * (1.0 - 4.0 * t + 3.0 * t * t) * x1 + 3.0 * (2.0 * t - 3.0 * t * t) * x2 + 3.0 * t * t;
+    let dx_t =
+      3.0 * (1.0 - 4.0 * t + 3.0 * t * t) * x1 + 3.0 * (2.0 * t - 3.0 * t * t) * x2 + 3.0 * t * t;
 
     if dx_t.abs() < 1e-6 {
       break;

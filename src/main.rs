@@ -80,7 +80,9 @@ fn main() -> anyhow::Result<()> {
 
   #[cfg(target_os = "linux")]
   {
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()?;
     rt.block_on(async {
       let target_app = match resolve_app(&config, args.app.clone()) {
         Ok(a) => a,

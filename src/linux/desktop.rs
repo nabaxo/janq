@@ -26,7 +26,8 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
   let exec_cmd = format!("{} --daemon", exe_path);
 
   // 2. Desktop File
-  let xdg_data = dirs::data_local_dir().unwrap_or_else(|| dirs::home_dir().unwrap().join(".local").join("share"));
+  let xdg_data = dirs::data_local_dir()
+    .unwrap_or_else(|| dirs::home_dir().unwrap().join(".local").join("share"));
   let app_dir = xdg_data.join("applications");
   fs::create_dir_all(&app_dir)?;
 
@@ -105,7 +106,10 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
   fs::create_dir_all(&service_dir)?;
 
   let service_path = service_dir.join("dev.nabaxo.janq.service");
-  let service_content = format!("[D-BUS Service]\nName=dev.nabaxo.janq\nExec={} --daemon\n", exe_path);
+  let service_content = format!(
+    "[D-BUS Service]\nName=dev.nabaxo.janq\nExec={} --daemon\n",
+    exe_path
+  );
 
   let mut service_changed = true;
   if let Ok(existing) = fs::read_to_string(&service_path) {
@@ -139,7 +143,10 @@ fn run_kbuildsycoca6() {
       }
     }
     Err(e) => {
-      eprintln!("Failed to run kbuildsycoca6: {} (This is normal on non-KDE)", e);
+      eprintln!(
+        "Failed to run kbuildsycoca6: {} (This is normal on non-KDE)",
+        e
+      );
     }
   }
 }

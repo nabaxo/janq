@@ -17,7 +17,10 @@ struct QuakeApplication {
 
 #[interface(name = "org.freedesktop.Application")]
 impl QuakeApplication {
-  async fn activate(&self, _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>) {
+  async fn activate(
+    &self,
+    _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+  ) {
     // No-op: Satisfaction of D-Bus Application activation.
     // Clicking the launcher icon should only start the background process, not toggle a window.
   }
@@ -44,7 +47,11 @@ impl QuakeApplication {
     daemon.toggle_app(action_name).await;
   }
 
-  fn open(&self, _uris: Vec<String>, _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>) {
+  fn open(
+    &self,
+    _uris: Vec<String>,
+    _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+  ) {
     // Not used
   }
 }
@@ -155,7 +162,9 @@ pub async fn run_daemon(
   let lock_path = std::env::temp_dir().join("janq.lock");
   let lock_file = std::fs::File::create(&lock_path)?;
   if lock_file.try_lock_exclusive().is_err() {
-    return Err(anyhow::anyhow!("janq is already running (lock file active)."));
+    return Err(anyhow::anyhow!(
+      "janq is already running (lock file active)."
+    ));
   }
 
   println!("Starting janq daemon...");
@@ -192,7 +201,10 @@ pub async fn run_daemon(
 
   for path in &[activatable_path, xdg_path, daemon_path] {
     let _ = conn.object_server().at(*path, app_instance.clone()).await;
-    let _ = conn.object_server().at(*path, daemon_instance.clone()).await;
+    let _ = conn
+      .object_server()
+      .at(*path, daemon_instance.clone())
+      .await;
   }
 
   conn.request_name(activatable_bus).await?;
@@ -354,7 +366,8 @@ pub async fn run_daemon(
               for (name, app_cfg) in &old_config.app {
                 if !new_config_in_async.app.contains_key(name) {
                   println!("Watcher: Restoring app '{}' (removed from config)", name);
-                  let _ = crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
+                  let _ =
+                    crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
                 }
               }
 
@@ -367,19 +380,21 @@ pub async fn run_daemon(
                   println!("Watcher: New app detected: {}. Starting terminal...", name);
                 }
                 // We ensure terminal is running for ALL apps (in case one crashed)
-                let _ = ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
+                let _ =
+                  ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
                 apps_for_grabbing.push((app_cfg.clone(), new_config_in_async.clone()));
               }
               let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
 
               // 3. Update desktop file (don't run kbuild inside, we'll do it last)
-              let desktop_changed = match crate::linux::desktop::generate_desktop_file_headless(&new_config_in_async) {
-                Ok(changed) => changed,
-                Err(e) => {
-                  eprintln!("Watcher: Desktop file generation failed: {}", e);
-                  false
-                }
-              };
+              let desktop_changed =
+                match crate::linux::desktop::generate_desktop_file_headless(&new_config_in_async) {
+                  Ok(changed) => changed,
+                  Err(e) => {
+                    eprintln!("Watcher: Desktop file generation failed: {}", e);
+                    false
+                  }
+                };
 
               // 4. Check if hotkeys changed
               let mut hotkeys_changed = false;
@@ -390,7 +405,9 @@ pub async fn run_daemon(
               } else {
                 for (name, old_app) in &old_config.app {
                   if let Some(new_app) = new_config_in_async.app.get(name) {
-                    if old_app.hotkey != new_app.hotkey || old_app.window_class != new_app.window_class {
+                    if old_app.hotkey != new_app.hotkey
+                      || old_app.window_class != new_app.window_class
+                    {
                       hotkeys_changed = true;
                       break;
                     }
@@ -403,7 +420,9 @@ pub async fn run_daemon(
 
               if hotkeys_changed || desktop_changed {
                 println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
-                if let Err(e) = crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await
+                if let Err(e) =
+                  crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config))
+                    .await
                 {
                   eprintln!("Watcher: Failed to sync shortcuts: {}", e);
                 }

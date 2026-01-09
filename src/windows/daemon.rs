@@ -34,11 +34,16 @@ fn load_icon() -> tray_icon::Icon {
     .to_rgba8();
   let (width, height) = image.dimensions();
   let rgba = image.into_raw();
-  let tray_icon = tray_icon::Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon");
+  let tray_icon =
+    tray_icon::Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon");
   tray_icon
 }
 
-pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_app: Option<String>) -> Result<()> {
+pub fn run_daemon(
+  initial_config: Config,
+  config_path: Option<PathBuf>,
+  target_app: Option<String>,
+) -> Result<()> {
   // 1. Setup Runtime for async tasks (IPC, Animation, Watcher)
   let rt = Runtime::new()?;
   let _guard = rt.enter(); // Keep runtime context active for this thread
@@ -47,11 +52,15 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
   let lock_path = std::env::temp_dir().join("janq.lock");
   let lock_file = std::fs::File::create(&lock_path)?;
   if lock_file.try_lock_exclusive().is_err() {
-    return Err(anyhow::anyhow!("janq is already running (lock file active)."));
+    return Err(anyhow::anyhow!(
+      "janq is already running (lock file active)."
+    ));
   }
 
   // Enable DPI Awareness (Per Monitor V2) to ensure correct coordinates
-  use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+  use windows::Win32::UI::HiDpi::{
+    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+  };
   unsafe {
     let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   }
@@ -63,7 +72,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
 
   // 3. Setup IPC Server (Spawned on Runtime)
   let config_clone = config.clone();
-  let server = ServerOptions::new().first_pipe_instance(true).create(PIPE_NAME)?;
+  let server = ServerOptions::new()
+    .first_pipe_instance(true)
+    .create(PIPE_NAME)?;
 
   rt.spawn(async move {
     let mut server = server;
@@ -287,7 +298,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
             let app_cfg = app_cfg.clone();
             let cfg = cfg.clone();
             spawn_tasks.push(rt.spawn(async move {
-              let _ = crate::windows::terminal::ensure_terminal_running(&name, &app_cfg, &cfg).await;
+              let _ =
+                crate::windows::terminal::ensure_terminal_running(&name, &app_cfg, &cfg).await;
             }));
           }
 
@@ -367,7 +379,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
               let map = hotkey_map.read().unwrap();
               if let Some(app_name) = map.get(&event.id) {
                 unsafe {
-                  use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+                  use windows::Win32::UI::WindowsAndMessaging::{
+                    AllowSetForegroundWindow, ASFW_ANY,
+                  };
                   let _ = AllowSetForegroundWindow(ASFW_ANY);
                 }
                 let cfg = config_clone_loop.read().unwrap().clone();
@@ -376,7 +390,8 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
                 rt.spawn(async move {
                   if let Some(app_cfg) = cfg.app.get(&app_name) {
                     if !toggle_window(&app_name, &cfg).await {
-                      crate::windows::terminal::ensure_terminal_running(&app_name, app_cfg, &cfg).await;
+                      crate::windows::terminal::ensure_terminal_running(&app_name, app_cfg, &cfg)
+                        .await;
                       toggle_window(&app_name, &cfg).await;
                     }
                   }
@@ -389,7 +404,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
             while let Ok(event) = tray_receiver.try_recv() {
               match event {
                 TrayIconEvent::Click {
-                  button, button_state, ..
+                  button,
+                  button_state,
+                  ..
                 } => {
                   if button_state == MouseButtonState::Up {
                     if button == MouseButton::Left {
@@ -402,7 +419,12 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
                           let cfg_spawn = cfg.clone();
                           let name_clone = app_name.clone();
                           rt.spawn(async move {
-                            crate::windows::terminal::ensure_terminal_running(&name_clone, &app_cfg, &cfg_spawn).await;
+                            crate::windows::terminal::ensure_terminal_running(
+                              &name_clone,
+                              &app_cfg,
+                              &cfg_spawn,
+                            )
+                            .await;
                             toggle_window(&app_name, &cfg_spawn).await;
                           });
                         }
@@ -432,7 +454,12 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
                   let cfg_spawn = cfg.clone();
                   let name_clone = app_name.clone();
                   rt.spawn(async move {
-                    crate::windows::terminal::ensure_terminal_running(&name_clone, &app_cfg, &cfg_spawn).await;
+                    crate::windows::terminal::ensure_terminal_running(
+                      &name_clone,
+                      &app_cfg,
+                      &cfg_spawn,
+                    )
+                    .await;
                     toggle_window(&app_name, &cfg_spawn).await;
                   });
                 }
@@ -474,7 +501,12 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
               let cfg_spawn = cfg.clone();
               let name_clone = name.clone();
               rt.spawn(async move {
-                crate::windows::terminal::ensure_terminal_running(&name_clone, &app_cfg, &cfg_spawn).await;
+                crate::windows::terminal::ensure_terminal_running(
+                  &name_clone,
+                  &app_cfg,
+                  &cfg_spawn,
+                )
+                .await;
               });
             }
           }
@@ -490,7 +522,9 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
 pub async fn send_toggle(app_name: Option<String>) -> Result<()> {
   let mut client = ClientOptions::new().open(PIPE_NAME)?;
   if let Some(name) = app_name {
-    client.write_all(format!("toggle:{}", name).as_bytes()).await?;
+    client
+      .write_all(format!("toggle:{}", name).as_bytes())
+      .await?;
   } else {
     client.write_all(b"toggle").await?;
   }
@@ -579,12 +613,14 @@ pub fn sync_hotkeys(
             Err(e) => {
               // Try fallback for section key variants if it failed
               if key_code == global_hotkey::hotkey::Code::IntlBackslash {
-                let fallback_key = HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backquote);
+                let fallback_key =
+                  HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backquote);
                 if let Ok(_) = manager.register(fallback_key) {
                   new_map.insert(fallback_key.id(), app_name.clone());
                   new_hks.push(fallback_key);
                 } else {
-                  let fallback_key2 = HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backslash);
+                  let fallback_key2 =
+                    HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backslash);
                   if let Ok(_) = manager.register(fallback_key2) {
                     new_map.insert(fallback_key2.id(), app_name.clone());
                     new_hks.push(fallback_key2);
