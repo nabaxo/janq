@@ -251,40 +251,38 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
 
   // 2. Discover siblings
   let mut siblings = Vec::new();
-  if should_show {
-    for (name, cfg) in &config.app {
-      if name == app_name {
-        continue;
-      }
-      let mut cached_h = None;
-      {
-        let cache = get_hwnd_cache().read().unwrap();
-        if let Some(h) = cache.get(name) {
-          unsafe {
-            if windows::Win32::UI::WindowsAndMessaging::IsWindow(h.inner()).as_bool() {
-              cached_h = Some(*h);
-            }
-          }
-        }
-      }
-      let found_hwnd = if let Some(h) = cached_h {
-        h
-      } else {
-        match find_window_by_process(&cfg.window_class) {
-          Some(h) => {
-            let mut cache = get_hwnd_cache().write().unwrap();
-            let wrapper = SendHwnd(h);
-            cache.insert(name.clone(), wrapper);
-            wrapper
-          }
-          None => continue,
-        }
-      };
-      if found_hwnd.0 == target_hwnd.0 {
-        continue;
-      }
-      siblings.push(found_hwnd);
+  for (name, cfg) in &config.app {
+    if name == app_name {
+      continue;
     }
+    let mut cached_h = None;
+    {
+      let cache = get_hwnd_cache().read().unwrap();
+      if let Some(h) = cache.get(name) {
+        unsafe {
+          if windows::Win32::UI::WindowsAndMessaging::IsWindow(h.inner()).as_bool() {
+            cached_h = Some(*h);
+          }
+        }
+      }
+    }
+    let found_hwnd = if let Some(h) = cached_h {
+      h
+    } else {
+      match find_window_by_process(&cfg.window_class) {
+        Some(h) => {
+          let mut cache = get_hwnd_cache().write().unwrap();
+          let wrapper = SendHwnd(h);
+          cache.insert(name.clone(), wrapper);
+          wrapper
+        }
+        None => continue,
+      }
+    };
+    if found_hwnd.0 == target_hwnd.0 {
+      continue;
+    }
+    siblings.push(found_hwnd);
   }
 
   // Abort current animation
@@ -478,14 +476,15 @@ fn run_animation_task_sync(
       }
       let mut r = RECT::default();
       if GetWindowRect(ohwnd.inner(), &mut r).is_ok() {
-        let smon = MonitorFromWindow(ohwnd.inner(), MONITOR_DEFAULTTONEAREST);
-        let mut smi = MONITORINFO::default();
-        smi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if GetMonitorInfoW(smon, &mut smi).as_bool() {
-          let s_work = smi.rcWork;
-          let osy = r.top;
-          let oty = s_work.top - (r.bottom - r.top) - 10;
-          if r.bottom > s_work.top - 100 {
+        let is_visible = IsWindowVisible(ohwnd.inner()).as_bool();
+        if is_visible {
+          let smon = MonitorFromWindow(ohwnd.inner(), MONITOR_DEFAULTTONEAREST);
+          let mut smi = MONITORINFO::default();
+          smi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+          if GetMonitorInfoW(smon, &mut smi).as_bool() {
+            let s_work = smi.rcWork;
+            let osy = r.top;
+            let oty = s_work.top - (r.bottom - r.top) - 10;
             // Capture sibling start alpha
             let mut sa: u8 = 255;
             let _ = GetLayeredWindowAttributes(ohwnd.inner(), None, Some(&mut sa), None);

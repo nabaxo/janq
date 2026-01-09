@@ -127,44 +127,6 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     var target = findTarget(windowClass, targetWindowId, targetPid);
     if (!target) return;
 
-    var siblingsToHide = [];
-    var wasActive = false;
-
-    if (shouldShow) {
-        var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-        var rawClasses = (janqClasses || "").toLowerCase().split(",");
-        var allClasses = [];
-        for (var k = 0; k < rawClasses.length; k++) {
-            var trimmed = rawClasses[k].replace(/^\s+|\s+$/g, "");
-            if (trimmed) allClasses.push(trimmed);
-        }
-
-        for (var i = 0; i < clients.length; i++) {
-            var c = clients[i];
-            if (c === target) continue;
-            var cClass = (c.resourceClass || "").toLowerCase();
-            var cName = (c.resourceName || "").toLowerCase();
-
-            var isManaged = false;
-            for (var j = 0; j < allClasses.length; j++) {
-                var siblingClass = allClasses[j];
-                if (cClass.indexOf(siblingClass) !== -1 || cName.indexOf(siblingClass) !== -1) {
-                    isManaged = true;
-                    break;
-                }
-            }
-
-            if (isManaged) {
-                var area = workspace.clientArea(KWin.PlacementArea, c);
-                if (c.opacity > 0 && c.frameGeometry.y + c.frameGeometry.height > area.y) {
-                    siblingsToHide.push(c);
-                }
-            }
-        }
-    }
-
-    if (!target) return;
-
     function getEasing(progress, type) {
       if (type === "windows") {
           // Cubic Bezier solver for (0.25, 0, 0, 1)
@@ -288,6 +250,39 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     var finalX = area.x + (area.width - finalWidth) / 2;
     var finalY = area.y;
 
+    var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+    var rawClasses = (janqClasses || "").toLowerCase().split(",");
+    var allClasses = [];
+    for (var k = 0; k < rawClasses.length; k++) {
+        var trimmed = rawClasses[k].replace(/^\s+|\s+$/g, "");
+        if (trimmed) allClasses.push(trimmed);
+    }
+
+    var siblingsToHide = [];
+    for (var i = 0; i < clients.length; i++) {
+        var c = clients[i];
+        if (c === target) continue;
+        var cClass = (c.resourceClass || "").toLowerCase();
+        var cName = (c.resourceName || "").toLowerCase();
+
+        var isManaged = false;
+        for (var j = 0; j < allClasses.length; j++) {
+            var siblingClass = allClasses[j];
+            if (cClass.indexOf(siblingClass) !== -1 || cName.indexOf(siblingClass) !== -1) {
+                isManaged = true;
+                break;
+            }
+        }
+
+        if (isManaged) {
+            var cArea = workspace.clientArea(KWin.PlacementArea, c);
+            // Visibility check: If opacity is > 0 and it's even slightly poking into its active area
+            if (c.opacity > 0.01 && c.frameGeometry.y + c.frameGeometry.height > cArea.y + 1) {
+                siblingsToHide.push(c);
+            }
+        }
+    }
+
     if (shouldShow) {
         target.keepAbove = keepAbove;
         target.onAllDesktops = true;
@@ -307,11 +302,12 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               var siblingDatas = [];
               for (var s = 0; s < siblingsToHide.length; s++) {
                   var sib = siblingsToHide[s];
+                  var sibArea = workspace.clientArea(KWin.PlacementArea, sib);
                   siblingDatas.push({
                       client: sib,
                       startY: sib.frameGeometry.y,
                       startOpacity: sib.opacity,
-                      endY: area.y - sib.frameGeometry.height
+                      endY: sibArea.y - sib.frameGeometry.height
                   });
               }
 
@@ -348,7 +344,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                     if (animateOpacity) {
                         var denom = 1.0 - hideOpacityPoint;
                         var opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-                        data.client.opacity = Math.max(0, data.startOpacity * (1.0 - opacityEase));
+                        data.client.opacity = Math.min(data.client.opacity, data.startOpacity * (1.0 - opacityEase));
                     }
                 }
 
@@ -361,7 +357,8 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                   for (var d = 0; d < siblingDatas.length; d++) {
                       var data = siblingDatas[d];
                       data.client.opacity = 0.0;
-                      data.client.frameGeometry = { x: data.client.frameGeometry.x, y: area.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+                      var sibArea = workspace.clientArea(KWin.PlacementArea, data.client);
+                      data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibArea.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
                   }
                 }
               });
@@ -397,11 +394,24 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
         }
     } else {
         var endY = area.y - finalHeight;
-        wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
+        var wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
 
         if (duration > 0) {
           var startTime = Date.now();
           var diff = endY - startY;
+
+          var siblingDatas = [];
+          for (var s = 0; s < siblingsToHide.length; s++) {
+              var sib = siblingsToHide[s];
+              var sibArea = workspace.clientArea(KWin.PlacementArea, sib);
+              siblingDatas.push({
+                  client: sib,
+                  startY: sib.frameGeometry.y,
+                  startOpacity: sib.opacity,
+                  endY: sibArea.y - sib.frameGeometry.height
+              });
+          }
+
           var timer = new QTimer();
           timer.interval = 16;
           timer.timeout.connect(function() {
@@ -419,12 +429,30 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
             target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
 
+            for (var d = 0; d < siblingDatas.length; d++) {
+                var data = siblingDatas[d];
+                var sibY = data.startY + (data.endY - data.startY) * ease;
+                data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+                if (animateOpacity) {
+                    var denom = 1.0 - hideOpacityPoint;
+                    var opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+                    data.client.opacity = Math.min(data.client.opacity, data.startOpacity * (1.0 - opacityEase));
+                }
+            }
+
             if (progress >= 1.0) {
               timer.stop();
               target.opacity = 0.0;
               target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
               target.fullScreen = false;
               if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+
+              for (var d = 0; d < siblingDatas.length; d++) {
+                  var data = siblingDatas[d];
+                  data.client.opacity = 0.0;
+                  var sibArea = workspace.clientArea(KWin.PlacementArea, data.client);
+                  data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibArea.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+              }
 
               var stillActive = (workspace.activeWindow === target || workspace.activeClient === target);
               if (wasActive && stillActive) {
@@ -471,6 +499,12 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
           target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
           target.fullScreen = false;
           if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+          for (var i = 0; i < siblingsToHide.length; i++) {
+              var sib = siblingsToHide[i];
+              sib.opacity = 0.0;
+              var sibArea = workspace.clientArea(KWin.PlacementArea, sib);
+              sib.frameGeometry = { x: sib.frameGeometry.x, y: sibArea.y - sib.frameGeometry.height, width: sib.frameGeometry.width, height: sib.frameGeometry.height };
+          }
         }
     }
 })"#;
