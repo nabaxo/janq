@@ -318,7 +318,7 @@ pub async fn run_daemon(
             pending = false;
             println!("Watcher: Debounced event triggered config reload...");
 
-            let (new_config, _) = match load_config() {
+            let (new_config, _) = match load_config(path_to_watch.clone()) {
               Ok(c) => c,
               Err(e) => {
                 let err_msg = format!("Config reload failed: {}", e);

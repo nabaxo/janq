@@ -57,14 +57,6 @@ To make janq start automatically when you log in:
 3.  Browse to your `janq.exe` location.
 4.  **Important**: To start in background mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\janq.exe" --daemon`).
 
-#### Windows Startup (Manual)
-
-To make Ruake start automatically when you log in:
-1.  Press `Win + R`, type `shell:startup`, and press Enter.
-2.  Right-click in the folder and select **New > Shortcut**.
-3.  Browse to your `ruake.exe` location.
-4.  **Important**: To start in background mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\ruake.exe" --daemon`).
-
 ### Windows Specifics: `window_class`
 
 On Windows, the `window_class` field is highly flexible and matches against several properties. janq uses a **priority-based scoring system** to ensure it always grabs the correct window:
@@ -98,11 +90,14 @@ start_command = 'C:\Program Files\Terminal\wt.exe'
 
 janq searches for a configuration file in the following order:
 
-1.  **User Configuration** (Recommended):
-    - `~/.janq.toml`
-    - `~/.config/janq/janq.toml`
-2.  **Binary Directory** (Portable Mode):
+1.  **Binary Directory** (Portable Mode):
     - Same folder as the `janq` executable.
+2.  **XDG Config Directory**:
+    - `~/.config/janq/janq.toml`
+    - _On Windows_: `%AppData%\Roaming\janq\janq.toml`
+3.  **User Configuration**:
+    - `~/.janq.toml`
+    - _On Windows_: `%UserProfile%\.janq.toml`
 
 > [!CAUTION]
 > **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. janq includes a safeguard to prevent destroying your system integration.

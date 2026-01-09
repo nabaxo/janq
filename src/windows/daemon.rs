@@ -116,7 +116,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
     let (tx, rx) = std::sync::mpsc::channel();
     let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
 
-    if let Some(path) = path_to_watch {
+    if let Some(path) = &path_to_watch {
       if path.exists() {
         let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
       }
@@ -150,7 +150,7 @@ pub fn run_daemon(initial_config: Config, config_path: Option<PathBuf>, target_a
           if pending {
             pending = false;
             println!("Config change detected, reloading...");
-            let (new_config, _) = match load_config() {
+            let (new_config, _) = match load_config(path_to_watch.clone()) {
               Ok(c) => c,
               Err(e) => {
                 // Restore all apps from current config before shutting down

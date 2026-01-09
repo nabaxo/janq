@@ -201,25 +201,47 @@ fn default_hotkey() -> String {
   "Meta+Grave".to_string()
 }
 
-pub fn load_config() -> Result<(Config, Option<PathBuf>), String> {
+pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathBuf>), String> {
+  if let Some(path) = target_path {
+    if path.exists() {
+      match fs::read_to_string(&path) {
+        Ok(content) => match toml::from_str::<Config>(&content) {
+          Ok(c) => {
+            println!("Loaded config from (cached): {:?}", path);
+            c.validate()?;
+            return Ok((c, Some(path)));
+          }
+          Err(e) => {
+            return Err(format!("Malformed config file at {:?}: {}", path, e));
+          }
+        },
+        Err(e) => {
+          return Err(format!("Could not read config file at {:?}: {}", path, e));
+        }
+      }
+    } else {
+      return Err(format!("Config file no longer exists at: {:?}", path));
+    }
+  }
+
   let mut config_paths = Vec::new();
 
-  if let Some(home) = dirs::home_dir() {
-    // 1. Home Directory
-    config_paths.push(home.join(".janq.toml"));
+  // 1. Current EXE Directory
+  if let Ok(exe) = std::env::current_exe() {
+    if let Some(parent) = exe.parent() {
+      config_paths.extend([parent.join("janq.toml"), parent.join(".janq.toml")]);
+    }
+  }
 
+  if let Some(home) = dirs::home_dir() {
     // 2. XDG Config Directory (~/.config/janq/)
     if let Some(xdg_config) = dirs::config_dir() {
       let janq_dir = xdg_config.join("janq");
       config_paths.extend([janq_dir.join("janq.toml"), janq_dir.join(".janq.toml")]);
     }
-  }
 
-  // 4. Current EXE Directory
-  if let Ok(exe) = std::env::current_exe() {
-    if let Some(parent) = exe.parent() {
-      config_paths.extend([parent.join("janq.toml"), parent.join(".janq.toml")]);
-    }
+    // 3. Home Directory
+    config_paths.push(home.join(".janq.toml"));
   }
 
   // De-duplicate while preserving order
@@ -362,7 +384,7 @@ mod tests {
     assert_eq!(t.d, Dimension::Pixels(800));
 
     let t: Test = toml::from_str("d = \"0\"").unwrap();
-    assert_eq!(t.d, Dimension::Pixels(0));
+    assert_eq!(t.d, Dimension::Unset);
 
     let err = toml::from_str::<Test>("d = \"50\"");
     assert!(err.is_err());

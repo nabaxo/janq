@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
   }
 
   let args = Args::parse();
-  let (config, config_path) = match config::load_config() {
+  let (config, config_path) = match config::load_config(None) {
     Ok(c) => c,
     Err(e) => {
       #[cfg(target_os = "linux")]
