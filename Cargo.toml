@@ -14,7 +14,6 @@ notify = "6.1"
 image = { version = "0.24", default-features = false, features = ["png", "ico"] }
 fs2 = "0.4"
 clap = { version = "4.4", features = ["derive"] }
-serde_json = "1.0"
 indexmap = { version = "2.0", features = ["serde"] }
 
 [build-dependencies]
@@ -37,7 +36,6 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Dxgi",
 ], default-features = false }
 tray-icon = "0.14"
-tao = "0.26"
 winit = "0.29"
 tokio = { version = "1.32", features = ["rt-multi-thread"] }
 global-hotkey = "0.5"

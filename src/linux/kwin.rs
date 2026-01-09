@@ -844,3 +844,20 @@ pub async fn reset_visibility(config: &Config) {
     }
   }
 }
+
+pub fn clear_removed_apps_from_cache(old_config: &Config, new_config: &Config) {
+  let removed_apps: Vec<_> = old_config
+    .app
+    .keys()
+    .filter(|name| !new_config.app.contains_key(*name))
+    .cloned()
+    .collect();
+
+  if !removed_apps.is_empty() {
+    if let Ok(mut cache) = get_window_cache().try_lock() {
+      for name in removed_apps {
+        cache.remove(&name);
+      }
+    }
+  }
+}

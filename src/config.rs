@@ -416,15 +416,14 @@ where
       // A simple trick: try to deserialize as HashMap<String, AppConfig>.
       // If it has keys like "window_class", it will fail if AppConfig doesn't match a map value.
 
-      let raw_map =
-        IndexMap::<String, serde_json::Value>::deserialize(MapAccessDeserializer::new(map))?;
+      let raw_map = IndexMap::<String, toml::Value>::deserialize(MapAccessDeserializer::new(map))?;
 
       if raw_map.is_empty() {
         return Ok(IndexMap::new());
       }
 
       // Heuristic: Check if the map contains sub-tables (Objects), which implies a multi-app config.
-      let has_subtables = raw_map.values().any(|v| v.is_object());
+      let has_subtables = raw_map.values().any(|v| v.is_table());
       let has_flat_keys =
         raw_map.contains_key("window_class") || raw_map.contains_key("start_command");
 
@@ -435,16 +434,15 @@ where
         // Treat as a map of apps
         let mut result = IndexMap::new();
         for (name, value) in raw_map {
-          if value.is_object() {
+          if value.is_table() {
             let config = AppConfig::deserialize(value).map_err(de::Error::custom)?;
             result.insert(name, config);
           }
         }
         Ok(result)
       } else if has_flat_keys {
-        let config =
-          AppConfig::deserialize(serde_json::Value::Object(raw_map.into_iter().collect()))
-            .map_err(de::Error::custom)?;
+        let config = AppConfig::deserialize(toml::Value::Table(raw_map.into_iter().collect()))
+          .map_err(de::Error::custom)?;
         let mut result = IndexMap::new();
 
         // Require window_class for single-app mode
@@ -469,7 +467,7 @@ where
     {
       let mut result = IndexMap::new();
       let mut i = 1;
-      while let Some(value) = seq.next_element::<serde_json::Value>()? {
+      while let Some(value) = seq.next_element::<toml::Value>()? {
         let config = AppConfig::deserialize(value).map_err(de::Error::custom)?;
         result.insert(format!("app{}", i), config);
         i += 1;

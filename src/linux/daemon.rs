@@ -371,6 +371,9 @@ pub async fn run_daemon(
                 }
               }
 
+              // 1.5. Clear cache entries for removed apps
+              crate::linux::kwin::clear_removed_apps_from_cache(&old_config, &new_config_in_async);
+
               reset_visibility(&new_config_in_async).await;
 
               // 2. Ensure all terminals are running and grabbed

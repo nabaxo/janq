@@ -180,17 +180,26 @@ pub fn run_daemon(
               let old_config = (**w).clone();
               *w = Arc::new(new_config.clone());
 
-              for app_cfg in old_config.app.values() {
+              // Collect removed app names first, then clear cache entries
+              let mut removed_apps = Vec::new();
+              for (name, app_cfg) in &old_config.app {
                 let still_managed = new_config
                   .app
                   .values()
                   .any(|new_app_cfg| new_app_cfg.window_class == app_cfg.window_class);
                 if !still_managed {
                   crate::windows::window::restore_app_window(&app_cfg.window_class);
+                  removed_apps.push(name.clone());
                 }
               }
-              // NOTE: Don't clear HWND cache here - let the respawn loop handle cache
-              // invalidation naturally via IsWindow() checks. Clearing causes races.
+
+              // Clear cache entries for removed apps
+              if !removed_apps.is_empty() {
+                let mut cache = get_hwnd_cache().write().unwrap();
+                for name in removed_apps {
+                  cache.remove(&name);
+                }
+              }
             }
             let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
           }
