@@ -166,8 +166,8 @@ pub fn run_daemon(
               Err(e) => {
                 // Restore all apps from current config before shutting down
                 let current_cfg = config_clone_watcher.read().unwrap().clone();
-                for (_name, app_cfg) in &current_cfg.app {
-                  crate::windows::window::restore_app_window("", &app_cfg.window_class);
+                for app_cfg in current_cfg.app.values() {
+                  crate::windows::window::restore_app_window(&app_cfg.window_class);
                 }
 
                 crate::windows::show_error(&e.to_string());
@@ -180,13 +180,13 @@ pub fn run_daemon(
               let old_config = (**w).clone();
               *w = Arc::new(new_config.clone());
 
-              for (name, app_cfg) in &old_config.app {
+              for app_cfg in old_config.app.values() {
                 let still_managed = new_config
                   .app
                   .values()
                   .any(|new_app_cfg| new_app_cfg.window_class == app_cfg.window_class);
                 if !still_managed {
-                  crate::windows::window::restore_app_window(name, &app_cfg.window_class);
+                  crate::windows::window::restore_app_window(&app_cfg.window_class);
                 }
               }
               // NOTE: Don't clear HWND cache here - let the respawn loop handle cache

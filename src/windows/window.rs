@@ -93,7 +93,7 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
     target_struct.found_data.push(FoundWindow {
       hwnd,
       class_name,
-      _proc_name: proc_name,
+      proc_name: proc_name,
       title,
     });
   }
@@ -103,7 +103,7 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 struct FoundWindow {
   hwnd: HWND,
   class_name: String,
-  _proc_name: String,
+  proc_name: String,
   title: String,
 }
 
@@ -151,8 +151,8 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
         } else if data.class_name.contains(&search.name) {
           score += 1000;
         }
-        if data._proc_name.contains(&search.name)
-          || (!search.compact_name.is_empty() && data._proc_name.contains(&search.compact_name))
+        if data.proc_name.contains(&search.name)
+          || (!search.compact_name.is_empty() && data.proc_name.contains(&search.compact_name))
         {
           score += 4500;
         }
@@ -894,7 +894,7 @@ pub async fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConf
   }
 }
 
-pub fn restore_app_window(_app_name: &str, window_class: &str) {
+pub fn restore_app_window(window_class: &str) {
   if let Some(hwnd) = find_window_by_process(window_class) {
     unsafe {
       let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
@@ -926,8 +926,8 @@ pub fn restore_app_window(_app_name: &str, window_class: &str) {
 }
 
 pub fn restore_window_visibility(config: &Config) {
-  for (name, cfg) in &config.app {
-    restore_app_window(name, &cfg.window_class);
+  for cfg in config.app.values() {
+    restore_app_window(&cfg.window_class);
   }
 }
 pub fn reset_visible_app() {

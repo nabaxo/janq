@@ -103,6 +103,21 @@ impl Config {
       }
     }
 
+    for (app_name, app_cfg) in &self.app {
+      if app_cfg.window_class.is_empty() {
+        return Err(format!(
+          "App '{}' is missing required field 'window_class'.",
+          app_name
+        ));
+      }
+      if app_cfg.start_command.is_empty() {
+        return Err(format!(
+          "App '{}' is missing required field 'start_command'.",
+          app_name
+        ));
+      }
+    }
+
     if self.app.is_empty() {
       return Err(
         "No app configured. Add at least one [app] or [app.name] section to your config."
@@ -235,8 +250,8 @@ impl Default for AnimationConfig {
       show_easing: "ease".to_string(),
       hide_easing: "ease".to_string(),
       animate_opacity: false,
-      show_opacity_point: 0.0,
-      hide_opacity_point: 0.0,
+      show_opacity_point: 0.2,
+      hide_opacity_point: 0.8,
     }
   }
 }

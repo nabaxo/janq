@@ -224,7 +224,7 @@ Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl
 
 **International / Special:**
 *   `section` ( `§` ) - *Mapped to `IntlBackslash` (the key below Esc on some ISO keyboards)*
-*   `plusminus` ( `±` )
+*   `plusminus` / `±`
 *   `dead_grave`
 
 ## Related Projects
