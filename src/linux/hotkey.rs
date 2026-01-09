@@ -170,13 +170,6 @@ trait KGlobalAccel {
   #[zbus(name = "allActionsForComponent")]
   fn all_actions_for_component(&self, action_id: Vec<String>) -> zbus::Result<Vec<Vec<String>>>;
 
-  #[zbus(name = "setShortcutKeys")]
-  fn set_shortcut_keys(
-    &self,
-    action_id: Vec<String>,
-    keys: Vec<(Vec<i32>,)>,
-  ) -> zbus::Result<Vec<(Vec<i32>,)>>;
-
   #[zbus(name = "setShortcut")]
   fn set_shortcut(
     &self,
@@ -184,13 +177,6 @@ trait KGlobalAccel {
     keys: Vec<i32>,
     flags: u32,
   ) -> zbus::Result<Vec<i32>>;
-
-  #[zbus(name = "setForeignShortcutKeys")]
-  fn set_foreign_shortcut_keys(
-    &self,
-    action_id: Vec<String>,
-    keys: Vec<(Vec<i32>,)>,
-  ) -> zbus::Result<()>;
 
   #[zbus(name = "doRegister")]
   fn do_register(&self, action_id: Vec<String>) -> zbus::Result<()>;
