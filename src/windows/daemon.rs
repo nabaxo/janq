@@ -170,7 +170,7 @@ pub fn run_daemon(
                   crate::windows::window::restore_app_window("", &app_cfg.window_class);
                 }
 
-                crate::windows::show_error(&e);
+                crate::windows::show_error(&e.to_string());
                 let _ = watcher_proxy.send_event(DaemonEvent::Exit);
                 return;
               }
@@ -212,7 +212,7 @@ pub fn run_daemon(
     &config.read().unwrap(),
     &hotkey_map,
     &current_hotkeys,
-  );
+  )?;
 
   let manager = Some(manager_arc);
   let mut tray_icon: Option<tray_icon::TrayIcon> = None;
@@ -348,7 +348,9 @@ pub fn run_daemon(
 
             // 1. Sync Hotkeys
             if let Some(m) = &manager {
-              sync_hotkeys(Arc::clone(m), &cfg, &hotkey_map, &current_hotkeys);
+              if let Err(e) = sync_hotkeys(Arc::clone(m), &cfg, &hotkey_map, &current_hotkeys) {
+                crate::windows::show_error(&e.to_string());
+              }
             }
 
             // 2. Refresh Tray Menu
@@ -536,8 +538,8 @@ pub fn sync_hotkeys(
   config: &Config,
   hotkey_map: &Arc<RwLock<std::collections::HashMap<u32, String>>>,
   current_hotkeys: &Arc<RwLock<Vec<HotKey>>>,
-) {
-  // 0. Check if we actually need to sync
+) -> Result<()> {
+  // 1. Check if we actually need to sync
   let mut desired_map = std::collections::HashMap::new();
   let mut desired_hks = Vec::new();
   for (app_name, app_cfg) in &config.app {
@@ -575,12 +577,12 @@ pub fn sync_hotkeys(
 
       if identical {
         println!("Hotkey: Windows hotkeys already correct. Skipping sync.");
-        return;
+        return Ok(());
       }
     }
   }
 
-  // 1. Unregister all existing hotkeys
+  // 2. Unregister all existing hotkeys
   {
     let mut hks = current_hotkeys.write().unwrap();
     if !hks.is_empty() {
@@ -634,7 +636,13 @@ pub fn sync_hotkeys(
             }
           }
         }
-        Err(e) => eprintln!("  ✗ Failed to parse {}: {}", hk_str, e),
+        Err(e) => {
+          return Err(anyhow::anyhow!(
+            "Failed to parse hotkey '{}': {}",
+            hk_str,
+            e
+          ))
+        }
       }
     }
   }
@@ -648,4 +656,6 @@ pub fn sync_hotkeys(
     let mut map = hotkey_map.write().unwrap();
     *map = new_map;
   }
+
+  Ok(())
 }

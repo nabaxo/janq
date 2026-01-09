@@ -60,13 +60,43 @@ impl Config {
   pub fn validate(&self) -> Result<(), String> {
     let mut seen_hotkeys = HashMap::new();
     for (app_name, app_cfg) in &self.app {
-      for key in app_cfg.hotkey.as_vec() {
+      let hotkeys = app_cfg.hotkey.as_vec();
+
+      if hotkeys.len() > 4 {
+        return Err(format!(
+          "App '{}' has {} hotkeys defined, but janq only supports a maximum of 4 hotkeys per application.",
+          app_name,
+          hotkeys.len()
+        ));
+      }
+
+      for key in hotkeys {
         if !key.is_empty() {
-          let lower_key = key.to_lowercase();
-          if let Some(other_app) = seen_hotkeys.insert(lower_key.clone(), app_name.clone()) {
+          validate_hotkey(&key)
+            .map_err(|e| format!("Invalid hotkey for app '{}': {}", app_name, e))?;
+
+          // Normalize for duplicate detection (sort modifiers, keep base key at the end)
+          let mut mods = Vec::new();
+          let mut base = String::new();
+          for part in key.split('+').map(|s| s.trim().to_lowercase()) {
+            match part.as_str() {
+              "ctrl" | "control" | "alt" | "shift" | "meta" | "super" | "win" | "cmd" => {
+                mods.push(part)
+              }
+              _ => base = part,
+            }
+          }
+          mods.sort();
+          let normalized = if mods.is_empty() {
+            base
+          } else {
+            format!("{}+{}", mods.join("+"), base)
+          };
+
+          if let Some(other_app) = seen_hotkeys.insert(normalized.clone(), app_name.clone()) {
             return Err(format!(
-              "Duplicate hotkey '{}' found in app '{}' and '{}'",
-              key, other_app, app_name
+              "Duplicate hotkey '{}' (normalized: '{}') found in app '{}' and '{}'",
+              key, normalized, other_app, app_name
             ));
           }
         }
@@ -213,6 +243,57 @@ impl Default for AnimationConfig {
 
 fn default_hotkey() -> String {
   "Meta+Grave".to_string()
+}
+
+fn validate_hotkey(s: &str) -> Result<(), String> {
+  let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
+  let mut has_base_key = false;
+
+  for part in parts {
+    let p = part.to_lowercase();
+    match p.as_str() {
+      "ctrl" | "control" | "alt" | "shift" | "meta" | "super" | "win" | "cmd" => {}
+      "" => return Err("Empty key part (double plus or trailing plus?)".to_string()),
+      _ => {
+        // Must be the base key
+        if has_base_key {
+          return Err(format!(
+            "Multiple base keys found: use only one base key (e.g., 'F1') per shortcut."
+          ));
+        }
+
+        // Validate base key name
+        if !is_valid_base_key(&p) {
+          return Err(format!("Unknown or invalid key name: '{}'", part));
+        }
+        has_base_key = true;
+      }
+    }
+  }
+
+  if !has_base_key {
+    return Err("No base key specified (e.g., 'Meta+F1' - 'Meta' is just a modifier)".to_string());
+  }
+
+  Ok(())
+}
+
+fn is_valid_base_key(s: &str) -> bool {
+  match s {
+    // Alphanumeric
+    s if s.len() == 1 && s.chars().next().unwrap().is_ascii_alphanumeric() => true,
+    // Special keys
+    "grave" | "`" | "backtick" | "section" | "§" | "plusminus" | "±" | "minus" | "-" | "equal"
+    | "=" | "dead_grave" => true,
+    "bracketleft" | "[" | "bracketright" | "]" | "backslash" | "\\" | "semicolon" | ";"
+    | "quote" | "'" | "comma" | "," | "period" | "." | "slash" | "/" => true,
+    "enter" | "return" | "space" | "esc" | "escape" | "tab" | "capslock" | "caps_lock"
+    | "backspace" => true,
+    "up" | "arrowup" | "down" | "arrowdown" | "left" | "arrowleft" | "right" | "arrowright" => true,
+    "pgup" | "pageup" | "pgdn" | "pagedown" | "home" | "end" | "insert" | "delete" | "del" => true,
+    "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" => true,
+    _ => false,
+  }
 }
 
 pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathBuf>), String> {

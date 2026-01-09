@@ -94,7 +94,10 @@ fn main() -> anyhow::Result<()> {
 
       let target_app_owned = target_app.map(|s| s.to_string());
       if args.daemon {
-        daemon::run_daemon(config, config_path, target_app_owned).await?;
+        if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
+          linux::show_error(&e.to_string());
+          std::process::exit(1);
+        }
         return Ok(());
       }
 
@@ -103,7 +106,10 @@ fn main() -> anyhow::Result<()> {
       }
 
       println!("Daemon not running (or reachable). Starting new daemon instance...");
-      daemon::run_daemon(config, config_path, target_app_owned).await?;
+      if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
+        linux::show_error(&e.to_string());
+        std::process::exit(1);
+      }
       Ok(())
     })
   }
@@ -120,7 +126,10 @@ fn main() -> anyhow::Result<()> {
 
     let target_app_owned = target_app.map(|s| s.to_string());
     if args.daemon {
-      daemon::run_daemon(config, config_path, target_app_owned)?;
+      if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned) {
+        windows::show_error(&e.to_string());
+        std::process::exit(1);
+      }
       return Ok(());
     }
 
@@ -145,7 +154,10 @@ fn main() -> anyhow::Result<()> {
 
     println!("Daemon not running (or reachable). Starting new daemon instance...");
     // This takes over the thread with Winit loop
-    daemon::run_daemon(config, config_path, target_app_owned)?;
+    if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned) {
+      windows::show_error(&e.to_string());
+      std::process::exit(1);
+    }
     Ok(())
   }
 }

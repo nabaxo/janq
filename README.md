@@ -198,6 +198,15 @@ janq supports a wide range of keycodes for defining hotkeys. Keys are case-insen
 **Modifiers:** `Ctrl`, `Alt`, `Shift`, `Meta` (Super/Windows/Cmd).
 Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl+alt+shift+meta+z`, whatever floats your boat).
 
+> [!NOTE]
+> **Multi-Hotkey Support**: `janq` supports up to **four hotkeys** per application on both Windows and Linux.
+
+> [!TIP]
+> **Single Hotkey Support**: You can define hotkeys without any modifiers (e.g., `hotkey = "F1"` or `hotkey = "PageUp"`).
+>
+> [!IMPORTANT]
+> **Global Hijacking**: If you use a single character key (like `hotkey = "s"`) as a global shortcut, it will act globally across your system while the daemon is running. Pressing that key will toggle your application instead of typing the character. We recommend using **Function keys (`F1`-`F12`)** or **Navigation keys** for single-key hotkeys.
+
 **Standard Keys:**
 *   **Alphanumeric:** `a`-`z`, `0`-`9`
 *   **Function:** `f1`-`f12`

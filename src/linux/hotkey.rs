@@ -1,5 +1,5 @@
 use crate::config::Config;
-use anyhow::Result;
+use anyhow::{Context, Result};
 // Convert KDE shortcut string (e.g. "Meta+Grave") to Qt keycode integer
 
 /// Normalize a shortcut string to KDE's expected format for display in System Settings.
@@ -154,11 +154,21 @@ fn map_qt_key(s: &str) -> i32 {
   }
 }
 
-fn shortcut_to_keycode(shortcut: &str) -> i32 {
-  shortcut
-    .split('+')
-    .map(|part| map_qt_key(part.trim().to_lowercase().as_str()))
-    .sum::<i32>()
+fn shortcut_to_keycode(shortcut: &str) -> Result<i32> {
+  let mut total = 0;
+  for part in shortcut.split('+').map(|p| p.trim()) {
+    if part.is_empty() {
+      continue;
+    }
+    let p = part.to_lowercase();
+    let key = map_qt_key(&p);
+    if key == 0 {
+      return Err(anyhow::anyhow!("Unknown Linux key name: '{}'", part));
+    }
+    total += key;
+  }
+
+  Ok(total)
 }
 
 #[zbus::proxy(
@@ -300,21 +310,25 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
       ];
 
       // Perform standard registration sequence
-      if let Err(e) = proxy.do_register(action_id.clone()).await {
-        eprintln!("WARN: do_register failed for '{}': {}", app_name, e);
-      }
+      proxy
+        .do_register(action_id.clone())
+        .await
+        .with_context(|| format!("do_register failed for '{}'", app_name))?;
       tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-      // Set shortcut with Flag 3 (Default | Active)
+      // Build the key sequence (up to 4 keys)
       let mut key_seq = vec![0; 4];
-      key_seq[0] = shortcut_to_keycode(&hotkeys[0]);
-
-      if key_seq[0] != 0 {
-        if let Err(e) = proxy.set_shortcut(action_id, key_seq, 3).await {
-          eprintln!("WARN: set_shortcut failed for '{}': {}", app_name, e);
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+      for (i, hk_str) in hotkeys.iter().enumerate() {
+        // Validation already performed as pre-step at the top of the function
+        key_seq[i] = shortcut_to_keycode(hk_str).unwrap_or(0);
       }
+
+      proxy
+        .set_shortcut(action_id, key_seq, 3)
+        .await
+        .with_context(|| format!("set_shortcut failed for '{}'", app_name))?;
+
+      tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
   }
 
