@@ -164,6 +164,9 @@ hotkey = "Meta+Z"
 | | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
 
+> [!WARNING]
+> Configuring a multiwindow app as `window_class` will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)_/¯
+
 ### Easing Modes
 
 | Mode | Description |
