@@ -1,6 +1,6 @@
 DIST_DIR := dist
 
-build: lint build-linux build-windows
+build: format lint build-linux build-windows
 
 lint:
 	cargo fmt --all -- --check

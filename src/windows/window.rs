@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, Config};
+use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 use crate::windows::easing::get_easing;
 use tokio::time::Instant;
 use windows::Win32::Foundation::{BOOL, COLORREF, HWND, LPARAM, POINT, RECT, TRUE};
@@ -67,58 +67,54 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
   let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buffer);
   let class_name = String::from_utf16_lossy(&class_buffer[..class_len as usize]).to_lowercase();
 
-  let mut title_buf = [0u16; 256];
-  let title_len = windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut title_buf);
-  let title = String::from_utf16_lossy(&title_buf[..title_len as usize]).to_lowercase();
+  // Basic junk filtering: tool windows are usually not terminals
+  unsafe {
+    let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    if (style & windows::Win32::UI::WindowsAndMessaging::WS_EX_TOOLWINDOW.0) != 0 {
+      return BOOL(1);
+    }
+  }
 
-  // Fast path: check class_name and title first (no syscall)
-  let matches_class = class_name.contains(&target_struct.name);
-  let matches_title = title.contains(&target_struct.name);
+  // Filter out known junk classes
+  if class_name.contains("nvopengl")
+    || class_name.contains("wgpu")
+    || class_name == "ime"
+    || class_name == "msctfime ui"
+  {
+    return BOOL(1);
+  }
 
   // Always open process for technical ID
   let mut proc_name = String::new();
-  if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+  if let Ok(process) =
+    unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) }
+  {
     let mut buffer = [0u16; 1024];
-    let len = GetModuleBaseNameW(process, None, &mut buffer);
+    let len = unsafe { GetModuleBaseNameW(process, None, &mut buffer) };
     if len > 0 {
       proc_name = String::from_utf16_lossy(&buffer[..len as usize]).to_lowercase();
     }
   }
 
-  if matches_class
-    || matches_title
-    || proc_name.contains(&target_struct.name)
-    || (!target_struct.compact_name.is_empty() && proc_name.contains(&target_struct.compact_name))
-  {
-    target_struct.found_data.push(FoundWindow {
-      hwnd,
-      class_name,
-      proc_name: proc_name,
-      title,
-    });
-  }
+  let is_visible = unsafe { IsWindowVisible(hwnd).as_bool() };
+
+  target_struct.found_data.push(FoundWindow {
+    id: (hwnd.0 as usize).to_string(),
+    class_name,
+    proc_name,
+    pid,
+    is_visible,
+  });
+
   BOOL(1)
 }
 
-struct FoundWindow {
-  hwnd: HWND,
-  class_name: String,
-  proc_name: String,
-  title: String,
-}
-
 struct TargetSearch {
-  name: String,
-  compact_name: String,
   found_data: Vec<FoundWindow>,
 }
 
 pub fn find_window_by_process(name: &str) -> Option<HWND> {
-  let lower_name = name.to_lowercase();
-  let compact_name = lower_name.replace(" ", "");
   let mut search = TargetSearch {
-    name: lower_name,
-    compact_name,
     found_data: Vec::new(),
   };
   unsafe {
@@ -127,69 +123,19 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
       LPARAM(&mut search as *mut _ as isize),
     );
   }
-  let mut best_hwnd = None;
-  let mut best_score = -5000;
-  for data in search.found_data {
-    let hwnd = data.hwnd;
-    unsafe {
-      let mut rect = RECT::default();
-      if GetWindowRect(hwnd, &mut rect).is_ok() {
-        let w = rect.right - rect.left;
-        let h = rect.bottom - rect.top;
-        let is_minimized = IsIconic(hwnd).as_bool();
-        if (w <= 0 || h <= 0) && !is_minimized {
-          continue;
-        }
-        let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-        if (style & windows::Win32::UI::WindowsAndMessaging::WS_EX_TOOLWINDOW.0) != 0 {
-          continue;
-        }
-        let is_visible = IsWindowVisible(hwnd).as_bool();
-        let mut score = 0;
-        if data.class_name == search.name {
-          score += 5000;
-        } else if data.class_name.contains(&search.name) {
-          score += 1000;
-        }
-        if data.proc_name.contains(&search.name)
-          || (!search.compact_name.is_empty() && data.proc_name.contains(&search.compact_name))
-        {
-          score += 4500;
-        }
-        if is_visible {
-          score += 2000;
-        }
-        if is_minimized {
-          score += 1000;
-        }
-        let lower_title = data.title.to_lowercase();
-        if lower_title.contains("dummy")
-          || lower_title.contains("invisible")
-          || data.class_name.contains("nvopengl")
-          || data.class_name.contains("wgpu")
-        {
-          score -= 4000;
-        }
-        if data.class_name == "ime" || data.class_name == "msctfime ui" {
-          score -= 4500;
-        }
-        let style_regular =
-          GetWindowLongW(hwnd, windows::Win32::UI::WindowsAndMessaging::GWL_STYLE) as u32;
-        if (style_regular & windows::Win32::UI::WindowsAndMessaging::WS_CAPTION.0) != 0 {
-          score += 500;
-        }
-        if !data.title.is_empty() {
-          score += 200;
-        }
-        score += ((w * h) / 10000).min(100);
-        if score > best_score {
-          best_score = score;
-          best_hwnd = Some(hwnd);
-        }
-      }
-    }
+
+  let cache = get_hwnd_cache().read().unwrap();
+  let managed_ids: Vec<String> = cache
+    .values()
+    .map(|sh| (sh.inner().0 as usize).to_string())
+    .collect();
+
+  if let Some(best) = fuzzy_match_window(name, &search.found_data, &managed_ids) {
+    let handle = best.id.parse::<usize>().unwrap();
+    return Some(HWND(handle as *mut _));
   }
-  best_hwnd
+
+  None
 }
 
 struct MonitorEnumCtx {

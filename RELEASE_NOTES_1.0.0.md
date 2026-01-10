@@ -1,0 +1,160 @@
+*(Human note: AI wrote all of it, I don't know how to write rust. I just gave it directions and provided the bezier curve for "windows" scrolling at most. Seriously, I have no idea if this is a well written app or not, but it works fine with everything I've thrown at it.).*
+
+*What follows was written by AI, lightly edited by the human*
+
+# janq v1.0.0 — Behold, The Slop Works
+
+**Release Date:** January 10, 2026
+
+> **janq** - The Janky Quake-Style Terminal Manager
+
+---
+
+## ✨ Highlights
+
+### Cross-Platform
+- Full feature parity between **Linux (KDE Plasma/Wayland)** and **Windows**
+- Native integrations on both platforms—no wrappers, no compromises
+
+- Hardware-accelerated animations with **15+ easing curves**, plus support for **custom cubic-bezier curves** for ultimate control
+
+### Zero-Config Hotkeys
+- **Linux:** Automatically syncs your hotkey configuration directly with KDE System Settings via D-Bus
+- **Windows:** Native hotkey registration with instant response times
+
+- **Advanced weighted fuzzy matching** on both platforms—find windows using abbreviations, substrings, or delimiters with a sophisticated scoring engine that rewards word boundaries and penalizes gaps.
+- **High-Performance Linux Path**: Zero-IPC liveness checks via `/proc` ensuring that toggling and animation reversals occur with $<0.1$ms overhead.
+
+---
+
+## 🚀 Features
+
+### Window Management
+- **Flexible dimensions** with `px` and `%` units, plus per-app overrides
+- **Display modes:** `follow-mouse`, `active` (focus-based), and `specific` (fixed monitor)
+- **Keep above** option to float above other windows
+- **Force priority** mode (Linux) to sit above fullscreen applications
+- **Focus restoration**—remembers your previous window and restores focus instantly
+
+### Multi-App Support
+- Configure **multiple applications** with individual hotkeys
+- **Up to 4 hotkeys** per application on both platforms
+- **Ordered configuration**—app order in config determines systray menu order
+- **CLI control** via `./janq --app <name>` for scripting
+
+### Configuration
+- **Hot-reload** support—changes apply without restart
+- **Multiple config locations** with clear priority order:
+  1. Binary directory (portable mode)
+  2. XDG config directory (`~/.config/janq/`)
+  3. Home directory (`~/.janq.toml`)
+- Comprehensive TOML configuration with sensible defaults
+
+### Animations
+- **Customizable durations** for show/hide animations
+- **Opacity animations** with configurable fade points
+- **Premium easing curves:**
+  - `windows` (Windows 11-style)
+  - `linear`, `ease`, `sine`, `cubic`, `quart`, `back`
+  - Full `-in`, `-out`, and `-in-out` variants
+- **Custom Easing Support**: Define your own curves with `cubic-bezier(x1, y1, x2, y2)`, `bezier(...)`, or simply `(x1, y1, x2, y2)`
+
+### System Integration
+- **Linux:** Desktop entry generation, icon installation, D-Bus activation support
+- **Windows:** System tray icon with context menu, startup support via shortcuts
+
+---
+
+## 🛠️ Technical Improvements
+
+### Performance
+- **Zero polling** architecture—event-driven on both platforms
+- **Lazy window caching** to minimize Win32/KWin API calls
+- **LTO and release optimizations** for minimal binary size
+- Memory leak prevention with automatic cache cleanup on config reload
+
+### Reliability
+- **Single instance enforcement** via file locks
+- Proper **signal handling** (SIGINT/SIGTERM) ensuring graceful shutdown
+- **Window restoration** on daemon exit—your apps return to their original positions
+- Robust error handling with user-friendly error dialogs
+
+### Code Quality
+- Comprehensive refactoring for maintainability
+- Platform-specific modules with clean abstractions
+- Removal of unnecessary dependencies (reduced footprint)
+
+---
+
+## 📋 Configuration Example
+
+```toml
+[window]
+display_mode = "active"
+width = "50%"
+height = "600px"
+auto_show = false
+
+[animation]
+show_duration = 350
+show_easing = "windows"
+animate_opacity = true
+
+[app.terminal]
+window_class = "wezquake"
+start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
+hotkey = ["Meta+Grave", "Ctrl+Grave"]
+
+[app.zed]
+window_class = "zed"
+start_command = "zed"
+hotkey = "Meta+Z"
+```
+
+---
+
+## ⚠️ Known Issues
+
+### Linux: Hotkey Registration Delay
+On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
+
+---
+
+## 📦 Installation
+
+*(Human note: Just download an run the binary. If you want build directions follow).*
+
+### Prerequisites
+- **Linux:** KDE Plasma 6, `kdotool` for Wayland window management
+- **Windows:** Windows 10 or 11
+
+### Building
+```bash
+make build-linux   # Outputs: ./dist/janq
+make build-windows # Outputs: ./dist/janq.exe
+```
+
+### Running
+```bash
+./janq           # Start daemon (first run) or toggle (subsequent runs)
+./janq --daemon  # Start in background mode
+./janq --app zed # Toggle a specific app
+```
+
+---
+
+## 🙏 Acknowledgments
+
+- **kdotool** for Wayland window management
+- **zbus** for D-Bus communication
+- The Rust community for excellent crates
+
+---
+
+## 📄 License
+
+MIT License
+
+---
+
+*janq is 100%, unadulterated vibe coded slop. User discretion is advised.* ⚠️

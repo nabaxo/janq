@@ -10,6 +10,7 @@ use std::sync::{Arc, RwLock};
 use tokio::io::AsyncWriteExt;
 use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
 use tokio::runtime::Runtime;
+use tokio::signal;
 use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
   MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
@@ -180,24 +181,26 @@ pub fn run_daemon(
               let old_config = (**w).clone();
               *w = Arc::new(new_config.clone());
 
-              // Collect removed app names first, then clear cache entries
-              let mut removed_apps = Vec::new();
-              for (name, app_cfg) in &old_config.app {
-                let still_managed = new_config
-                  .app
-                  .values()
-                  .any(|new_app_cfg| new_app_cfg.window_class == app_cfg.window_class);
-                if !still_managed {
-                  crate::windows::window::restore_app_window(&app_cfg.window_class);
-                  removed_apps.push(name.clone());
-                }
-              }
-
-              // Clear cache entries for removed apps
-              if !removed_apps.is_empty() {
-                let mut cache = get_hwnd_cache().write().unwrap();
-                for name in removed_apps {
-                  cache.remove(&name);
+              // 1. Handle removed or changed apps
+              let mut cache = get_hwnd_cache().write().unwrap();
+              for (name, old_app_cfg) in &old_config.app {
+                match new_config.app.get(name) {
+                  Some(new_app_cfg) => {
+                    // App still exists, but check if class changed
+                    if new_app_cfg.window_class != old_app_cfg.window_class {
+                      println!(
+                        "App '{}' window_class changed. Clearing cache for re-detection.",
+                        name
+                      );
+                      cache.remove(name);
+                    }
+                  }
+                  None => {
+                    // App removed - restore window and clear cache
+                    println!("App '{}' removed from config. Restoring window.", name);
+                    crate::windows::window::restore_app_window(&old_app_cfg.window_class);
+                    cache.remove(name);
+                  }
                 }
               }
             }
@@ -248,7 +251,7 @@ pub fn run_daemon(
 
   // Watch for Ctrl+C
   rt.spawn(async move {
-    if let Ok(_) = tokio::signal::ctrl_c().await {
+    if signal::ctrl_c().await.is_ok() {
       println!("Ctrl+C received. Sending exit signal...");
       let _ = proxy.send_event(DaemonEvent::Exit);
     }
@@ -493,10 +496,19 @@ pub fn run_daemon(
           LAST_CHECK_SEC.store(now_sec, Ordering::Relaxed);
           let cfg = config_clone_loop.read().unwrap().clone();
           for (name, app_cfg) in &cfg.app {
-            // Only check if NOT in cache or invalid
+            // Only check if NOT in cache, invalid, OR NOT already spawning
             let needs_check = {
               let cache = get_hwnd_cache().read().unwrap();
-              if let Some(hwnd) = cache.get(name) {
+              let already_spawning = {
+                let spawning = crate::windows::terminal::get_spawning_apps()
+                  .lock()
+                  .unwrap();
+                spawning.contains(name)
+              };
+
+              if already_spawning {
+                false
+              } else if let Some(hwnd) = cache.get(name) {
                 unsafe { !windows::Win32::UI::WindowsAndMessaging::IsWindow(hwnd.0).as_bool() }
               } else {
                 true
@@ -626,13 +638,13 @@ pub fn sync_hotkeys(
               if key_code == global_hotkey::hotkey::Code::IntlBackslash {
                 let fallback_key =
                   HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backquote);
-                if let Ok(_) = manager.register(fallback_key) {
+                if manager.register(fallback_key).is_ok() {
                   new_map.insert(fallback_key.id(), app_name.clone());
                   new_hks.push(fallback_key);
                 } else {
                   let fallback_key2 =
                     HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backslash);
-                  if let Ok(_) = manager.register(fallback_key2) {
+                  if manager.register(fallback_key2).is_ok() {
                     new_map.insert(fallback_key2.id(), app_name.clone());
                     new_hks.push(fallback_key2);
                   } else {

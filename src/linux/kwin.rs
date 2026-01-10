@@ -1,4 +1,7 @@
 use crate::config::{AppConfig, Config};
+use crate::linux::terminal::{
+  check_window_exists, check_window_exists_with_candidates, fetch_system_windows, get_pid_for_class,
+};
 use std::fs;
 use std::process::Command;
 use tokio::sync::Mutex;
@@ -128,15 +131,36 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     if (!target) return;
 
     function getEasing(progress, type) {
+      if (type.indexOf("(") !== -1) {
+          var content = "";
+          if (type.indexOf("cubic-bezier(") === 0) content = type.substring(13, type.length - 1);
+          else if (type.indexOf("bezier(") === 0) content = type.substring(7, type.length - 1);
+          else if (type.indexOf("(") === 0) content = type.substring(1, type.length - 1);
+
+          if (content) {
+              var parts = content.split(",").map(function(p) { return parseFloat(p.trim()); });
+              if (parts.length === 4 && !parts.some(isNaN)) {
+                  var t = progress;
+                  for (var i = 0; i < 8; i++) {
+                      var xt = 3 * (1 - t) * (1 - t) * t * parts[0] + 3 * (1 - t) * t * t * parts[2] + t * t * t;
+                      var dxt = 3 * (1 - 4 * t + 3 * t * t) * parts[0] + 3 * (2 * t - 3 * t * t) * parts[2] + 3 * t * t;
+                      if (Math.abs(dxt) < 1e-6) break;
+                      t -= (xt - progress) / dxt;
+                  }
+                  return 3 * (1 - t) * (1 - t) * t * parts[1] + 3 * (1 - t) * t * t * parts[3] + t * t * t;
+              }
+          }
+      }
       if (type === "windows") {
-          // Cubic Bezier solver for (0.25, 0, 0, 1)
+          // Cubic Bezier solver for (0.25, 0, 0, 1) shortcut
           var t = progress;
-          for (var i = 0; i < 5; i++) {
+          for (var i = 0; i < 8; i++) {
               var xt = 3 * (1 - t) * (1 - t) * t * 0.25 + t * t * t;
-              var dxt = 3 * (1 - t) * (1 - t) * 0.25 + 6 * (1 - t) * t * (0.5 - 0.25) + 3 * t * t;
+              var dxt = 3 * (1 - 4 * t + 3 * t * t) * 0.25 + 3 * t * t;
+              if (Math.abs(dxt) < 1e-6) break;
               t -= (xt - progress) / dxt;
           }
-          return 3 * (1 - t) * (1 - t) * t * 0 + 3 * (1 - t) * t * t * 1 + t * t * t;
+          return 3 * (1 - t) * t * t * 1 + t * t * t;
       }
       switch (type) {
         case "linear": return progress;
@@ -313,7 +337,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
               var firstFrame = true;
               var timer = new QTimer();
-              timer.interval = 16;
+              timer.interval = 8;
               timer.timeout.connect(function() {
                 var now = Date.now();
                 var elapsed = now - startTime;
@@ -321,6 +345,10 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                 var ease = getEasing(progress, easingType);
 
                 if (firstFrame) {
+                    var current = workspace.activeWindow;
+                    workspace.activeWindow = null;   // Drop focus (forces Obsidian to "Occlude")
+                    workspace.activeWindow = target; // Grab focus (forces Obsidian to "Paint")
+
                     // Restore visibility and fullscreen only on the first frame to ensure teleport has finished
                     if (forcePriority) target.fullScreen = true;
                     if (animateOpacity) target.opacity = 0.0;
@@ -384,7 +412,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
              // Sync delay: Wait for KWin to process the geometry change before starting animation
              var delayTimer = new QTimer();
-             delayTimer.interval = 100;
+             delayTimer.interval = 200;
              delayTimer.singleShot = true;
              delayTimer.timeout.connect(startAnimation);
              delayTimer.start();
@@ -413,7 +441,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
           }
 
           var timer = new QTimer();
-          timer.interval = 16;
+          timer.interval = 8;
           timer.timeout.connect(function() {
             var now = Date.now();
             var elapsed = now - startTime;
@@ -491,6 +519,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                     }
                 }
               }
+              if (KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
             }
           });
           timer.start();
@@ -505,6 +534,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               var sibArea = workspace.clientArea(KWin.PlacementArea, sib);
               sib.frameGeometry = { x: sib.frameGeometry.x, y: sibArea.y - sib.frameGeometry.height, width: sib.frameGeometry.width, height: sib.frameGeometry.height };
           }
+          if (KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
         }
     }
 })"#;
@@ -578,6 +608,18 @@ const RESTORE_TEMPLATE: &str = r#"
           c.fullScreen = false;
           c.opacity = 1.0;
 
+          // Silent focus kick: briefly focus to wake up, then return focus to original
+          var savedFocus = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
+          if (workspace.activeWindow !== undefined) {
+              workspace.activeWindow = null;
+              workspace.activeWindow = c;
+              if (savedFocus && savedFocus !== c) workspace.activeWindow = savedFocus;
+          } else {
+              workspace.activeClient = null;
+              workspace.activeClient = c;
+              if (savedFocus && savedFocus !== c) workspace.activeClient = savedFocus;
+          }
+
           if (needsCenter) {
             c.frameGeometry = {
               x: area.x + (area.width - geo.width) / 2,
@@ -623,45 +665,31 @@ fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
   {
     if let Ok(cache) = get_window_cache().try_lock() {
       if let Some((id, pid)) = cache.get(app_name) {
-        // Verify window still exists and has matching class (light check)
-        let check_cmd = Command::new("kdotool")
-          .args(["getwindowclassname", id])
-          .output();
-        if let Ok(o) = check_cmd {
-          if o.status.success() {
-            let name = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if name.to_lowercase().contains(&class.to_lowercase()) {
-              return Some((id.clone(), *pid));
-            }
-          }
+        // Verify PID liveness via /proc (ultra-fast)
+        if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
+          return Some((id.clone(), *pid));
         }
       }
     }
   }
 
   // 2. Fallback to Search
-  if let Some(id) = crate::linux::terminal::check_window_exists(class) {
-    let mut pid = 0;
-    if let Ok(pid_out) = Command::new("kdotool").args(["getwindowpid", &id]).output() {
-      if pid_out.status.success() {
-        let pid_str = String::from_utf8_lossy(&pid_out.stdout).trim().to_string();
-        if let Ok(parsed_pid) = pid_str.parse::<u32>() {
-          pid = parsed_pid;
-        }
-      }
-    }
-
+  if let Some(id) = check_window_exists(class) {
+    let pid = get_pid_for_class(class).unwrap_or(0);
     // 3. Update Cache
     if let Ok(mut cache) = get_window_cache().try_lock() {
       cache.insert(app_name.to_string(), (id.clone(), pid));
     }
-
     return Some((id, pid));
   }
   None
 }
 
-pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) -> Result<()> {
+pub async fn toggle_quake(
+  app_name: &str,
+  config: &Config,
+  conn: &Connection,
+) -> anyhow::Result<()> {
   let mut state = STATE.lock().await;
   let app_cfg = match config.app.get(app_name) {
     Some(c) => c,
@@ -726,7 +754,7 @@ async fn run_toggle_script(
   config: &Config,
   conn: &Connection,
   params: ToggleParams<'_>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
   let duration = if params.visible {
     config.animation.show_duration
   } else {
@@ -768,17 +796,22 @@ async fn run_toggle_script(
     config.window.force_priority
   );
 
-  run_kwin_script(conn, "janq_toggle_engine", &script_content, None).await
+  run_kwin_script(conn, "janq_toggle_engine", &script_content, None)
+    .await
+    .map_err(anyhow::Error::from)
 }
 
-pub async fn ensure_grabbed(app_cfg: &AppConfig, config: &Config, conn: &Connection) -> Result<()> {
+pub async fn ensure_grabbed(
+  app_cfg: &AppConfig,
+  config: &Config,
+  conn: &Connection,
+) -> anyhow::Result<()> {
   grab_apps(&[(app_cfg.clone(), config.clone())], conn).await
 }
 
-pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Result<()> {
-  if apps.is_empty() {
-    return Ok(());
-  }
+pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyhow::Result<()> {
+  println!("janq: Grabbing apps...");
+  let all_windows = fetch_system_windows();
   let state = STATE.lock().await;
 
   let mut apps_json = Vec::new();
@@ -790,8 +823,20 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
       .map(|(name, _)| name.as_str())
       .unwrap_or("");
 
-    let (target_id, target_pid) =
-      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+    let (target_id, target_pid) = if let Some(id) =
+      check_window_exists_with_candidates(&app_cfg.window_class, Some(&all_windows))
+    {
+      let pid = get_pid_for_class(&app_cfg.window_class).unwrap_or(0);
+      if !app_name.is_empty() {
+        if let Ok(mut cache) = get_window_cache().try_lock() {
+          cache.insert(app_name.to_string(), (id.clone(), pid));
+        }
+      }
+      (id, pid)
+    } else {
+      (String::new(), 0)
+    };
+
     let ((width, is_width_percent), (height, is_height_percent)) =
       app_cfg.resolve_dimensions(&config.window);
     let is_visible = state.visible_app.as_deref() == Some(app_name);
@@ -812,9 +857,10 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> Resul
     Some(Duration::ZERO),
   )
   .await
+  .map_err(anyhow::Error::from)
 }
 
-pub async fn restore_app(window_class: &str, conn: &Connection) -> Result<()> {
+pub async fn restore_app(window_class: &str, conn: &Connection) -> anyhow::Result<()> {
   let script_content = format!("{}(\"{}\");", RESTORE_TEMPLATE, window_class);
   run_kwin_script(
     conn,
@@ -823,9 +869,10 @@ pub async fn restore_app(window_class: &str, conn: &Connection) -> Result<()> {
     Some(Duration::from_millis(300)),
   )
   .await
+  .map_err(anyhow::Error::from)
 }
 
-pub async fn restore_quake(config: &Config, conn: &Connection) -> Result<()> {
+pub async fn restore_quake(config: &Config, conn: &Connection) -> anyhow::Result<()> {
   for app_cfg in config.app.values() {
     let _ = restore_app(&app_cfg.window_class, conn).await;
   }

@@ -1,8 +1,10 @@
 use crate::config::{load_config, Config};
-use crate::linux::kwin::{grab_apps, reset_visibility, restore_quake, toggle_quake};
+use crate::linux::kwin::{
+  clear_removed_apps_from_cache, grab_apps, reset_visibility, restore_quake, toggle_quake,
+};
+use crate::linux::terminal::invalidate_search_cache;
 use crate::terminal::ensure_terminal_running;
 use fs2::FileExt;
-
 use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::{Arc, RwLock};
 use tokio::signal;
@@ -372,7 +374,8 @@ pub async fn run_daemon(
               }
 
               // 1.5. Clear cache entries for removed apps
-              crate::linux::kwin::clear_removed_apps_from_cache(&old_config, &new_config_in_async);
+              clear_removed_apps_from_cache(&old_config, &new_config_in_async);
+              invalidate_search_cache();
 
               reset_visibility(&new_config_in_async).await;
 
@@ -442,14 +445,18 @@ pub async fn run_daemon(
 
   let config_for_signals = config.clone();
   let conn_for_signals = conn.clone();
-  match signal::ctrl_c().await {
-    Ok(()) => {
-      let cfg = config_for_signals.read().unwrap().clone();
-      let _ = restore_quake(&cfg, &conn_for_signals).await;
-      println!("Quitting...");
-    }
-    Err(err) => eprintln!("Signal error: {}", err),
+
+  let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
+  let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
+
+  tokio::select! {
+      _ = sigint.recv() => println!("Received SIGINT, shutting down..."),
+      _ = sigterm.recv() => println!("Received SIGTERM, shutting down..."),
   }
+
+  let cfg = config_for_signals.read().unwrap().clone();
+  let _ = restore_quake(&cfg, &conn_for_signals).await;
+  println!("Quitting...");
 
   Ok(())
 }

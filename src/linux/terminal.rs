@@ -1,5 +1,5 @@
-use crate::config::{AppConfig, Config};
-use std::collections::HashSet;
+use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -132,62 +132,160 @@ pub async fn ensure_terminal_running(
 }
 
 pub fn check_window_exists(target_class: &str) -> Option<String> {
-  // Stage 1: Exact match (case sensitive)
-  if let Some(id) = run_kdotool_search(&format!("^{}$", target_class)) {
-    return Some(id);
+  check_window_exists_with_candidates(target_class, None)
+}
+
+pub fn check_window_exists_with_candidates(
+  target_class: &str,
+  candidates: Option<&[FoundWindow]>,
+) -> Option<String> {
+  // 1. If candidates are provided (batch search), use them immediately
+  if let Some(list) = candidates {
+    return fuzzy_match_window(target_class, list, &[]).map(|w| w.id);
   }
 
-  // Stage 2: Exact match (case-insensitive) - Many users might get casing wrong
-  if let Some(id) = run_kdotool_search(&format!("^(?i){}$", target_class)) {
-    return Some(id);
+  // 2. Hot path: Check cache and verify liveness via /proc
+  let mut cache = get_pid_cache().lock().unwrap();
+  if let Some(cached) = cache.get(target_class) {
+    if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
+      // Light verification: window still belongs to the same class (cached ID check)
+      // This is still fairly fast compared to a full scan.
+      return Some(cached.id.clone());
+    }
   }
 
-  // Stage 3: Partial match (contains) - Last resort, with a warning
-  if let Some(id) = run_kdotool_search(target_class) {
-    return Some(id);
+  // 3. Fallback: Full system fetch and fuzzy match
+  let all_windows = fetch_system_windows();
+  let managed_ids: Vec<String> = cache.values().map(|c| c.id.clone()).collect();
+
+  if let Some(best) = fuzzy_match_window(target_class, &all_windows, &managed_ids) {
+    // Update cache
+    cache.insert(
+      target_class.to_string(),
+      CachedWindow {
+        id: best.id.clone(),
+        pid: best.pid,
+      },
+    );
+    return Some(best.id);
   }
 
   None
 }
 
-fn run_kdotool_search(pattern: &str) -> Option<String> {
-  let output = Command::new("sh")
-    .arg("-c")
-    .arg(format!("kdotool search --class '{}'", pattern))
-    .output();
+pub fn fetch_system_windows() -> Vec<FoundWindow> {
+  let mut windows = Vec::new();
 
-  match output {
-    Ok(out) if out.status.success() => {
-      let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-      if !s.is_empty() {
-        let lines: Vec<&str> = s.lines().collect();
-        if lines.len() > 1 {
-          println!("janq: Warning: Multiple windows ({}) found for pattern '{}'. Picking the first one ({}). Ensure each app has a unique window_class for best results.", lines.len(), pattern, lines[0]);
+  // 1. Get all IDs
+  let all_ids = run_kdotool_cmd(&["search", "--class", ""]);
+  if all_ids.is_empty() {
+    return windows;
+  }
+
+  // 2. Get visible IDs for visibility boost
+  let visible_ids: HashSet<String> = run_kdotool_cmd(&["search", "--onlyvisible", "--class", ""])
+    .into_iter()
+    .collect();
+
+  for id in all_ids {
+    let id = id.trim();
+    if id.is_empty() {
+      continue;
+    }
+
+    // Optimization: Skip obviously non-app windows if possible, but for now we follow the old logic
+    // but with real visibility.
+    let class = Command::new("kdotool")
+      .args(["getwindowclassname", id])
+      .output()
+      .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_lowercase())
+      .unwrap_or_default();
+
+    if class.is_empty() || class == "plasmashell" || class == "kwin_x11" || class == "kwin_wayland"
+    {
+      continue;
+    }
+
+    let pid = Command::new("kdotool")
+      .args(["getwindowpid", id])
+      .output()
+      .map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+          .trim()
+          .parse::<u32>()
+          .unwrap_or(0)
+      })
+      .unwrap_or(0);
+
+    let mut proc_name = String::new();
+    if pid > 0 {
+      if let Ok(cmdline) = fs::read(format!("/proc/{}/cmdline", pid)) {
+        if let Some(part) = cmdline.split(|&b| b == 0).next() {
+          proc_name = String::from_utf8_lossy(part)
+            .split('/')
+            .last()
+            .unwrap_or_default()
+            .to_lowercase();
         }
-        return Some(lines[0].to_string());
       }
     }
-    _ => {}
+
+    windows.push(FoundWindow {
+      id: id.to_string(),
+      class_name: class,
+      proc_name,
+      pid,
+      is_visible: visible_ids.contains(id),
+    });
   }
-  None
+  windows
 }
 
-use std::collections::HashMap;
+fn run_kdotool_cmd(args: &[&str]) -> Vec<String> {
+  let output = Command::new("kdotool").args(args).output();
+  if let Ok(out) = output {
+    if out.status.success() {
+      return String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    }
+  }
+  Vec::new()
+}
 
-static PID_CACHE: OnceLock<std::sync::Mutex<HashMap<String, u32>>> = OnceLock::new();
+struct CachedWindow {
+  id: String,
+  pid: u32,
+}
 
-fn get_pid_cache() -> &'static std::sync::Mutex<HashMap<String, u32>> {
-  PID_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+static PID_CACHE: OnceLock<Mutex<HashMap<String, CachedWindow>>> = OnceLock::new();
+
+fn get_pid_cache() -> &'static Mutex<HashMap<String, CachedWindow>> {
+  PID_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn invalidate_search_cache() {
+  if let Some(cache) = PID_CACHE.get() {
+    let mut lock = cache.lock().unwrap();
+    lock.clear();
+  }
+}
+
+pub fn get_pid_for_class(target_class: &str) -> Option<u32> {
+  let cache = get_pid_cache().lock().unwrap();
+  cache.get(target_class).map(|c| c.pid)
 }
 
 pub fn check_process_running(target_class: &str) -> bool {
   let mut cache = get_pid_cache().lock().unwrap();
 
   // 1. Fast path: Check cached PID for this specific class
-  if let Some(&pid) = cache.get(target_class) {
+  if let Some(cached) = cache.get(target_class) {
     // Fast liveness check: just check if the directory exists
     // This is much faster than reading cmdline every time.
-    if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
+    if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
       return true;
     }
   }
@@ -210,7 +308,13 @@ pub fn check_process_running(target_class: &str) -> bool {
         }
 
         if verify_pid_matches(pid, target_class) {
-          cache.insert(target_class.to_string(), pid);
+          cache.insert(
+            target_class.to_string(),
+            CachedWindow {
+              id: String::new(),
+              pid,
+            },
+          );
           return true;
         }
       }

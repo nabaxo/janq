@@ -4,6 +4,125 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Clone, Debug, Default)]
+pub struct FoundWindow {
+  pub id: String,
+  pub class_name: String,
+  pub proc_name: String,
+  #[allow(dead_code)]
+  pub pid: u32,
+  pub is_visible: bool,
+}
+
+pub fn fuzzy_match_window(
+  target: &str,
+  candidates: &[FoundWindow],
+  managed_ids: &[String],
+) -> Option<FoundWindow> {
+  let lower_target = target.to_lowercase();
+  if lower_target.is_empty() {
+    return None;
+  }
+
+  let mut best_score = 500; // Lower baseline threshold for the new algorithm
+  let mut best_win = None;
+
+  for win in candidates {
+    let mut score = 0;
+
+    // 1. Check class_name and proc_name
+    for haystack in &[&win.class_name, &win.proc_name] {
+      if haystack.is_empty() {
+        continue;
+      }
+
+      let mut current_haystack_score = 0;
+
+      if **haystack == lower_target {
+        current_haystack_score = 10000;
+      } else if haystack.contains(&lower_target) {
+        current_haystack_score = 5000;
+      } else {
+        // Advanced Fuzzy Subsequence with Boundary/Gap penalties
+        let mut h_idx = 0;
+        let mut last_match_idx = -1;
+        let mut consecutive_count = 0;
+        let mut matches = 0;
+
+        for n_char in lower_target.chars() {
+          let mut found = false;
+          let search_slice = &haystack[h_idx..];
+          for (rel_idx, h_char) in search_slice.char_indices() {
+            if h_char == n_char {
+              let abs_idx = h_idx + rel_idx;
+              matches += 1;
+
+              // Bonus: Boundary (start of string or follows separator)
+              if abs_idx == 0 {
+                current_haystack_score += 300;
+              } else {
+                let prev_char = haystack.as_bytes().get(abs_idx - 1).copied().unwrap_or(0);
+                if prev_char == b'.' || prev_char == b'-' || prev_char == b'_' || prev_char == b' '
+                {
+                  current_haystack_score += 250;
+                }
+              }
+
+              // Bonus: Consecutive
+              if last_match_idx != -1 && abs_idx == (last_match_idx as usize) + 1 {
+                consecutive_count += 1;
+                current_haystack_score += 100 * consecutive_count;
+              } else {
+                consecutive_count = 0;
+                // Penalty: Gap
+                if last_match_idx != -1 {
+                  let gap = abs_idx - (last_match_idx as usize) - 1;
+                  current_haystack_score -= (gap as i32) * 50;
+                }
+              }
+
+              last_match_idx = abs_idx as i32;
+              h_idx = abs_idx + h_char.len_utf8();
+              found = true;
+              break;
+            }
+          }
+          if !found {
+            // Entire needle must be found as subsequence
+            current_haystack_score = 0;
+            break;
+          }
+        }
+
+        // Final Subsequence Polish: Base score for matching all letters
+        if matches == lower_target.chars().count() {
+          current_haystack_score += 1000;
+        }
+      }
+      score = score.max(current_haystack_score);
+    }
+
+    if score <= 0 {
+      continue;
+    }
+
+    // 2. Priority Boosts
+    if win.is_visible {
+      score += 2000; // Reduced visibility boost so it doesn't overwhelm the match score
+    }
+    if managed_ids.contains(&win.id) {
+      score += 1000;
+    }
+
+    if score > best_score {
+      best_score = score;
+      best_win = Some(win.clone());
+    }
+  }
+
+  best_win
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Dimension {
   Percent(f64),
@@ -110,10 +229,29 @@ impl Config {
           app_name
         ));
       }
+      if app_cfg.window_class.len() < 3 {
+        return Err(format!(
+          "App '{}' has a window_class '{}' that is too short. It must be at least 3 characters long for reliable fuzzy matching.",
+          app_name, app_cfg.window_class
+        ));
+      }
       if app_cfg.start_command.is_empty() {
         return Err(format!(
           "App '{}' is missing required field 'start_command'.",
           app_name
+        ));
+      }
+    }
+
+    // Validate Easing
+    for (name, easing) in [
+      ("show_easing", &self.animation.show_easing),
+      ("hide_easing", &self.animation.hide_easing),
+    ] {
+      if !is_valid_easing(easing) {
+        return Err(format!(
+          "Invalid damping/easing curve '{}' for {}. Use a keyword (like 'ease', 'windows', 'back-out') or a custom cubic-bezier (like 'cubic-bezier(0, 1, 1, 0)' or '(0, 1, 1, 0)').",
+          easing, name
         ));
       }
     }
@@ -308,6 +446,43 @@ fn is_valid_base_key(s: &str) -> bool {
     "pgup" | "pageup" | "pgdn" | "pagedown" | "home" | "end" | "insert" | "delete" | "del" => true,
     "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" => true,
     _ => false,
+  }
+}
+
+pub fn parse_bezier(type_: &str) -> Option<(f64, f64, f64, f64)> {
+  let s = type_.trim().to_lowercase();
+  let content = if s.starts_with("cubic-bezier(") && s.ends_with(')') {
+    &s["cubic-bezier(".len()..s.len() - 1]
+  } else if s.starts_with("bezier(") && s.ends_with(')') {
+    &s["bezier(".len()..s.len() - 1]
+  } else if s.starts_with('(') && s.ends_with(')') {
+    &s[1..s.len() - 1]
+  } else {
+    return None;
+  };
+
+  let parts: Vec<&str> = content.split(',').map(|p| p.trim()).collect();
+  if parts.len() != 4 {
+    return None;
+  }
+
+  let x1 = parts[0].parse::<f64>().ok()?;
+  let y1 = parts[1].parse::<f64>().ok()?;
+  let x2 = parts[2].parse::<f64>().ok()?;
+  let y2 = parts[3].parse::<f64>().ok()?;
+
+  Some((x1, y1, x2, y2))
+}
+
+fn is_valid_easing(s: &str) -> bool {
+  match s {
+    "sine" | "sine-in-out" | "in-out-sine" | "sine-in" | "in-sine" | "sine-out" | "out-sine"
+    | "quart" | "quart-in-out" | "in-out-quart" | "quart-in" | "in-quart" | "quart-out"
+    | "out-quart" | "cubic" | "cubic-in-out" | "in-out-cubic" | "cubic-in" | "in-cubic"
+    | "cubic-out" | "out-cubic" | "back" | "back-in-out" | "in-out-back" | "back-in" | "in-back"
+    | "back-out" | "out-back" | "ease" | "ease-in-out" | "linear" | "ease-in" | "ease-out"
+    | "windows" => true,
+    _ => parse_bezier(s).is_some(),
   }
 }
 
@@ -532,5 +707,29 @@ mod tests {
     assert_eq!(w2, 0.0); // Unset means no resize (0.0)
     assert!(!w2_is_pct);
     assert_eq!(h2, 600.0); // Height still inherits from global
+  }
+
+  #[test]
+  fn test_parse_bezier() {
+    assert_eq!(
+      parse_bezier("cubic-bezier(0, 0.5, 0.5, 1)"),
+      Some((0.0, 0.5, 0.5, 1.0))
+    );
+    assert_eq!(parse_bezier("bezier(0, 0.5, 0.5, 1)"), Some((0.0, 0.5, 0.5, 1.0)));
+    assert_eq!(parse_bezier("(0, 1, 1, 0)"), Some((0.0, 1.0, 1.0, 0.0)));
+    assert_eq!(parse_bezier(" ( 0.1 , 0.2 , 0.3 , 0.4 ) "), Some((0.1, 0.2, 0.3, 0.4)));
+    assert_eq!(parse_bezier("linear"), None);
+  }
+
+  #[test]
+  fn test_is_valid_easing() {
+    assert!(is_valid_easing("ease"));
+    assert!(is_valid_easing("windows"));
+    assert!(is_valid_easing("back-out"));
+    assert!(is_valid_easing("cubic-bezier(0, 1, 1, 0)"));
+    assert!(is_valid_easing("bezier(0, 1, 1, 0)"));
+    assert!(is_valid_easing("(0, 1, 1, 0)"));
+    assert!(!is_valid_easing("invalid"));
+    assert!(!is_valid_easing("cubic-bezier(1, 2)"));
   }
 }

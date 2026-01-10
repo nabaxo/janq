@@ -15,8 +15,9 @@
 - **Zero-Config Hotkeys (Cross-Platform)**: janq automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu. The topmost application is the one that toggles when left-clicking the systray icon.
-- **Robust Identification (Cross-Platform)**: Advanced scoring system (Visibility > Class > Title > Size) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
-- **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves)
+- **Robust Identification (Cross-Platform)**: Advanced weighted scoring system (Exact > Substring > Boundary > Subsequence) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
+- **High-Performance Linux Engine**: Zero-IPC liveness checks and batched window retrieval for near-instant toggling response.
+- **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves including the premium `windows` curve).
 - **Focus Restoration**: Remembers your previous window and restores focus instantly.
 - **CLI Power**: Control your setup via `./janq --app <name>`.
 
@@ -31,6 +32,23 @@
 make build-linux   # Binary: ./dist/janq
 make build-windows # Binary: ./dist/janq.exe
 ```
+
+### The `utilities/` Folder (For When Things Go Wrong)
+
+The `utilities/` directory contains cleanup scripts for Linux. These exist because during development we managed to break KDE shortcuts, leave zombie processes, and generally make a mess of the desktop integration more times than we'd like to admit.
+
+| Script | Description |
+|--------|-------------|
+| `full_cleanup.sh` | Nuclear option. Removes all janq/goake/ruake traces from your system. |
+| `cleanup_shortcuts.sh` | Fixes KDE global shortcuts when they inevitably get stuck. |
+| `cleanup_desktop.sh` | Removes desktop entries and icons. |
+| `cleanup_processes.sh` | Kills any lingering daemon processes. |
+| `cleanup_kwin.sh` | Removes KWin scripts. |
+| `cleanup_metadata.sh` | Clears cached window IDs and metadata. |
+
+If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
+
+_(Human note: Just use `full_cleanup.sh`.)_
 
 ## Usage
 
@@ -57,18 +75,23 @@ To make janq start automatically when you log in:
 3.  Browse to your `janq.exe` location.
 4.  **Important**: To start in background mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\janq.exe" --daemon`).
 
-### Windows Specifics: `window_class`
+### Window Class & Fuzzy Matching
 
-On Windows, the `window_class` field is highly flexible and matches against several properties. janq uses a **priority-based scoring system** to ensure it always grabs the correct window:
+The `window_class` field is highly flexible. janq uses **advanced weighted fuzzy matching** to find your app even if the name isn't exact (e.g., `obs` for `Obsidian`).
 
-1.  **Process Name** (Highest Priority): The filename of the executable (e.g., `windowsterminal`, `wezterm-gui`, `zed`). janq even supports **fuzzy matching** (e.g., searching for "Windows Terminal" will correctly find `windowsterminal.exe`).
-2.  **Window Class**: The technical internal class name (e.g., `CASCADIA_HOST_WINDOW_CLASS`).
-3.  **Window Title**: The text shown in the title bar (e.g., "Windows Terminal").
+- **Context-Aware Scoring**:
+  - **Exact/Substring**: +5000-10000 points.
+  - **Word Boundaries**: +300 bonus for matches at the start of words or following delimiters (`.`, `-`, `_`, ` `).
+  - **Consecutive Bonuses**: Exponential rewards for letters that appear in sequence.
+  - **Gap Penalties**: Negative scores for characters skipped between letters.
+- **High-Confidence Threshold**: janq rejects weak "junk" matches (score < 500), ensuring it will spawn a new instance rather than grabbing a random visible window.
+- **Zero-IPC Liveness (Linux)**: Toggling an existing window verifies its existence via `/proc` in $<0.1$ms, ensuring zero latency during animation reversals.
+- **Best Practice**: While the engine is robust, using an **exact match** (e.g., `wezterm`) is always recommended for maximum speed and deterministic behavior.
 
 #### Recommended setup for Windows Terminal:
 If `wt` is in your system `PATH`, this is the most reliable setup:
 ```toml
-window_class = "windowsterminal" # Or simply "Windows Terminal" (fuzzy match)
+window_class = "windowsterminal" # Or "Windows Terminal", "wterm", "wind" - all should work!
 start_command = "wt"
 ```
 
@@ -116,7 +139,7 @@ auto_show = false       # Show window on daemon startup
 
 [animation]
 show_duration = 350
-show_easing = "windows"
+show_easing = "cubic-bezier(0, 1, 1, 0)" # Or "bezier(0, 1, 1, 0)" or "(0, 1, 1, 0)"
 animate_opacity = true
 ```
 
@@ -178,8 +201,12 @@ hotkey = "Meta+Z"
 | `cubic`* | Sharper deceleration. |
 | `quart`* | Very sharp deceleration (popular for UI). |
 | `back`* | Overshoots slightly before settling. |
+| `cubic-bezier` | Custom CSS-style curve: `cubic-bezier(x1, y1, x2, y2)`. |
 
 \* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`. **If an invalid string is provided, janq falls back to an `ease-out` curve.**
+
+> [!TIP]
+> **Custom Bezier Shortcuts**: You can also use `bezier(x1, y1, x2, y2)` or just `(x1, y1, x2, y2)` for brevity.
 
 ### Display Modes
 
@@ -239,5 +266,14 @@ Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl
 ### Linux: Hotkey registration delay
 On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
 
+### Linux: Electron app opacity
+Applications built on Electron (e.g., Obsidian, VS Code, Discord) may experience unreliable or non-functional `animate_opacity` on Linux, particularly under KDE Plasma 6. This is due to Chromium's aggressive occlusion optimizations that can ignore compositor-level transparency signals during high-frequency motion. Native GPU-accelerated apps like WezTerm or Alacritty do not typically share this limitation.
+(Human's note: I have no idea if the reason given by the LLM is actually true, but I know it doesn't work, just live without opacity animations on electron apps.)
+
+### Linux: Animation Artifacts (Ghosting)
+When moving windows at high speeds, you may notice "trails" or ghosting artifacts left behind. This is especially prevalent with applications like Obsidian, Zed, and standard Qt tools (KWrite, KCalc). This "sync gap" occurs because KWin's scripting engine moves the window frame at the monitor's refresh rate, but the application content often lags by 1-2 frames. While **janq** is optimized for high-refresh displays, some degree of artifacting is currently an inherent platform limitation for these types of apps.
+
 ## License
-MIT
+Copyright (c) 2026 Nebez Kassem
+
+Licensed under the [MIT](LICENSE) license.

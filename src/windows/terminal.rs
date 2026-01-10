@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 
 static SPAWNING_APPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
-fn get_spawning_apps() -> &'static Mutex<HashSet<String>> {
+pub fn get_spawning_apps() -> &'static Mutex<HashSet<String>> {
   SPAWNING_APPS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 

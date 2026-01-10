@@ -24,7 +24,15 @@ else
     exit 1
 fi
 
-# 3. Clean Metadata (Trash, Crashes, Cache)
+# 3. Clean KWin scripts
+if [ -f "$DIR/cleanup_kwin.sh" ]; then
+    echo "--- Running KWin script cleanup ---"
+    bash "$DIR/cleanup_kwin.sh"
+else
+    echo "Warning: cleanup_kwin.sh not found in $DIR, skipping KWin cleanup."
+fi
+
+# 4. Clean Metadata (Trash, Crashes, Cache)
 if [ -f "$DIR/cleanup_metadata.sh" ]; then
     echo "--- Running metadata and cache cleanup ---"
     bash "$DIR/cleanup_metadata.sh"
