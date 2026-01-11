@@ -1,15 +1,31 @@
-use crate::config::{load_config, Config};
-use crate::linux::kwin::{
-  clear_removed_apps_from_cache, grab_apps, reset_visibility, restore_quake, toggle_quake,
-};
-use crate::linux::terminal::invalidate_search_cache;
-use crate::terminal::ensure_terminal_running;
+use std::collections::HashMap;
+use std::env::temp_dir;
+use std::fs::File;
+use std::path::PathBuf;
+use std::process::{exit, id};
+use std::sync::{mpsc, Arc, RwLock};
+use std::thread;
+use std::time::Instant;
+
 use fs2::FileExt;
 use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
-use std::sync::{Arc, RwLock};
-use tokio::signal;
-use tokio::time::{sleep, Duration};
-use zbus::{interface, Connection};
+use tokio::{
+  runtime::Handle,
+  signal::unix::{signal, SignalKind},
+  time::{sleep, Duration},
+};
+use zbus::{interface, zvariant::OwnedValue, Connection, Proxy};
+
+use crate::config::{load_config, Config};
+use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
+use crate::linux::hotkey::sync_kde_shortcuts;
+use crate::linux::kwin::{
+  clear_removed_apps_from_cache, grab_apps, reset_visibility, restore_app, restore_quake,
+  toggle_quake,
+};
+use crate::linux::show_error;
+use crate::linux::terminal::invalidate_search_cache;
+use crate::terminal::ensure_terminal_running;
 
 #[derive(Clone)]
 struct QuakeApplication {
@@ -19,10 +35,7 @@ struct QuakeApplication {
 
 #[interface(name = "org.freedesktop.Application")]
 impl QuakeApplication {
-  async fn activate(
-    &self,
-    _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
-  ) {
+  async fn activate(&self, _platform_data: HashMap<String, OwnedValue>) {
     // No-op: Satisfaction of D-Bus Application activation.
     // Clicking the launcher icon should only start the background process, not toggle a window.
   }
@@ -30,8 +43,8 @@ impl QuakeApplication {
   async fn activate_action(
     &self,
     action_name: String,
-    _parameter: Vec<zbus::zvariant::OwnedValue>,
-    _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+    _parameter: Vec<OwnedValue>,
+    _platform_data: HashMap<String, OwnedValue>,
   ) {
     // D-Bus activation log for visibility
     println!("D-Bus: Activating action '{}'", action_name);
@@ -49,11 +62,7 @@ impl QuakeApplication {
     daemon.toggle_app(action_name).await;
   }
 
-  fn open(
-    &self,
-    _uris: Vec<String>,
-    _platform_data: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
-  ) {
+  fn open(&self, _uris: Vec<String>, _platform_data: HashMap<String, OwnedValue>) {
     // Not used
   }
 }
@@ -121,7 +130,7 @@ impl StatusNotifierItem {
     let conn = self.conn.clone();
     tokio::spawn(async move {
       let _ = restore_quake(&config, &conn).await;
-      std::process::exit(0);
+      exit(0);
     });
   }
 
@@ -157,12 +166,12 @@ impl StatusNotifierItem {
 
 pub async fn run_daemon(
   initial_config: Config,
-  config_path: Option<std::path::PathBuf>,
+  config_path: Option<PathBuf>,
   target_app: Option<String>,
 ) -> anyhow::Result<()> {
   // 0. Acquire Lock File
-  let lock_path = std::env::temp_dir().join("janq.lock");
-  let lock_file = std::fs::File::create(&lock_path)?;
+  let lock_path = temp_dir().join("janq.lock");
+  let lock_file = File::create(&lock_path)?;
   if lock_file.try_lock_exclusive().is_err() {
     return Err(anyhow::anyhow!(
       "janq is already running (lock file active)."
@@ -173,7 +182,7 @@ pub async fn run_daemon(
   let config = Arc::new(RwLock::new(Arc::new(initial_config)));
   let conn = Connection::session().await?;
 
-  let pid = std::process::id();
+  let pid = id();
   let sni_name = format!("org.kde.StatusNotifierItem-janq-{}", pid);
   conn.request_name(sni_name.clone()).await?;
 
@@ -212,7 +221,7 @@ pub async fn run_daemon(
   conn.request_name(activatable_bus).await?;
   let _ = conn.request_name("dev.nabaxo.janq.desktop").await;
 
-  let watcher_proxy = zbus::Proxy::new(
+  let watcher_proxy = Proxy::new(
     &conn,
     "org.kde.StatusNotifierWatcher",
     "/StatusNotifierWatcher",
@@ -226,9 +235,9 @@ pub async fn run_daemon(
   // --- KDE Platform Integration ---
   {
     let cfg = config.read().unwrap().clone();
-    let _ = crate::linux::desktop::generate_desktop_file(&cfg);
+    let _ = generate_desktop_file(&cfg);
     tokio::spawn(async move {
-      let _ = crate::linux::hotkey::sync_kde_shortcuts(&cfg, None).await;
+      let _ = sync_kde_shortcuts(&cfg, None).await;
     });
   }
 
@@ -277,10 +286,9 @@ pub async fn run_daemon(
   let config_for_watcher = config.clone();
   let conn_for_watcher = conn.clone();
   let path_to_watch = config_path.clone();
-  let rt_handle = tokio::runtime::Handle::current();
-
-  std::thread::spawn(move || {
-    let (tx, rx) = std::sync::mpsc::channel();
+  let rt_handle = Handle::current();
+  thread::spawn(move || {
+    let (tx, rx) = mpsc::channel();
     let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
 
     if let Some(path) = &path_to_watch {
@@ -297,7 +305,7 @@ pub async fn run_daemon(
     }
 
     let debounce_duration = Duration::from_millis(500);
-    let mut last_event = std::time::Instant::now();
+    let mut last_event = Instant::now();
     let mut pending = false;
 
     loop {
@@ -322,12 +330,12 @@ pub async fn run_daemon(
           }
 
           if is_config_file {
-            last_event = std::time::Instant::now();
+            last_event = Instant::now();
             pending = true;
           }
         }
         Ok(Err(e)) => println!("Watcher error: {:?}", e),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+        Err(mpsc::RecvTimeoutError::Timeout) => {
           if pending {
             pending = false;
             println!("Watcher: Debounced event triggered config reload...");
@@ -346,8 +354,8 @@ pub async fn run_daemon(
                   let _ = restore_quake(&current_cfg, &conn_shutdown).await;
                 });
 
-                crate::linux::show_error(&err_msg);
-                std::process::exit(1);
+                show_error(&err_msg);
+                exit(1);
               }
             };
 
@@ -368,8 +376,7 @@ pub async fn run_daemon(
               for (name, app_cfg) in &old_config.app {
                 if !new_config_in_async.app.contains_key(name) {
                   println!("Watcher: Restoring app '{}' (removed from config)", name);
-                  let _ =
-                    crate::linux::kwin::restore_app(&app_cfg.window_class, &conn_in_async).await;
+                  let _ = restore_app(&app_cfg.window_class, &conn_in_async).await;
                 }
               }
 
@@ -393,14 +400,13 @@ pub async fn run_daemon(
               let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
 
               // 3. Update desktop file (don't run kbuild inside, we'll do it last)
-              let desktop_changed =
-                match crate::linux::desktop::generate_desktop_file_headless(&new_config_in_async) {
-                  Ok(changed) => changed,
-                  Err(e) => {
-                    eprintln!("Watcher: Desktop file generation failed: {}", e);
-                    false
-                  }
-                };
+              let desktop_changed = match generate_desktop_file_headless(&new_config_in_async) {
+                Ok(changed) => changed,
+                Err(e) => {
+                  eprintln!("Watcher: Desktop file generation failed: {}", e);
+                  false
+                }
+              };
 
               // 4. Check if hotkeys changed
               let mut hotkeys_changed = false;
@@ -426,10 +432,7 @@ pub async fn run_daemon(
 
               if hotkeys_changed || desktop_changed {
                 println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
-                if let Err(e) =
-                  crate::linux::hotkey::sync_kde_shortcuts(&new_config_in_async, Some(&old_config))
-                    .await
-                {
+                if let Err(e) = sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await {
                   eprintln!("Watcher: Failed to sync shortcuts: {}", e);
                 }
               } else {
@@ -438,7 +441,7 @@ pub async fn run_daemon(
             });
           }
         }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        Err(mpsc::RecvTimeoutError::Disconnected) => break,
       }
     }
   });
@@ -446,8 +449,8 @@ pub async fn run_daemon(
   let config_for_signals = config.clone();
   let conn_for_signals = conn.clone();
 
-  let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
-  let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
+  let mut sigint = signal(SignalKind::interrupt())?;
+  let mut sigterm = signal(SignalKind::terminate())?;
 
   tokio::select! {
       _ = sigint.recv() => println!("Received SIGINT, shutting down..."),
@@ -463,7 +466,7 @@ pub async fn run_daemon(
 
 pub async fn send_toggle(app_name: Option<String>) -> anyhow::Result<()> {
   let conn = Connection::session().await?;
-  let proxy = zbus::Proxy::new(
+  let proxy = Proxy::new(
     &conn,
     "dev.nabaxo.janq.desktop",
     "/dev/nabaxo/janq/daemon",

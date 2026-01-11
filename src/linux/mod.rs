@@ -4,6 +4,8 @@ pub mod hotkey;
 pub mod kwin;
 pub mod terminal;
 
+use std::{process::Command, thread::sleep, time::Duration};
+
 pub fn show_error(message: &str) {
   eprintln!("{}", message);
 
@@ -27,18 +29,16 @@ pub fn show_error(message: &str) {
   ];
 
   for (cmd, args) in terminals {
-    if std::process::Command::new(cmd).args(args).spawn().is_ok() {
+    if Command::new(cmd).args(args).spawn().is_ok() {
       // Wait a bit to ensure it stays open
-      std::thread::sleep(std::time::Duration::from_millis(500));
+      sleep(Duration::from_millis(500));
       return;
     }
   }
 
   // Fallback to a desktop alert if possible (zenity/kdialog)
-  let _ = std::process::Command::new("zenity")
+  let _ = Command::new("zenity")
     .args(["--error", "--text", message])
     .spawn();
-  let _ = std::process::Command::new("kdialog")
-    .args(["--error", message])
-    .spawn();
+  let _ = Command::new("kdialog").args(["--error", message]).spawn();
 }

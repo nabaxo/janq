@@ -1,6 +1,14 @@
 #![windows_subsystem = "windows"]
 
+use std::process::exit;
+#[cfg(target_os = "windows")]
+use std::time::Duration;
+
 use clap::Parser;
+#[cfg(target_os = "linux")]
+use tokio::runtime::Builder;
+#[cfg(target_os = "windows")]
+use tokio::time::timeout;
 
 mod config;
 mod daemon;
@@ -74,21 +82,19 @@ fn main() -> anyhow::Result<()> {
       linux::show_error(&e);
       #[cfg(target_os = "windows")]
       windows::show_error(&e);
-      std::process::exit(1);
+      exit(1);
     }
   };
 
   #[cfg(target_os = "linux")]
   {
-    let rt = tokio::runtime::Builder::new_current_thread()
-      .enable_all()
-      .build()?;
+    let rt = Builder::new_current_thread().enable_all().build()?;
     rt.block_on(async {
       let target_app = match resolve_app(&config, args.app.clone()) {
         Ok(a) => a,
         Err(e) => {
           linux::show_error(&e);
-          std::process::exit(1);
+          exit(1);
         }
       };
 
@@ -96,7 +102,7 @@ fn main() -> anyhow::Result<()> {
       if args.daemon {
         if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
           linux::show_error(&e.to_string());
-          std::process::exit(1);
+          exit(1);
         }
         return Ok(());
       }
@@ -108,7 +114,7 @@ fn main() -> anyhow::Result<()> {
       println!("Daemon not running (or reachable). Starting new daemon instance...");
       if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
         linux::show_error(&e.to_string());
-        std::process::exit(1);
+        exit(1);
       }
       Ok(())
     })
@@ -120,7 +126,7 @@ fn main() -> anyhow::Result<()> {
       Ok(a) => a,
       Err(e) => {
         windows::show_error(&e);
-        std::process::exit(1);
+        exit(1);
       }
     };
 
@@ -128,7 +134,7 @@ fn main() -> anyhow::Result<()> {
     if args.daemon {
       if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned) {
         windows::show_error(&e.to_string());
-        std::process::exit(1);
+        exit(1);
       }
       return Ok(());
     }
@@ -137,8 +143,8 @@ fn main() -> anyhow::Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     let ipc_success = rt.block_on(async {
       // Add timeout to prevent hanging on zombie pipes
-      match tokio::time::timeout(
-        std::time::Duration::from_secs(1),
+      match timeout(
+        Duration::from_secs(1),
         daemon::send_toggle(target_app_owned.clone()),
       )
       .await
@@ -156,7 +162,7 @@ fn main() -> anyhow::Result<()> {
     // This takes over the thread with Winit loop
     if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned) {
       windows::show_error(&e.to_string());
-      std::process::exit(1);
+      exit(1);
     }
     Ok(())
   }

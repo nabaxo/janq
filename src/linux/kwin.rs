@@ -1,13 +1,18 @@
+use std::env::temp_dir;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+use tokio::{
+  sync::Mutex,
+  time::{sleep, Duration},
+};
+use zbus::{Connection, Proxy, Result};
+
 use crate::config::{AppConfig, Config};
 use crate::linux::terminal::{
   check_window_exists, check_window_exists_with_candidates, fetch_system_windows, get_pid_for_class,
 };
-use std::fs;
-use std::process::Command;
-use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration};
-
-use zbus::{Connection, Result};
 
 /// Helper to run a KWin script with common boilerplate:
 /// unload old script, write to temp file, load, run, and optionally cleanup.
@@ -18,12 +23,12 @@ async fn run_kwin_script(
   delay_before_unload: Option<Duration>,
 ) -> Result<()> {
   let scripting_proxy =
-    zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
+    Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
   let _ = scripting_proxy
     .call_method("unloadScript", &(script_name))
     .await;
 
-  let tmp_path = std::env::temp_dir().join(format!("{}.js", script_name));
+  let tmp_path = temp_dir().join(format!("{}.js", script_name));
   fs::write(&tmp_path, script_content)
     .map_err(|e| zbus::Error::Failure(format!("Failed to write script: {}", e)))?;
 
@@ -36,7 +41,7 @@ async fn run_kwin_script(
   if script_id >= 0 {
     let script_obj_path = format!("/Scripting/Script{}", script_id);
     let script_proxy =
-      zbus::Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
+      Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
     script_proxy.call_method("run", &()).await?;
 
     if let Some(delay) = delay_before_unload {
@@ -115,20 +120,6 @@ const COMMON_KWIN_JS: &str = r#"
         }
         return target;
     }
-"#;
-
-// Template bodies that take arguments in their IIFE
-const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
-(function(
-    windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
-    duration, easingType, shouldShow, keepAbove, animateOpacity,
-    showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, janqClasses,
-    forcePriority
-) {
-    {{COMMON_KWIN_JS}}
-
-    var target = findTarget(windowClass, targetWindowId, targetPid);
-    if (!target) return;
 
     function getEasing(progress, type) {
       if (type.indexOf("(") !== -1) {
@@ -152,7 +143,6 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
           }
       }
       if (type === "windows") {
-          // Cubic Bezier solver for (0.25, 0, 0, 1) shortcut
           var t = progress;
           for (var i = 0; i < 8; i++) {
               var xt = 3 * (1 - t) * (1 - t) * t * 0.25 + t * t * t;
@@ -207,43 +197,93 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
       }
     }
 
-    var currentArea = workspace.clientArea(KWin.PlacementArea, target);
-    var screens = workspace.screens || [];
-    var targetArea = null;
+    function setQuakeProperties(target, keepAbove, isVisible, forcePriority) {
+        target.onAllDesktops = true;
+        target.keepAbove = keepAbove;
+        target.noBorder = true;
+        target.skipTaskbar = true;
+        target.skipPager = true;
+        if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+        if (forcePriority && !isVisible) target.fullScreen = true;
+    }
 
-    if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) {
-        targetArea = screens[displayIndex].geometry;
-    } else {
+    function resetQuakeProperties(target) {
+        target.keepAbove = false;
+        target.onAllDesktops = false;
+        target.noBorder = false;
+        target.skipTaskbar = false;
+        target.skipPager = false;
+        if (target.skipSwitcher !== undefined) target.skipSwitcher = false;
+        target.fullScreen = false;
+        target.opacity = 1.0;
+    }
+
+    function focusKick(target, restoreOriginal) {
+        var activeWin = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
+        if (workspace.activeWindow !== undefined) {
+            workspace.activeWindow = null;
+            workspace.activeWindow = target;
+            if (restoreOriginal && activeWin && activeWin !== target) workspace.activeWindow = activeWin;
+        } else {
+            workspace.activeClient = null;
+            workspace.activeClient = target;
+            if (restoreOriginal && activeWin && activeWin !== target) workspace.activeClient = activeWin;
+        }
+    }
+
+    function resolveArea(target, displayMode, displayIndex, currentArea) {
+        var screens = workspace.screens || [];
+        if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) {
+            return screens[displayIndex].geometry;
+        }
+
         var activeWin = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
         var isTargetActive = (activeWin && activeWin.internalId && target.internalId && normalizeId(activeWin.internalId) === normalizeId(target.internalId));
 
         if (displayMode === "active") {
             if (activeWin && !isTargetActive) {
-                targetArea = workspace.clientArea(KWin.PlacementArea, activeWin);
-            } else {
-                // STICKY: Only for 'active' mode to prevent toggle see-sawing
-                if (target.opacity > 0.05 && target.frameGeometry.y + target.frameGeometry.height > currentArea.y + 5) {
-                    targetArea = currentArea;
-                } else {
-                    targetArea = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop);
-                }
+                return workspace.clientArea(KWin.PlacementArea, activeWin);
             }
-        } else {
-            // follow-mouse
-            var cursorPos = workspace.cursorPos;
-            for (var i = 0; i < screens.length; i++) {
-                var geo = screens[i].geometry;
-                if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
-                    cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
-                    targetArea = geo;
-                    break;
-                }
+            if (currentArea && target.opacity > 0.05 && target.frameGeometry.y + target.frameGeometry.height > currentArea.y + 5) {
+                return currentArea;
             }
-            if (!targetArea) targetArea = workspace.activeScreen.geometry;
+            return workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop);
         }
+
+        // follow-mouse
+        var cursorPos = workspace.cursorPos;
+        for (var i = 0; i < screens.length; i++) {
+            var geo = screens[i].geometry;
+            if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
+                cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
+                return geo;
+            }
+        }
+        return (workspace.activeScreen ? workspace.activeScreen.geometry : null);
     }
 
-    var area = shouldShow ? targetArea : currentArea;
+    function resolveDimensions(width, isWidthPercent, height, isHeightPercent, area, target) {
+        var finalWidth = width > 0 ? (isWidthPercent ? area.width * width : width) : target.frameGeometry.width;
+        var finalHeight = height > 0 ? (isHeightPercent ? area.height * height : height) : target.frameGeometry.height;
+        return { width: finalWidth, height: finalHeight };
+    }
+"#;
+
+// Template bodies that take arguments in their IIFE
+const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
+(function(
+    windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
+    duration, easingType, shouldShow, keepAbove, animateOpacity,
+    showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, janqClasses,
+    forcePriority
+) {
+    {{COMMON_KWIN_JS}}
+
+    var target = findTarget(windowClass, targetWindowId, targetPid);
+    if (!target) return;
+
+    var currentArea = workspace.clientArea(KWin.PlacementArea, target);
+    var area = shouldShow ? resolveArea(target, displayMode, displayIndex, currentArea) : currentArea;
 
     var startX = target.frameGeometry.x;
     var startY = target.frameGeometry.y;
@@ -251,24 +291,16 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     var areaTop = area.y;
     var offscreenY = areaTop - target.frameGeometry.height;
 
-    // MONITOR AWARENESS: Check if we are on the wrong monitor horizontally
     var onWrongMonitor = (startX < area.x - 10) || (startX > area.x + area.width + 10);
-    // Only reposition if we are on the wrong screen or far outside the sliding range.
-    // This allows smooth reversal if the window is already partially visible/animating.
     var needsReposition = onWrongMonitor || (startY < offscreenY - 50) || (startY > areaTop + 50);
 
     var finalWidth = target.frameGeometry.width;
     var finalHeight = target.frameGeometry.height;
 
     if (needsReposition) {
-        if (width > 0) {
-            if (isWidthPercent) finalWidth = area.width * width;
-            else finalWidth = width;
-        }
-        if (height > 0) {
-            if (isHeightPercent) finalHeight = area.height * height;
-            else finalHeight = height;
-        }
+        var dims = resolveDimensions(width, isWidthPercent, height, isHeightPercent, area, target);
+        finalWidth = dims.width;
+        finalHeight = dims.height;
     }
 
     var finalX = area.x + (area.width - finalWidth) / 2;
@@ -300,7 +332,6 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
         if (isManaged) {
             var cArea = workspace.clientArea(KWin.PlacementArea, c);
-            // Visibility check: If opacity is > 0 and it's even slightly poking into its active area
             if (c.opacity > 0.01 && c.frameGeometry.y + c.frameGeometry.height > cArea.y + 1) {
                 siblingsToHide.push(c);
             }
@@ -308,17 +339,9 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     }
 
     if (shouldShow) {
-        target.keepAbove = keepAbove;
-        target.onAllDesktops = true;
-        target.noBorder = true;
-        target.skipTaskbar = true;
-        target.skipPager = true;
-        if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+        setQuakeProperties(target, keepAbove, true, forcePriority);
+        focusKick(target, false);
 
-        if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
-        else workspace.activeClient = target;
-
-        // Defined inside the scope to capture variables (startX, startY, finalX, finalY, etc.)
         function startAnimation() {
             if (duration > 0) {
               var startTime = Date.now();
@@ -345,11 +368,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                 var ease = getEasing(progress, easingType);
 
                 if (firstFrame) {
-                    var current = workspace.activeWindow;
-                    workspace.activeWindow = null;   // Drop focus (forces Obsidian to "Occlude")
-                    workspace.activeWindow = target; // Grab focus (forces Obsidian to "Paint")
-
-                    // Restore visibility and fullscreen only on the first frame to ensure teleport has finished
+                    focusKick(target, false);
                     if (forcePriority) target.fullScreen = true;
                     if (animateOpacity) target.opacity = 0.0;
                     else target.opacity = 1.0;
@@ -380,8 +399,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                   timer.stop();
                   target.opacity = 1.0;
                   target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
-                  if (workspace.activeWindow !== undefined) workspace.activeWindow = target;
-                  else workspace.activeClient = target;
+                  focusKick(target, false);
                   for (var d = 0; d < siblingDatas.length; d++) {
                       var data = siblingDatas[d];
                       data.client.opacity = 0.0;
@@ -399,25 +417,19 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
         if (needsReposition) {
              target.opacity = 0.0;
-             target.fullScreen = false; // MUST be false to move between screens
+             target.fullScreen = false;
              var jumpY = areaTop - finalHeight;
              target.frameGeometry = { x: finalX, y: jumpY, width: finalWidth, height: finalHeight };
-
-             // Ground truth update: use the values we just set!
              startX = finalX;
              startY = jumpY;
-
              if (animateOpacity) startOpacity = 0.0;
              else startOpacity = 1.0;
-
-             // Sync delay: Wait for KWin to process the geometry change before starting animation
              var delayTimer = new QTimer();
              delayTimer.interval = 200;
              delayTimer.singleShot = true;
              delayTimer.timeout.connect(startAnimation);
              delayTimer.start();
         } else {
-             // No reposition needed, start immediately
              startAnimation();
         }
     } else {
@@ -484,7 +496,6 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
               var stillActive = (workspace.activeWindow === target || workspace.activeClient === target);
               if (wasActive && stillActive) {
-                var allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
                 var stacking = workspace.stackingOrder;
                 var targetBehind = null;
                 var targetIndex = -1;
@@ -505,15 +516,13 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                 }
 
                 if (targetBehind) {
-                    if (workspace.activeWindow !== undefined) workspace.activeWindow = targetBehind;
-                    else workspace.activeClient = targetBehind;
+                    focusKick(targetBehind, false);
                 } else if (prevWindowId && prevWindowId !== "") {
-                    // Fallback to saved prevWindowId if no suitable window found behind
+                    var allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
                     for (var j = 0; j < allClients.length; j++) {
                       var c = allClients[j];
                       if (c.internalId && normalizeId(c.internalId) === normalizeId(prevWindowId)) {
-                        if (workspace.activeWindow !== undefined) workspace.activeWindow = c;
-                        else workspace.activeClient = c;
+                        focusKick(c, false);
                         break;
                       }
                     }
@@ -543,40 +552,22 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
 (function(apps) {
     {{COMMON_KWIN_JS}}
 
-    var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-
     for (var a = 0; a < apps.length; a++) {
         var app = apps[a];
         var target = findTarget(app.windowClass, app.targetWindowId, app.targetPid);
 
         if (target) {
           console.log("janq_grab: Grabbing window for " + app.windowClass + " (id: " + target.internalId + ", pid: " + target.pid + ")");
-          target.onAllDesktops = true;
-          target.keepAbove = app.keepAbove;
-          target.noBorder = true;
-          target.skipTaskbar = true;
-          target.skipPager = true;
-          if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
-          if (app.forcePriority && !app.isVisible) target.fullScreen = true;
+          setQuakeProperties(target, app.keepAbove, app.isVisible, app.forcePriority);
 
-          var screens = workspace.screens;
-          var area = null;
-          if (app.displayMode === "specific" && app.displayIndex >= 0 && app.displayIndex < screens.length) area = screens[app.displayIndex].geometry;
-          else if (app.displayMode === "active") {
-              var activeWin = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
-              if (activeWin) area = workspace.clientArea(KWin.PlacementArea, activeWin);
-              else area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop);
-          }
-          else area = workspace.activeScreen.geometry;
-
-          var finalWidth = app.width > 0 ? (app.isWidthPercent ? area.width * app.width : app.width) : target.frameGeometry.width;
-          var finalHeight = app.height > 0 ? (app.isHeightPercent ? area.height * app.height : app.height) : target.frameGeometry.height;
-          var finalX = area.x + (area.width - finalWidth) / 2;
+          var area = resolveArea(target, app.displayMode, app.displayIndex, null);
+          var dims = resolveDimensions(app.width, app.isWidthPercent, app.height, app.isHeightPercent, area, target);
+          var finalX = area.x + (area.width - dims.width) / 2;
 
           if (!app.isVisible) {
               console.log("janq_grab: Parking " + app.windowClass + " offscreen.");
               target.opacity = 0.0;
-              target.frameGeometry = { x: finalX, y: area.y - finalHeight - 10, width: finalWidth, height: finalHeight };
+              target.frameGeometry = { x: finalX, y: area.y - dims.height - 10, width: dims.width, height: dims.height };
           } else {
               console.log("janq_grab: Skipping position update for " + app.windowClass + " (already visible).");
           }
@@ -588,6 +579,7 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = r#"
 
 const RESTORE_TEMPLATE: &str = r#"
 (function(windowClass) {
+    {{COMMON_KWIN_JS}}
     var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
     for (var i = 0; i < clients.length; i++) {
       var c = clients[i];
@@ -599,26 +591,8 @@ const RESTORE_TEMPLATE: &str = r#"
           var geo = c.frameGeometry;
           var needsCenter = (geo.y + geo.height <= area.y + 50 || c.opacity < 0.1 || geo.y < area.y + 10);
 
-          c.keepAbove = false;
-          c.onAllDesktops = false;
-          c.noBorder = false;
-          c.skipTaskbar = false;
-          c.skipPager = false;
-          if (c.skipSwitcher !== undefined) c.skipSwitcher = false;
-          c.fullScreen = false;
-          c.opacity = 1.0;
-
-          // Silent focus kick: briefly focus to wake up, then return focus to original
-          var savedFocus = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
-          if (workspace.activeWindow !== undefined) {
-              workspace.activeWindow = null;
-              workspace.activeWindow = c;
-              if (savedFocus && savedFocus !== c) workspace.activeWindow = savedFocus;
-          } else {
-              workspace.activeClient = null;
-              workspace.activeClient = c;
-              if (savedFocus && savedFocus !== c) workspace.activeClient = savedFocus;
-          }
+          resetQuakeProperties(c);
+          focusKick(c, true);
 
           if (needsCenter) {
             c.frameGeometry = {
@@ -666,7 +640,7 @@ fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
     if let Ok(cache) = get_window_cache().try_lock() {
       if let Some((id, pid)) = cache.get(app_name) {
         // Verify PID liveness via /proc (ultra-fast)
-        if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
+        if Path::new(&format!("/proc/{}", pid)).exists() {
           return Some((id.clone(), *pid));
         }
       }
@@ -861,7 +835,8 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
 }
 
 pub async fn restore_app(window_class: &str, conn: &Connection) -> anyhow::Result<()> {
-  let script_content = format!("{}(\"{}\");", RESTORE_TEMPLATE, window_class);
+  let script_body = RESTORE_TEMPLATE.replace("{{COMMON_KWIN_JS}}", COMMON_KWIN_JS);
+  let script_content = format!("{}(\"{}\");", script_body, window_class);
   run_kwin_script(
     conn,
     "janq_restore_script",

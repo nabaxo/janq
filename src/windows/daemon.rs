@@ -1,22 +1,28 @@
-use crate::config::{load_config, Config};
-use crate::hotkey::parse_hotkey;
-use crate::windows::window::{get_hwnd_cache, toggle_window};
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
+
 use anyhow::Result;
 use fs2::FileExt;
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyManager};
 use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
-use tokio::io::AsyncWriteExt;
-use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
-use tokio::runtime::Runtime;
-use tokio::signal;
+use tokio::{
+  io::AsyncWriteExt,
+  net::windows::named_pipe::{ClientOptions, ServerOptions},
+  runtime::Runtime,
+  signal,
+};
 use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
   MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
 };
 use winit::event::Event;
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
+
+use crate::windows::window::{get_hwnd_cache, toggle_window};
+use crate::{
+  config::{load_config, Config},
+  hotkey::parse_hotkey,
+};
 
 const PIPE_NAME: &str = r"\\.\pipe\janq";
 

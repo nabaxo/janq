@@ -1,11 +1,17 @@
-use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::process::{Command, Stdio};
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::{
+  collections::{HashMap, HashSet},
+  fmt::Write,
+  fs,
+  path::Path,
+  process::{id, Command, Stdio},
+  sync::{Mutex, OnceLock},
+  time::Duration,
+};
+
 use tokio::time::sleep;
 use zbus::Connection;
+
+use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 
 static SPAWNING_APPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
@@ -147,7 +153,7 @@ pub fn check_window_exists_with_candidates(
   // 2. Hot path: Check cache and verify liveness via /proc
   let mut cache = get_pid_cache().lock().unwrap();
   if let Some(cached) = cache.get(target_class) {
-    if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
+    if Path::new(&format!("/proc/{}", cached.pid)).exists() {
       // Light verification: window still belongs to the same class (cached ID check)
       // This is still fairly fast compared to a full scan.
       return Some(cached.id.clone());
@@ -285,7 +291,7 @@ pub fn check_process_running(target_class: &str) -> bool {
   if let Some(cached) = cache.get(target_class) {
     // Fast liveness check: just check if the directory exists
     // This is much faster than reading cmdline every time.
-    if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
+    if Path::new(&format!("/proc/{}", cached.pid)).exists() {
       return true;
     }
   }
@@ -298,7 +304,7 @@ pub fn check_process_running(target_class: &str) -> bool {
     Err(_) => return false,
   };
 
-  let my_pid = std::process::id();
+  let my_pid = id();
 
   for entry in procs.flatten() {
     if let Ok(name) = entry.file_name().into_string() {
@@ -330,7 +336,6 @@ fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
   let target_dash_suffix = format!("-{}", target_lower);
 
   let mut path_buf = String::with_capacity(32);
-  use std::fmt::Write;
   let _ = write!(path_buf, "/proc/{}/cmdline", pid);
 
   if let Ok(cmdline) = fs::read(&path_buf) {
@@ -367,7 +372,7 @@ fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
         let exe_str = exe.to_string_lossy().to_lowercase();
 
         // 1. General check: match filename against target class (Prefix/Suffix/Exact)
-        let exe_name = std::path::Path::new(&exe_str)
+        let exe_name = Path::new(&exe_str)
           .file_name()
           .and_then(|n| n.to_str())
           .unwrap_or(&exe_str)

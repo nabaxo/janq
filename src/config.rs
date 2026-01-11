@@ -1,8 +1,13 @@
+use std::{
+  collections::{HashMap, HashSet},
+  env::current_exe,
+  fs,
+  path::PathBuf,
+};
+
+use dirs::{config_dir, home_dir};
 use indexmap::IndexMap;
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default)]
 pub struct FoundWindow {
@@ -479,9 +484,9 @@ fn is_valid_easing(s: &str) -> bool {
     "sine" | "sine-in-out" | "in-out-sine" | "sine-in" | "in-sine" | "sine-out" | "out-sine"
     | "quart" | "quart-in-out" | "in-out-quart" | "quart-in" | "in-quart" | "quart-out"
     | "out-quart" | "cubic" | "cubic-in-out" | "in-out-cubic" | "cubic-in" | "in-cubic"
-    | "cubic-out" | "out-cubic" | "back" | "back-in-out" | "in-out-back" | "back-in" | "in-back"
-    | "back-out" | "out-back" | "ease" | "ease-in-out" | "linear" | "ease-in" | "ease-out"
-    | "windows" => true,
+    | "cubic-out" | "out-cubic" | "back" | "back-in-out" | "in-out-back" | "back-in"
+    | "in-back" | "back-out" | "out-back" | "ease" | "ease-in-out" | "linear" | "ease-in"
+    | "ease-out" | "windows" => true,
     _ => parse_bezier(s).is_some(),
   }
 }
@@ -512,15 +517,15 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
   let mut config_paths = Vec::new();
 
   // 1. Current EXE Directory
-  if let Ok(exe) = std::env::current_exe() {
+  if let Ok(exe) = current_exe() {
     if let Some(parent) = exe.parent() {
       config_paths.extend([parent.join("janq.toml"), parent.join(".janq.toml")]);
     }
   }
 
-  if let Some(home) = dirs::home_dir() {
+  if let Some(home) = home_dir() {
     // 2. XDG Config Directory (~/.config/janq/)
-    if let Some(xdg_config) = dirs::config_dir() {
+    if let Some(xdg_config) = config_dir() {
       let janq_dir = xdg_config.join("janq");
       config_paths.extend([janq_dir.join("janq.toml"), janq_dir.join(".janq.toml")]);
     }
@@ -531,7 +536,7 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
 
   // De-duplicate while preserving order
   let mut unique_paths = Vec::new();
-  let mut seen = std::collections::HashSet::new();
+  let mut seen = HashSet::new();
   for path in config_paths {
     if seen.insert(path.clone()) {
       unique_paths.push(path);
@@ -715,9 +720,15 @@ mod tests {
       parse_bezier("cubic-bezier(0, 0.5, 0.5, 1)"),
       Some((0.0, 0.5, 0.5, 1.0))
     );
-    assert_eq!(parse_bezier("bezier(0, 0.5, 0.5, 1)"), Some((0.0, 0.5, 0.5, 1.0)));
+    assert_eq!(
+      parse_bezier("bezier(0, 0.5, 0.5, 1)"),
+      Some((0.0, 0.5, 0.5, 1.0))
+    );
     assert_eq!(parse_bezier("(0, 1, 1, 0)"), Some((0.0, 1.0, 1.0, 0.0)));
-    assert_eq!(parse_bezier(" ( 0.1 , 0.2 , 0.3 , 0.4 ) "), Some((0.1, 0.2, 0.3, 0.4)));
+    assert_eq!(
+      parse_bezier(" ( 0.1 , 0.2 , 0.3 , 0.4 ) "),
+      Some((0.1, 0.2, 0.3, 0.4))
+    );
     assert_eq!(parse_bezier("linear"), None);
   }
 

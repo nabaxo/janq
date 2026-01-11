@@ -1,10 +1,10 @@
-use crate::config::{AppConfig, Config};
-use crate::windows::window::{find_window_by_process, get_hwnd_cache, SendHwnd};
+use std::collections::HashSet;
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+use crate::config::{AppConfig, Config};
+use crate::windows::window::{find_window_by_process, get_hwnd_cache, SendHwnd};
 
 static SPAWNING_APPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 

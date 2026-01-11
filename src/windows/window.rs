@@ -1,25 +1,33 @@
+use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
+
+use tokio::time::Instant;
+use windows::Win32::{
+  Foundation::{BOOL, COLORREF, HWND, LPARAM, POINT, RECT, TRUE},
+  Graphics::{
+    Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED},
+    Gdi::{
+      EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HDC, HMONITOR,
+      MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    },
+  },
+  System::{
+    ProcessStatus::GetModuleBaseNameW,
+    Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
+  },
+  UI::WindowsAndMessaging::{
+    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, EnumWindows, GetCursorPos,
+    GetForegroundWindow, GetLayeredWindowAttributes, GetWindowLongW, GetWindowRect,
+    GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
+    SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
+    HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNA,
+    WS_EX_LAYERED,
+  },
+};
+
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 use crate::windows::easing::get_easing;
-use tokio::time::Instant;
-use windows::Win32::Foundation::{BOOL, COLORREF, HWND, LPARAM, POINT, RECT, TRUE};
-use windows::Win32::Graphics::Dwm::{
-  DwmFlush, DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED,
-};
-use windows::Win32::Graphics::Gdi::{
-  EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HDC, HMONITOR,
-  MONITORINFO, MONITOR_DEFAULTTONEAREST,
-};
-use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
-use windows::Win32::UI::WindowsAndMessaging::{
-  BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, EnumWindows, GetCursorPos,
-  GetForegroundWindow, GetLayeredWindowAttributes, GetWindowLongW, GetWindowRect,
-  GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
-  SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
-  HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-  SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNA,
-  WS_EX_LAYERED,
-};
 
 // Wrapper to make HWND Send/Sync for async tasks
 #[derive(Clone, Copy)]
@@ -32,9 +40,6 @@ impl SendHwnd {
     self.0
   }
 }
-
-use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
 
 static ANIMATION_TASK: OnceLock<std::sync::Mutex<Option<tokio::task::AbortHandle>>> =
   OnceLock::new();

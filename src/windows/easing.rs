@@ -1,8 +1,5 @@
 use std::f64::consts::PI;
 
-  Some((x1, y1, x2, y2))
-}
-
 pub fn get_easing(progress: f64, type_: &str) -> f64 {
   match type_ {
     "sine" | "sine-in-out" | "in-out-sine" => -((PI * progress).cos() - 1.0) / 2.0,
@@ -101,15 +98,24 @@ mod tests {
   #[test]
   fn test_parse_bezier() {
     assert_eq!(
-      parse_bezier("cubic-bezier(0, 0.5, 0.5, 1)"),
+      crate::config::parse_bezier("cubic-bezier(0, 0.5, 0.5, 1)"),
       Some((0.0, 0.5, 0.5, 1.0))
     );
-    assert_eq!(parse_bezier("(0, 1, 1, 0)"), Some((0.0, 1.0, 1.0, 0.0)));
-    assert_eq!(parse_bezier(" ( 0.1 , 0.2 , 0.3 , 0.4 ) "), Some((0.1, 0.2, 0.3, 0.4)));
-    assert_eq!(parse_bezier("linear"), None);
-    assert_eq!(parse_bezier("cubic-bezier(1, 2, 3)"), None);
-    assert_eq!(parse_bezier("(1, 2, 3, 4, 5)"), None);
-    assert_eq!(parse_bezier("cubic-bezier(a, b, c, d)"), None);
+    assert_eq!(
+      crate::config::parse_bezier("(0, 1, 1, 0)"),
+      Some((0.0, 1.0, 1.0, 0.0))
+    );
+    assert_eq!(
+      crate::config::parse_bezier(" ( 0.1 , 0.2 , 0.3 , 0.4 ) "),
+      Some((0.1, 0.2, 0.3, 0.4))
+    );
+    assert_eq!(crate::config::parse_bezier("linear"), None);
+    assert_eq!(crate::config::parse_bezier("cubic-bezier(1, 2, 3)"), None);
+    assert_eq!(crate::config::parse_bezier("(1, 2, 3, 4, 5)"), None);
+    assert_eq!(
+      crate::config::parse_bezier("cubic-bezier(a, b, c, d)"),
+      None
+    );
   }
 
   #[test]

@@ -1,7 +1,8 @@
-use crate::config::Config;
+use std::{env::current_exe, fs, path::PathBuf, process::Command};
+
 use anyhow::{Context, Result};
-use std::fs;
-use std::path::PathBuf;
+
+use crate::config::Config;
 
 pub fn generate_desktop_file(config: &Config) -> Result<()> {
   let _ = generate_desktop_file_impl(config, true)?;
@@ -13,7 +14,7 @@ pub fn generate_desktop_file_headless(config: &Config) -> Result<bool> {
 }
 
 fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool> {
-  let current_exe = std::env::current_exe()
+  let current_exe = current_exe()
     .and_then(|p| p.canonicalize())
     .unwrap_or_else(|_| PathBuf::from("janq"));
   let exe_path_raw = current_exe.to_string_lossy();
@@ -26,8 +27,12 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
   let exec_cmd = format!("{} --daemon", exe_path);
 
   // 2. Desktop File
-  let xdg_data = dirs::data_local_dir()
-    .unwrap_or_else(|| dirs::home_dir().unwrap().join(".local").join("share"));
+  let xdg_data = dirs::data_local_dir().unwrap_or_else(|| {
+    dirs::home_dir()
+      .expect("Failed to get home dir")
+      .join(".local")
+      .join("share")
+  });
   let app_dir = xdg_data.join("applications");
   fs::create_dir_all(&app_dir)?;
 
@@ -133,7 +138,7 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
 }
 
 fn run_kbuildsycoca6() {
-  match std::process::Command::new("kbuildsycoca6")
+  match Command::new("kbuildsycoca6")
     .arg("--noincremental")
     .status()
   {

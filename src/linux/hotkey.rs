@@ -1,5 +1,6 @@
-use crate::config::Config;
 use anyhow::{Context, Result};
+
+use crate::config::Config;
 // Convert KDE shortcut string (e.g. "Meta+Grave") to Qt keycode integer
 
 /// Normalize a shortcut string to KDE's expected format for display in System Settings.
