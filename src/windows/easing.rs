@@ -52,6 +52,31 @@ pub fn get_easing(progress: f64, type_: &str) -> f64 {
     "linear" => progress,
     "ease-in" => progress * progress,
     "ease-out" => progress * (2.0 - progress),
+    "expo" | "expo-in-out" | "in-out-expo" => {
+      if progress == 0.0 {
+        0.0
+      } else if progress == 1.0 {
+        1.0
+      } else if progress < 0.5 {
+        2.0f64.powf(20.0 * progress - 10.0) / 2.0
+      } else {
+        (2.0 - 2.0f64.powf(-20.0 * progress + 10.0)) / 2.0
+      }
+    }
+    "expo-in" | "in-expo" => {
+      if progress == 0.0 {
+        0.0
+      } else {
+        2.0f64.powf(10.0 * progress - 10.0)
+      }
+    }
+    "expo-out" | "out-expo" => {
+      if progress == 1.0 {
+        1.0
+      } else {
+        1.0 - 2.0f64.powf(-10.0 * progress)
+      }
+    }
     "windows" => cubic_bezier(progress, 0.25, 0.0, 0.0, 1.0),
     other => {
       if let Some((x1, y1, x2, y2)) = crate::config::parse_bezier(other) {

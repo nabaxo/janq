@@ -195,6 +195,7 @@ hotkey = "Meta+Z"
 | Mode | Description |
 | :--- | :--- |
 | `windows` | High-end cubic-bezier curve matching modern Windows 11 animations. |
+| `expo`* | Exponential curve for a snappier, "high-speed" feeling. |
 | `linear` | Direct, constant movement. |
 | `ease`* | Smooth acceleration and deceleration. |
 | `sine`* | Subtler sine-wave curve. |
@@ -266,12 +267,18 @@ Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl
 ### Linux: Hotkey registration delay
 On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
 
-### Linux: Electron app opacity
-Applications built on Electron (e.g., Obsidian, VS Code, Discord) may experience unreliable or non-functional `animate_opacity` on Linux, particularly under KDE Plasma 6. This is due to Chromium's aggressive occlusion optimizations that can ignore compositor-level transparency signals during high-frequency motion. Native GPU-accelerated apps like WezTerm or Alacritty do not typically share this limitation.
-(Human's note: I have no idea if the reason given by the LLM is actually true, but I know it doesn't work, just live without opacity animations on electron apps.)
+### App Compatibility: Opacity Animations
+Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord(Human note: maybe?)) may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
 
-### Linux: Animation Artifacts (Ghosting)
-When moving windows at high speeds, you may notice "trails" or ghosting artifacts left behind. This is especially prevalent with applications like Obsidian, Zed, and standard Qt tools (KWrite, KCalc). This "sync gap" occurs because KWin's scripting engine moves the window frame at the monitor's refresh rate, but the application content often lags by 1-2 frames. While **janq** is optimized for high-refresh displays, some degree of artifacting is currently an inherent platform limitation for these types of apps.
+**Note:** It is up to the user to test and decide whether to enable `animate_opacity` on a per-app basis. If you notice flickering, "blank" windows during toggle, or if the animation just feels sluggish, disable this feature for that specific app in your config.
+
+### Linux: Animation Artifacts (Ghosting / Jitter)
+**If you experience intense jittering or "fighting" animations**, you likely have a third-party KWin effect active (like "Geometry Change") that is competing with janq to animate the window. To fix this:
+- Open your KWin effect settings.
+- Find the conflicting effect (e.g., "Geometry Change").
+- Add the window classes managed by janq (e.g., `wezterm`, `obsidian`) to the effect's **Exclusion List**.
+
+While **janq** is optimized for high-refresh displays and uses `ForceBlur` to stabilize transitions, some degree of content lag is currently an inherent platform limitation for these types of apps.
 
 ## License
 Copyright (c) 2026 Nebez Kassem

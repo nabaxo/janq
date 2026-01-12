@@ -485,7 +485,8 @@ fn is_valid_easing(s: &str) -> bool {
     | "quart" | "quart-in-out" | "in-out-quart" | "quart-in" | "in-quart" | "quart-out"
     | "out-quart" | "cubic" | "cubic-in-out" | "in-out-cubic" | "cubic-in" | "in-cubic"
     | "cubic-out" | "out-cubic" | "back" | "back-in-out" | "in-out-back" | "back-in"
-    | "in-back" | "back-out" | "out-back" | "ease" | "ease-in-out" | "linear" | "ease-in"
+    | "in-back" | "back-out" | "out-back" | "expo" | "expo-in-out" | "in-out-expo" | "expo-in"
+    | "in-expo" | "expo-out" | "out-expo" | "ease" | "ease-in-out" | "linear" | "ease-in"
     | "ease-out" | "windows" => true,
     _ => parse_bezier(s).is_some(),
   }

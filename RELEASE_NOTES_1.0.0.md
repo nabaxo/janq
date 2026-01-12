@@ -24,7 +24,7 @@
 - **Windows:** Native hotkey registration with instant response times
 
 - **Advanced weighted fuzzy matching** on both platforms—find windows using abbreviations, substrings, or delimiters with a sophisticated scoring engine that rewards word boundaries and penalizes gaps.
-- **High-Performance Linux Path**: Zero-IPC liveness checks via `/proc` ensuring that toggling and animation reversals occur with $<0.1$ms overhead.
+- **High-Performance Linux Path**: Zero-IPC liveness checks via `/proc` and **ForceBlur** (Role 1) integration ensuring that toggling and animations occur with $<0.1$ms overhead and perfect visual stability.
 
 ---
 
@@ -56,6 +56,7 @@
 - **Opacity animations** with configurable fade points
 - **Premium easing curves:**
   - `windows` (Windows 11-style)
+  - `expo` (Exponential, high-tension curves)
   - `linear`, `ease`, `sine`, `cubic`, `quart`, `back`
   - Full `-in`, `-out`, and `-in-out` variants
 - **Custom Easing Support**: Define your own curves with `cubic-bezier(x1, y1, x2, y2)`, `bezier(...)`, or simply `(x1, y1, x2, y2)`
@@ -76,7 +77,7 @@
 
 ### Reliability
 - **Robust Windows Hot-Reloading**: Optimized configuration watcher to monitor parent directories, ensuring stability with editors that perform atomic saves (like VS Code).
-- **Graceful Shutdown**: Proper signal handling (SIGINT/SIGTERM) ensuring graceful shutdown with clear console logging ("Shutting down...")
+- **Graceful Shutdown**: Proper signal handling (SIGINT/SIGTERM) and descriptive console logging ("Quitting via systray", "Received SIGINT", etc.) ensuring absolute clarity on exit.
 - **Cache-Based Window Restoration**: Significantly improved restoration on exit—uses a runtime handle cache to reliably return *all* managed windows (even those removed from config) to their original positions.
 - **Single Instance Enforcement**: Prevents multiple daemon instances via file locks.
 - **Robust Error Handling**: User-friendly error dialogs on both platforms.

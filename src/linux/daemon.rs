@@ -130,7 +130,7 @@ impl StatusNotifierItem {
     let conn = self.conn.clone();
     tokio::spawn(async move {
       let _ = restore_quake(&config, &conn).await;
-      println!("Shutting down...");
+      println!("Quitting via systray, shutting down...");
       exit(0);
     });
   }
@@ -461,7 +461,7 @@ pub async fn run_daemon(
 
   let cfg = config_for_signals.read().unwrap().clone();
   let _ = restore_quake(&cfg, &conn_for_signals).await;
-  println!("Shutting down...");
+  println!("janq: Termination complete.");
 
   Ok(())
 }

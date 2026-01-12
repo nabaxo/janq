@@ -159,6 +159,12 @@ const COMMON_KWIN_JS: &str = r#"
         return target;
     }
 
+    function setForceBlur(target, enabled) {
+        if (target && target.setData) {
+            target.setData(1, enabled ? true : null);
+        }
+    }
+
     function getEasing(progress, type) {
       if (type.indexOf("(") !== -1) {
           var content = "";
@@ -231,6 +237,15 @@ const COMMON_KWIN_JS: &str = r#"
           return progress < 0.5
             ? (Math.pow(2 * progress, 2) * ((c2 + 1) * 2 * progress - c2)) / 2
             : (Math.pow(2 * progress - 2, 2) * ((c2 + 1) * (progress * 2 - 2) + c2) + 2) / 2;
+        case "expo-in": case "ease-in-expo":
+          return progress === 0 ? 0 : Math.pow(2, 10 * progress - 10);
+        case "expo-out": case "ease-out-expo":
+          return progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+        case "expo":
+        case "expo-in-out": case "ease-in-out-expo":
+          return progress === 0 ? 0 : progress === 1 ? 1 : progress < 0.5
+            ? Math.pow(2, 20 * progress - 10) / 2
+            : (2 - Math.pow(2, -20 * progress + 10)) / 2;
         default: return progress * (2 - progress);
       }
     }
@@ -438,6 +453,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                   target.opacity = 1.0;
                   target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
                   focusKick(target, false);
+                  setForceBlur(target, false);
                   for (var d = 0; d < siblingDatas.length; d++) {
                       var data = siblingDatas[d];
                       data.client.opacity = 0.0;
@@ -446,6 +462,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
                   }
                 }
               });
+              setForceBlur(target, true);
               timer.start();
             } else {
               target.opacity = 1.0;
@@ -524,6 +541,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
               target.fullScreen = false;
               if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+              setForceBlur(target, false);
 
               for (var d = 0; d < siblingDatas.length; d++) {
                   var data = siblingDatas[d];
@@ -569,6 +587,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
               if (KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
             }
           });
+          setForceBlur(target, true);
           timer.start();
         } else {
           target.opacity = 0.0;

@@ -291,7 +291,7 @@ pub fn run_daemon(
   let proxy_ctrlc = proxy.clone();
   rt.spawn(async move {
     if signal::ctrl_c().await.is_ok() {
-      println!("Ctrl+C received. Sending exit signal...");
+      println!("Ctrl+C received. Shutting down...");
       let _ = proxy_ctrlc.send_event(DaemonEvent::Exit);
     }
   });
