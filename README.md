@@ -1,4 +1,4 @@
-# janq - The Janky Quake-Style Terminal Manager, Rust Edition
+# janq - The Janky Quake-Style Terminal Manager sloperated in Rust
 
 ## janq is 100%, unadultareted vibe coded slop. User discretion is advised.
 
