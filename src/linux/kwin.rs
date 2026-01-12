@@ -9,7 +9,8 @@ use zbus::{Connection, Proxy, Result};
 
 use crate::config::{AppConfig, Config};
 use crate::linux::terminal::{
-  check_window_exists, check_window_exists_with_candidates, fetch_system_windows, get_pid_for_class,
+  check_window_exists, check_window_exists_with_candidates, fetch_system_windows,
+  get_pid_for_class, is_window_valid,
 };
 
 /// Helper to run a KWin script with common boilerplate:
@@ -159,7 +160,7 @@ fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
   {
     if let Ok(cache) = get_window_cache().try_lock() {
       if let Some((id, pid)) = cache.get(app_name) {
-        // Verify PID liveness via /proc (ultra-fast)
+        // Verify PID liveness via /proc
         if Path::new(&format!("/proc/{}", pid)).exists() {
           return Some((id.clone(), *pid));
         }
@@ -191,6 +192,17 @@ pub async fn toggle_quake(
   };
 
   let is_currently_visible = state.visible_app.as_deref() == Some(app_name);
+
+  // If we think it's visible, verify the window still exists
+  if is_currently_visible {
+    let (target_id, _) =
+      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+    if target_id.is_empty() || !is_window_valid(&target_id) {
+      state.visible_app = None;
+      return Ok(()); // Just reset state, don't immediately try to show/spawn.
+    }
+  }
+
   let should_show = !is_currently_visible;
 
   let janq_classes: Vec<String> = config

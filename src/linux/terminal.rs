@@ -74,20 +74,27 @@ pub async fn ensure_terminal_running(
     return false;
   }
 
-  // If process is running but no window, we still want to try starting it
-  // (e.g. for terminals that open new windows on command even if daemon is running)
+  // 3. Process is running but no window found: Prioritize Release (un-quake)
   if process_running {
-    println!(
-      "janq: Process for '{}' exists but no window found. Attempting to start/reanimate...",
-      window_class
-    );
+    let _ = crate::linux::kwin::restore_app(window_class, conn).await;
+    sleep(Duration::from_millis(400)).await;
+
+    // If release uncovered an existing window, reuse it immediately
+    if let Some(id) = check_window_exists(window_class) {
+      println!(
+        "janq: Recovering window {} for '{}' after release.",
+        id, window_class
+      );
+      let _ = crate::linux::kwin::ensure_grabbed(app_cfg, config, conn).await;
+      return true;
+    }
   }
 
   let full_cmd = start_command.clone();
 
   println!("Starting terminal: {}", full_cmd);
 
-  // Use sh -c
+  // Use std::process with a background reaper to avoid "killing on close" regression
   match Command::new("sh")
     .arg("-c")
     .arg(&full_cmd)
@@ -96,7 +103,11 @@ pub async fn ensure_terminal_running(
     .stderr(Stdio::null())
     .spawn()
   {
-    Ok(_) => {}
+    Ok(mut child) => {
+      tokio::task::spawn_blocking(move || {
+        let _ = child.wait();
+      });
+    }
     Err(e) => {
       println!("Failed to start managed app: {}", e);
       return false;
@@ -124,10 +135,10 @@ pub async fn ensure_terminal_running(
   // Fallback: check if process is at least running
   if check_process_running(window_class) {
     println!(
-      "janq: Process for '{}' is running, but no window appeared after 8 seconds. This might be a configuration issue.",
+      "janq: Process for '{}' is running, but no window appeared after 8 seconds. This might be a configuration issue. Retrying next toggle.",
       window_class
     );
-    return true;
+    return false; // Return false so the next toggle can try to find/spawn it again properly
   }
 
   println!(
@@ -150,18 +161,24 @@ pub fn check_window_exists_with_candidates(
     return fuzzy_match_window(target_class, list, &[]).map(|w| w.id);
   }
 
-  // 2. Hot path: Check cache and verify liveness via /proc
-  let mut cache = get_pid_cache().lock().unwrap();
-  if let Some(cached) = cache.get(target_class) {
-    if Path::new(&format!("/proc/{}", cached.pid)).exists() {
-      // Light verification: window still belongs to the same class (cached ID check)
-      // This is still fairly fast compared to a full scan.
-      return Some(cached.id.clone());
+  // 2. Hot path: Check cache and verify liveness via /proc and kdotool
+  {
+    let mut cache = get_pid_cache().lock().unwrap();
+    if let Some(cached) = cache.get_mut(target_class) {
+      if Path::new(&format!("/proc/{}", cached.pid)).exists() {
+        if !cached.id.is_empty() && is_window_valid(&cached.id) {
+          return Some(cached.id.clone());
+        }
+        cached.id.clear(); // Dead ID, live PID
+      } else {
+        cache.remove(target_class);
+      }
     }
   }
 
   // 3. Fallback: Full system fetch and fuzzy match
   let all_windows = fetch_system_windows();
+  let mut cache = get_pid_cache().lock().unwrap();
   let managed_ids: Vec<String> = cache.values().map(|c| c.id.clone()).collect();
 
   if let Some(best) = fuzzy_match_window(target_class, &all_windows, &managed_ids) {
@@ -261,6 +278,18 @@ fn run_kdotool_cmd(args: &[&str]) -> Vec<String> {
   Vec::new()
 }
 
+pub fn is_window_valid(id: &str) -> bool {
+  if id.is_empty() {
+    return false;
+  }
+  let output = Command::new("kdotool").args(["getwindowpid", id]).output();
+
+  match output {
+    Ok(o) => o.status.success() && !o.stdout.is_empty(),
+    _ => false,
+  }
+}
+
 struct CachedWindow {
   id: String,
   pid: u32,
@@ -270,13 +299,6 @@ static PID_CACHE: OnceLock<Mutex<FxHashMap<String, CachedWindow>>> = OnceLock::n
 
 fn get_pid_cache() -> &'static Mutex<FxHashMap<String, CachedWindow>> {
   PID_CACHE.get_or_init(|| Mutex::new(FxHashMap::default()))
-}
-
-pub fn invalidate_search_cache() {
-  if let Some(cache) = PID_CACHE.get() {
-    let mut lock = cache.lock().unwrap();
-    lock.clear();
-  }
 }
 
 pub fn get_pid_for_class(target_class: &str) -> Option<u32> {
@@ -330,65 +352,31 @@ pub fn check_process_running(target_class: &str) -> bool {
 }
 
 fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
-  // Pre-compute lowercase target once
   let target_lower = target_class.to_lowercase();
-  let target_dash_prefix = format!("{}-", target_lower);
-  let target_dash_suffix = format!("-{}", target_lower);
-
   let mut path_buf = String::with_capacity(32);
   let _ = write!(path_buf, "/proc/{}/cmdline", pid);
 
   if let Ok(cmdline) = fs::read(&path_buf) {
-    // Split by null byte
     let parts: Vec<&[u8]> = cmdline.split(|&b| b == 0).collect();
-
     for (i, part) in parts.iter().enumerate() {
       let s = String::from_utf8_lossy(part);
-      // Match exact --class arg
       if s == "--class" && i + 1 < parts.len() {
-        let next = String::from_utf8_lossy(parts[i + 1]);
-        if next.eq_ignore_ascii_case(target_class) {
+        if String::from_utf8_lossy(parts[i + 1]).eq_ignore_ascii_case(target_class) {
           return true;
         }
       }
-      // Match --class=foo
       if s.to_lowercase().starts_with("--class=") && s[8..].eq_ignore_ascii_case(target_class) {
         return true;
       }
     }
 
-    // Fallback logic
-    let full_cmd_binding = cmdline
-      .iter()
-      .map(|&b| if b == 0 { 32 } else { b })
-      .collect::<Vec<u8>>();
-    let full_cmd = String::from_utf8_lossy(&full_cmd_binding);
-
-    if full_cmd.to_lowercase().contains(&target_lower) {
-      // Check exe
-      path_buf.clear();
-      let _ = write!(path_buf, "/proc/{}/exe", pid);
-      if let Ok(exe) = fs::read_link(&path_buf) {
-        let exe_str = exe.to_string_lossy().to_lowercase();
-
-        // 1. General check: match filename against target class (Prefix/Suffix/Exact)
-        let exe_name = Path::new(&exe_str)
-          .file_name()
-          .and_then(|n| n.to_str())
-          .unwrap_or(&exe_str)
-          .to_lowercase();
-
-        if exe_name == target_lower
-          || exe_name.starts_with(&target_dash_prefix)
-          || exe_name.starts_with(&target_lower)
-          || exe_name.ends_with(&target_dash_suffix)
-        {
-          return true;
-        }
-        // 2. Flatpak/Wrapper check
-        if (exe_str.contains("flatpak") || exe_str.contains("bwrap") || exe_str.contains("snap"))
-          && !exe_str.contains("steam")
-        {
+    // Binary name match: Strict or known variations (like wezterm-gui)
+    path_buf.clear();
+    let _ = write!(path_buf, "/proc/{}/exe", pid);
+    if let Ok(exe) = fs::read_link(&path_buf) {
+      if let Some(name) = exe.file_name().and_then(|n| n.to_str()) {
+        let n_lower = name.to_lowercase();
+        if n_lower == target_lower || (target_lower == "wezterm" && n_lower == "wezterm-gui") {
           return true;
         }
       }

@@ -25,7 +25,6 @@ use crate::linux::kwin::{
   restore_quake, toggle_quake,
 };
 use crate::linux::show_error;
-use crate::linux::terminal::invalidate_search_cache;
 use crate::terminal::ensure_terminal_running;
 
 #[derive(Clone)]
@@ -388,7 +387,6 @@ pub async fn run_daemon(
 
                 // 1.5. Clear cache entries for removed apps
                 clear_removed_apps_from_cache(&old_config, &new_config_in_async);
-                invalidate_search_cache();
 
                 reset_visibility(&new_config_in_async).await;
 
