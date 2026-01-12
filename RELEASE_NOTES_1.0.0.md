@@ -75,10 +75,11 @@
 - Memory leak prevention with automatic cache cleanup on config reload
 
 ### Reliability
-- **Single instance enforcement** via file locks
-- Proper **signal handling** (SIGINT/SIGTERM) ensuring graceful shutdown with clear console logging ("Shutting down...")
-- **Window restoration** on daemon exit—your apps return to their original positions
-- Robust error handling with user-friendly error dialogs
+- **Robust Windows Hot-Reloading**: Optimized configuration watcher to monitor parent directories, ensuring stability with editors that perform atomic saves (like VS Code).
+- **Graceful Shutdown**: Proper signal handling (SIGINT/SIGTERM) ensuring graceful shutdown with clear console logging ("Shutting down...")
+- **Cache-Based Window Restoration**: Significantly improved restoration on exit—uses a runtime handle cache to reliably return *all* managed windows (even those removed from config) to their original positions.
+- **Single Instance Enforcement**: Prevents multiple daemon instances via file locks.
+- **Robust Error Handling**: User-friendly error dialogs on both platforms.
 
 ### Code Quality
 - Comprehensive refactoring for maintainability

@@ -847,38 +847,52 @@ pub async fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConf
 
 pub fn restore_app_window(window_class: &str) {
   if let Some(hwnd) = find_window_by_process(window_class) {
-    unsafe {
-      let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
-      if (ex & WS_EX_LAYERED.0 as i32) == 0 {
-        SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED.0 as i32);
-        let _ = SetWindowPos(
-          hwnd,
-          HWND::default(),
-          0,
-          0,
-          0,
-          0,
-          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        );
-      }
-      let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
-      let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
-      let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
-      if IsIconic(hwnd).as_bool() {
-        let _ = ShowWindow(
-          hwnd,
-          windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
-        );
-      } else {
-        let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA);
-      }
+    restore_hwnd(hwnd);
+  }
+}
+
+fn restore_hwnd(hwnd: HWND) {
+  unsafe {
+    let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+    if (ex & WS_EX_LAYERED.0 as i32) == 0 {
+      SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED.0 as i32);
+      let _ = SetWindowPos(
+        hwnd,
+        HWND::default(),
+        0,
+        0,
+        0,
+        0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+      );
+    }
+    let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+    let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+    let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
+    if IsIconic(hwnd).as_bool() {
+      let _ = ShowWindow(
+        hwnd,
+        windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
+      );
+    } else {
+      let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA);
     }
   }
 }
 
-pub fn restore_window_visibility(config: &Config) {
-  for cfg in config.app.values() {
-    restore_app_window(&cfg.window_class);
+pub fn restore_window_visibility() {
+  // 1. Abort current animation
+  {
+    let mut task_handle = get_animation_task().lock().unwrap();
+    if let Some(handle) = task_handle.take() {
+      handle.abort();
+    }
+  }
+
+  // 2. Restore all cached windows
+  let cache = get_hwnd_cache().read().unwrap();
+  for hwnd in cache.values() {
+    restore_hwnd(hwnd.inner());
   }
 }
 pub fn reset_visible_app() {

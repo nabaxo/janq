@@ -135,17 +135,18 @@ pub fn run_daemon(
     let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
 
     if let Some(path) = &path_to_watch {
-      if path.exists() {
-        let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
+      if let Ok(abs_path) = path.canonicalize() {
+        if let Some(parent) = abs_path.parent() {
+          let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
+        } else {
+          let _ = watcher.watch(&abs_path, RecursiveMode::NonRecursive);
+        }
+      } else {
+        let _ = watcher.watch(path, RecursiveMode::NonRecursive);
       }
     } else if let Some(home) = dirs::home_dir() {
-      let paths = vec![home.join(".janq.toml")];
-      for p in paths {
-        if p.exists() {
-          let _ = watcher.watch(&p, RecursiveMode::NonRecursive);
-          break;
-        }
-      }
+      // For .janq.toml in home dir, watch the home dir itself
+      let _ = watcher.watch(&home, RecursiveMode::NonRecursive);
     }
 
     let debounce_duration = std::time::Duration::from_millis(500);
@@ -160,10 +161,33 @@ pub fn run_daemon(
       };
 
       match rx.recv_timeout(timeout) {
-        Ok(_) => {
-          last_event = std::time::Instant::now();
-          pending = true;
+        Ok(Ok(event)) => {
+          let mut is_config_file = false;
+          if let Some(target_path) = &path_to_watch {
+            let target_path_abs = target_path.canonicalize().unwrap_or(target_path.clone());
+            for p in &event.paths {
+              let p_abs = p.canonicalize().unwrap_or(p.clone());
+              if p_abs == target_path_abs {
+                is_config_file = true;
+                break;
+              }
+            }
+          } else if let Some(home) = dirs::home_dir() {
+            let target = home.join(".janq.toml");
+            for p in &event.paths {
+              if p == &target {
+                is_config_file = true;
+                break;
+              }
+            }
+          }
+
+          if is_config_file {
+            last_event = std::time::Instant::now();
+            pending = true;
+          }
         }
+        Ok(Err(e)) => eprintln!("Watcher error: {:?}", e),
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
           if pending {
             pending = false;
@@ -188,26 +212,33 @@ pub fn run_daemon(
               *w = Arc::new(new_config.clone());
 
               // 1. Handle removed or changed apps
-              let mut cache = get_hwnd_cache().write().unwrap();
-              for (name, old_app_cfg) in &old_config.app {
-                match new_config.app.get(name) {
-                  Some(new_app_cfg) => {
-                    // App still exists, but check if class changed
-                    if new_app_cfg.window_class != old_app_cfg.window_class {
-                      println!(
-                        "App '{}' window_class changed. Clearing cache for re-detection.",
-                        name
-                      );
+              let mut to_restore = Vec::new();
+              {
+                let mut cache = get_hwnd_cache().write().unwrap();
+                for (name, old_app_cfg) in &old_config.app {
+                  match new_config.app.get(name) {
+                    Some(new_app_cfg) => {
+                      // App still exists, but check if class changed
+                      if new_app_cfg.window_class != old_app_cfg.window_class {
+                        println!(
+                          "App '{}' window_class changed. Clearing cache for re-detection.",
+                          name
+                        );
+                        cache.remove(name);
+                      }
+                    }
+                    None => {
+                      // App removed - restore window and clear cache
+                      println!("App '{}' removed from config. Restoring window.", name);
+                      to_restore.push(old_app_cfg.window_class.clone());
                       cache.remove(name);
                     }
                   }
-                  None => {
-                    // App removed - restore window and clear cache
-                    println!("App '{}' removed from config. Restoring window.", name);
-                    crate::windows::window::restore_app_window(&old_app_cfg.window_class);
-                    cache.remove(name);
-                  }
                 }
+              }
+
+              for class in to_restore {
+                crate::windows::window::restore_app_window(&class);
               }
             }
             let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
@@ -250,16 +281,18 @@ pub fn run_daemon(
   });
 
   // Spawn Tray Polling Thread (100ms interval)
+  let tray_proxy_poll = tray_proxy.clone();
   std::thread::spawn(move || loop {
     std::thread::sleep(std::time::Duration::from_millis(100));
-    let _ = tray_proxy.send_event(DaemonEvent::TrayPoll);
+    let _ = tray_proxy_poll.send_event(DaemonEvent::TrayPoll);
   });
 
   // Watch for Ctrl+C
+  let proxy_ctrlc = proxy.clone();
   rt.spawn(async move {
     if signal::ctrl_c().await.is_ok() {
       println!("Ctrl+C received. Sending exit signal...");
-      let _ = proxy.send_event(DaemonEvent::Exit);
+      let _ = proxy_ctrlc.send_event(DaemonEvent::Exit);
     }
   });
 
@@ -352,8 +385,7 @@ pub fn run_daemon(
         }
       }
       Event::LoopExiting => {
-        let cfg = config_clone_loop.read().unwrap().clone();
-        crate::windows::window::restore_window_visibility(&cfg);
+        crate::windows::window::restore_window_visibility();
       }
       Event::UserEvent(daemon_event) => {
         match daemon_event {
@@ -450,9 +482,7 @@ pub fn run_daemon(
                         }
                       }
                     } else if button == MouseButton::Middle {
-                      let cfg = config_clone_loop.read().unwrap().clone();
-                      crate::windows::window::restore_window_visibility(&cfg);
-                      std::process::exit(0);
+                      let _ = tray_proxy.send_event(DaemonEvent::Exit);
                     }
                   }
                 }
@@ -463,9 +493,7 @@ pub fn run_daemon(
             // Check Menu
             while let Ok(event) = menu_receiver.try_recv() {
               if event.id == quit_item_id {
-                let cfg = config_clone_loop.read().unwrap().clone();
-                crate::windows::window::restore_window_visibility(&cfg);
-                std::process::exit(0);
+                let _ = proxy.send_event(DaemonEvent::Exit);
               } else if let Some(app_name) = app_menu_items.get(&event.id) {
                 let cfg = config_clone_loop.read().unwrap().clone();
                 let app_name = app_name.clone();
