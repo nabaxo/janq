@@ -1,6 +1,6 @@
 DIST_DIR := dist
 
-build: format lint build-linux build-windows
+build: format lint build-linux-musl build-windows
 
 lint:
 	cargo fmt --all -- --check
@@ -14,6 +14,10 @@ prepare-dist:
 build-linux: prepare-dist
 	cargo build --release
 	cp target/release/janq $(DIST_DIR)/janq
+
+build-linux-musl: prepare-dist
+	cargo build --release --target x86_64-unknown-linux-musl
+	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq
 
 build-windows: prepare-dist
 	cargo build --release --target x86_64-pc-windows-gnu

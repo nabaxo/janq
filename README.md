@@ -26,11 +26,13 @@
 ### Prerequisites
 - **KDE Plasma 6** (Linux) or **Windows 10/11**.
 - **kdotool** (Linux/Wayland requirement).
+- **musl-tools** (Optional: for static Linux builds).
 
 ### Build
 ```bash
-make build-linux   # Binary: ./dist/janq
-make build-windows # Binary: ./dist/janq.exe
+make build-linux        # Binary: ./dist/janq
+make build-linux-musl   # Binary: ./dist/janq (Static, recommended)
+make build-windows      # Binary: ./dist/janq.exe
 ```
 
 ### The `utilities/` Folder (For When Things Go Wrong)

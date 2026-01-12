@@ -1,7 +1,10 @@
-use std::collections::HashSet;
-use std::process::{Command, Stdio};
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::{
+  collections::HashSet,
+  os::windows::process::CommandExt,
+  process::{Command, Stdio},
+  sync::{Mutex, OnceLock},
+  time::Duration,
+};
 
 use crate::config::{AppConfig, Config};
 use crate::windows::window::{find_window_by_process, get_hwnd_cache, SendHwnd};
@@ -81,7 +84,6 @@ pub async fn ensure_terminal_running(app_name: &str, app_cfg: &AppConfig, config
   let cmd = parts[0];
   let final_args = &parts[1..];
 
-  use std::os::windows::process::CommandExt;
   const DETACHED_PROCESS: u32 = 0x00000008;
 
   let spawn_result = Command::new(cmd)

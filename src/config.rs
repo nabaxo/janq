@@ -1,13 +1,12 @@
-use std::{
-  collections::{HashMap, HashSet},
-  env::current_exe,
-  fs,
-  path::PathBuf,
-};
+use rustc_hash::FxHashMap;
+use std::{collections::HashSet, env::current_exe, fmt, fs, path::PathBuf};
 
 use dirs::{config_dir, home_dir};
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{
+  de::{self, value::MapAccessDeserializer, Deserializer, Visitor},
+  Deserialize,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct FoundWindow {
@@ -182,7 +181,7 @@ pub struct Config {
 
 impl Config {
   pub fn validate(&self) -> Result<(), String> {
-    let mut seen_hotkeys = HashMap::new();
+    let mut seen_hotkeys = FxHashMap::default();
     for (app_name, app_cfg) in &self.app {
       let hotkeys = app_cfg.hotkey.as_vec();
 
@@ -571,9 +570,6 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
   )
 }
 
-use serde::de::{self, Deserializer, Visitor};
-use std::fmt;
-
 fn deserialize_app<'de, D>(deserializer: D) -> Result<IndexMap<String, AppConfig>, D::Error>
 where
   D: Deserializer<'de>,
@@ -591,8 +587,6 @@ where
     where
       M: de::MapAccess<'de>,
     {
-      use serde::de::value::MapAccessDeserializer;
-
       // We need to peek or try both ways.
       // A simple trick: try to deserialize as HashMap<String, AppConfig>.
       // If it has keys like "window_class", it will fail if AppConfig doesn't match a map value.

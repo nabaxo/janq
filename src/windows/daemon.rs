@@ -1,27 +1,45 @@
-use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use rustc_hash::FxHashMap;
+use std::{
+  env::temp_dir,
+  fs::File,
+  path::PathBuf,
+  sync::{
+    atomic::{AtomicU64, Ordering},
+    mpsc::{channel, RecvTimeoutError},
+    Arc, RwLock,
+  },
+  thread::{sleep as thread_sleep, Builder},
+  time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use fs2::FileExt;
-use global_hotkey::{hotkey::HotKey, GlobalHotKeyManager};
+use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::{
-  io::AsyncWriteExt,
+  io::{AsyncReadExt, AsyncWriteExt},
   net::windows::named_pipe::{ClientOptions, ServerOptions},
   runtime::Runtime,
   signal,
+  time::sleep as tokio_sleep,
 };
 use tray_icon::{
-  menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
-  MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
+  menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
+  MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
-use winit::event::Event;
-use winit::event_loop::{ControlFlow, EventLoopBuilder};
+use windows::Win32::UI::{
+  HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
+  WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY},
+};
+use winit::{
+  event::Event,
+  event_loop::{ControlFlow, EventLoopBuilder},
+};
 
-use crate::windows::window::{get_hwnd_cache, toggle_window};
 use crate::{
   config::{load_config, Config},
   hotkey::parse_hotkey,
+  windows::window::{get_hwnd_cache, restore_app_window, toggle_window},
 };
 
 const PIPE_NAME: &str = r"\\.\pipe\janq";
@@ -56,8 +74,8 @@ pub fn run_daemon(
   let _guard = rt.enter(); // Keep runtime context active for this thread
 
   // 0. Acquire Lock File
-  let lock_path = std::env::temp_dir().join("janq.lock");
-  let lock_file = std::fs::File::create(&lock_path)?;
+  let lock_path = temp_dir().join("janq.lock");
+  let lock_file = File::create(&lock_path)?;
   if lock_file.try_lock_exclusive().is_err() {
     return Err(anyhow::anyhow!(
       "janq is already running (lock file active)."
@@ -65,9 +83,6 @@ pub fn run_daemon(
   }
 
   // Enable DPI Awareness (Per Monitor V2) to ensure correct coordinates
-  use windows::Win32::UI::HiDpi::{
-    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-  };
   unsafe {
     let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   }
@@ -89,7 +104,6 @@ pub fn run_daemon(
       if let Err(e) = server.connect().await {
         eprintln!("Pipe connection error: {}", e);
       } else {
-        use tokio::io::AsyncReadExt;
         let mut buf = [0u8; 1024];
         let cfg = config_clone.read().unwrap().clone();
         if let Ok(n) = server.read(&mut buf).await {
@@ -122,135 +136,138 @@ pub fn run_daemon(
     }
   });
 
-  // 4. Shared Hotkey State
+  // 4. Hotkey State
   let current_hotkeys = Arc::new(RwLock::new(Vec::<HotKey>::new()));
-  let hotkey_map = Arc::new(RwLock::new(std::collections::HashMap::<u32, String>::new()));
+  let hotkey_map = Arc::new(RwLock::new(FxHashMap::default()));
 
   // 5. Config Watcher (Spawned task or thread)
   let config_clone_watcher = config.clone();
   let path_to_watch = config_path.clone();
   let watcher_proxy = event_loop.create_proxy();
-  std::thread::spawn(move || {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
+  Builder::new()
+    .name("config-watcher".to_string())
+    .stack_size(128 * 1024)
+    .spawn(move || {
+      let (tx, rx) = channel();
+      let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
 
-    if let Some(path) = &path_to_watch {
-      if let Ok(abs_path) = path.canonicalize() {
-        if let Some(parent) = abs_path.parent() {
-          let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
+      if let Some(path) = &path_to_watch {
+        if let Ok(abs_path) = path.canonicalize() {
+          if let Some(parent) = abs_path.parent() {
+            let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
+          } else {
+            let _ = watcher.watch(&abs_path, RecursiveMode::NonRecursive);
+          }
         } else {
-          let _ = watcher.watch(&abs_path, RecursiveMode::NonRecursive);
+          let _ = watcher.watch(path, RecursiveMode::NonRecursive);
         }
-      } else {
-        let _ = watcher.watch(path, RecursiveMode::NonRecursive);
+      } else if let Some(home) = dirs::home_dir() {
+        // For .janq.toml in home dir, watch the home dir itself
+        let _ = watcher.watch(&home, RecursiveMode::NonRecursive);
       }
-    } else if let Some(home) = dirs::home_dir() {
-      // For .janq.toml in home dir, watch the home dir itself
-      let _ = watcher.watch(&home, RecursiveMode::NonRecursive);
-    }
 
-    let debounce_duration = std::time::Duration::from_millis(500);
-    let mut last_event = std::time::Instant::now();
-    let mut pending = false;
+      let debounce_duration = Duration::from_millis(500);
+      let mut last_event = Instant::now();
+      let mut pending = false;
 
-    loop {
-      let timeout = if pending {
-        debounce_duration.saturating_sub(last_event.elapsed())
-      } else {
-        std::time::Duration::from_secs(60)
-      };
+      loop {
+        let timeout = if pending {
+          debounce_duration.saturating_sub(last_event.elapsed())
+        } else {
+          Duration::from_secs(60)
+        };
 
-      match rx.recv_timeout(timeout) {
-        Ok(Ok(event)) => {
-          let mut is_config_file = false;
-          if let Some(target_path) = &path_to_watch {
-            let target_path_abs = target_path.canonicalize().unwrap_or(target_path.clone());
-            for p in &event.paths {
-              let p_abs = p.canonicalize().unwrap_or(p.clone());
-              if p_abs == target_path_abs {
-                is_config_file = true;
-                break;
-              }
-            }
-          } else if let Some(home) = dirs::home_dir() {
-            let target = home.join(".janq.toml");
-            for p in &event.paths {
-              if p == &target {
-                is_config_file = true;
-                break;
-              }
-            }
-          }
-
-          if is_config_file {
-            last_event = std::time::Instant::now();
-            pending = true;
-          }
-        }
-        Ok(Err(e)) => eprintln!("Watcher error: {:?}", e),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-          if pending {
-            pending = false;
-            println!("Config change detected, reloading...");
-            let (new_config, _) = match load_config(path_to_watch.clone()) {
-              Ok(c) => c,
-              Err(e) => {
-                // Restore all apps from current config before shutting down
-                let current_cfg = config_clone_watcher.read().unwrap().clone();
-                for app_cfg in current_cfg.app.values() {
-                  crate::windows::window::restore_app_window(&app_cfg.window_class);
+        match rx.recv_timeout(timeout) {
+          Ok(Ok(event)) => {
+            let mut is_config_file = false;
+            if let Some(target_path) = &path_to_watch {
+              let target_path_abs = target_path.canonicalize().unwrap_or(target_path.clone());
+              for p in &event.paths {
+                let p_abs = p.canonicalize().unwrap_or(p.clone());
+                if p_abs == target_path_abs {
+                  is_config_file = true;
+                  break;
                 }
-
-                crate::windows::show_error(&e.to_string());
-                let _ = watcher_proxy.send_event(DaemonEvent::Exit);
-                return;
               }
-            };
-            {
-              let mut w = config_clone_watcher.write().unwrap();
-              let old_config = (**w).clone();
-              *w = Arc::new(new_config.clone());
+            } else if let Some(home) = dirs::home_dir() {
+              let target = home.join(".janq.toml");
+              for p in &event.paths {
+                if p == &target {
+                  is_config_file = true;
+                  break;
+                }
+              }
+            }
 
-              // 1. Handle removed or changed apps
-              let mut to_restore = Vec::new();
+            if is_config_file {
+              last_event = Instant::now();
+              pending = true;
+            }
+          }
+          Ok(Err(e)) => eprintln!("Watcher error: {:?}", e),
+          Err(RecvTimeoutError::Timeout) => {
+            if pending {
+              pending = false;
+              println!("Config change detected, reloading...");
+              let (new_config, _) = match load_config(path_to_watch.clone()) {
+                Ok(c) => c,
+                Err(e) => {
+                  // Restore all apps from current config before shutting down
+                  let current_cfg = config_clone_watcher.read().unwrap().clone();
+                  for app_cfg in current_cfg.app.values() {
+                    restore_app_window(&app_cfg.window_class);
+                  }
+
+                  crate::windows::show_error(&e.to_string());
+                  let _ = watcher_proxy.send_event(DaemonEvent::Exit);
+                  return;
+                }
+              };
               {
-                let mut cache = get_hwnd_cache().write().unwrap();
-                for (name, old_app_cfg) in &old_config.app {
-                  match new_config.app.get(name) {
-                    Some(new_app_cfg) => {
-                      // App still exists, but check if class changed
-                      if new_app_cfg.window_class != old_app_cfg.window_class {
-                        println!(
-                          "App '{}' window_class changed. Clearing cache for re-detection.",
-                          name
-                        );
+                let mut w = config_clone_watcher.write().unwrap();
+                let old_config = (**w).clone();
+                *w = Arc::new(new_config.clone());
+
+                // 1. Handle removed or changed apps
+                let mut to_restore = Vec::new();
+                {
+                  let mut cache = get_hwnd_cache().write().unwrap();
+                  for (name, old_app_cfg) in &old_config.app {
+                    match new_config.app.get(name) {
+                      Some(new_app_cfg) => {
+                        // App still exists, but check if class changed
+                        if new_app_cfg.window_class != old_app_cfg.window_class {
+                          println!(
+                            "App '{}' window_class changed. Clearing cache for re-detection.",
+                            name
+                          );
+                          cache.remove(name);
+                        }
+                      }
+                      None => {
+                        // App removed - restore window and clear cache
+                        println!("App '{}' removed from config. Restoring window.", name);
+                        to_restore.push(old_app_cfg.window_class.clone());
                         cache.remove(name);
                       }
                     }
-                    None => {
-                      // App removed - restore window and clear cache
-                      println!("App '{}' removed from config. Restoring window.", name);
-                      to_restore.push(old_app_cfg.window_class.clone());
-                      cache.remove(name);
-                    }
                   }
                 }
-              }
 
-              for class in to_restore {
-                crate::windows::window::restore_app_window(&class);
+                for class in to_restore {
+                  restore_app_window(&class);
+                }
               }
+              let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
             }
-            let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
           }
+          Err(RecvTimeoutError::Disconnected) => break,
         }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
       }
-    }
-  });
+    })?;
 
   // 6. Event Loop (Main Thread)
-  let hotkey_receiver = global_hotkey::GlobalHotKeyEvent::receiver();
+  let hotkey_receiver = GlobalHotKeyEvent::receiver();
   let menu_receiver = MenuEvent::receiver();
   let tray_receiver = TrayIconEvent::receiver();
   let config_clone_loop = config.clone();
@@ -264,9 +281,9 @@ pub fn run_daemon(
   )?;
 
   let manager = Some(manager_arc);
-  let mut tray_icon: Option<tray_icon::TrayIcon> = None;
-  let mut app_menu_items = std::collections::HashMap::new();
-  let mut quit_item_id = tray_icon::menu::MenuId::new("quit");
+  let mut tray_icon: Option<TrayIcon> = None;
+  let mut app_menu_items = FxHashMap::default();
+  let mut quit_item_id = MenuId::new("quit");
 
   // Setup EventLoopProxy for external signals (Ctrl+C, Hotkeys, and Tray polling)
   let proxy = event_loop.create_proxy();
@@ -274,24 +291,30 @@ pub fn run_daemon(
   let tray_proxy = proxy.clone();
 
   // Spawn Hotkey Listener Thread (instant wakeup)
-  std::thread::spawn(move || {
-    while let Ok(event) = hotkey_receiver.recv() {
-      let _ = hotkey_proxy.send_event(DaemonEvent::Hotkey(event));
-    }
-  });
+  Builder::new()
+    .name("hotkey-listener".to_string())
+    .stack_size(128 * 1024)
+    .spawn(move || {
+      while let Ok(event) = hotkey_receiver.recv() {
+        let _ = hotkey_proxy.send_event(DaemonEvent::Hotkey(event));
+      }
+    })?;
 
   // Spawn Tray Polling Thread (100ms interval)
   let tray_proxy_poll = tray_proxy.clone();
-  std::thread::spawn(move || loop {
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    let _ = tray_proxy_poll.send_event(DaemonEvent::TrayPoll);
-  });
+  Builder::new()
+    .name("tray-poller".to_string())
+    .stack_size(128 * 1024)
+    .spawn(move || loop {
+      thread_sleep(Duration::from_millis(100));
+      let _ = tray_proxy_poll.send_event(DaemonEvent::TrayPoll);
+    })?;
 
   // Watch for Ctrl+C
   let proxy_ctrlc = proxy.clone();
   rt.spawn(async move {
     if signal::ctrl_c().await.is_ok() {
-      println!("Ctrl+C received. Shutting down...");
+      println!("\nCtrl+C received. Shutting down...");
       let _ = proxy_ctrlc.send_event(DaemonEvent::Exit);
     }
   });
@@ -368,7 +391,7 @@ pub fn run_daemon(
                   let cfg = (*cfg).clone();
                   let app_name = app_name.clone();
                   rt_clone.spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    tokio_sleep(Duration::from_millis(500)).await;
                     toggle_window(&app_name, &cfg).await;
                   });
                 }
@@ -376,7 +399,7 @@ pub fn run_daemon(
                 let cfg = (*cfg).clone();
                 let app_name = first_app.clone();
                 rt_clone.spawn(async move {
-                  tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                  tokio_sleep(Duration::from_millis(500)).await;
                   toggle_window(&app_name, &cfg).await;
                 });
               }
@@ -427,13 +450,10 @@ pub fn run_daemon(
             }
           }
           DaemonEvent::Hotkey(event) => {
-            if event.state == global_hotkey::HotKeyState::Pressed {
+            if event.state == HotKeyState::Pressed {
               let map = hotkey_map.read().unwrap();
               if let Some(app_name) = map.get(&event.id) {
                 unsafe {
-                  use windows::Win32::UI::WindowsAndMessaging::{
-                    AllowSetForegroundWindow, ASFW_ANY,
-                  };
                   let _ = AllowSetForegroundWindow(ASFW_ANY);
                 }
                 let cfg = config_clone_loop.read().unwrap().clone();
@@ -518,7 +538,6 @@ pub fn run_daemon(
       }
       Event::AboutToWait => {
         // Respawn Loop check
-        use std::sync::atomic::{AtomicU64, Ordering};
         static LAST_CHECK_SEC: AtomicU64 = AtomicU64::new(0);
 
         let now_sec = std::time::SystemTime::now()
@@ -591,11 +610,11 @@ pub async fn send_toggle(app_name: Option<String>) -> Result<()> {
 pub fn sync_hotkeys(
   manager: Arc<GlobalHotKeyManager>,
   config: &Config,
-  hotkey_map: &Arc<RwLock<std::collections::HashMap<u32, String>>>,
+  hotkey_map: &Arc<RwLock<FxHashMap<u32, String>>>,
   current_hotkeys: &Arc<RwLock<Vec<HotKey>>>,
 ) -> Result<()> {
   // 1. Check if we actually need to sync
-  let mut desired_map = std::collections::HashMap::new();
+  let mut desired_map = FxHashMap::default();
   let mut desired_hks = Vec::new();
   for (app_name, app_cfg) in &config.app {
     for hk_str in app_cfg.hotkey.as_vec() {
@@ -652,7 +671,7 @@ pub fn sync_hotkeys(
 
   // 2. Register from current config
   let mut new_hks = Vec::new();
-  let mut new_map = std::collections::HashMap::new();
+  let mut new_map = FxHashMap::default();
 
   for (app_name, app_cfg) in &config.app {
     for hk_str in app_cfg.hotkey.as_vec() {

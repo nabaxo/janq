@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{Context, Result};
 
 use crate::config::Config;
@@ -231,7 +233,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
       .all_actions_for_component(vec![component.to_string()])
       .await
     {
-      let mut found_actions = std::collections::HashSet::new();
+      let mut found_actions = HashSet::new();
       for action_info in all_actions {
         if action_info.len() >= 2 {
           let action_name = &action_info[1];

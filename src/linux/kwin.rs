@@ -1,7 +1,5 @@
-use std::env::temp_dir;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
+use rustc_hash::FxHashMap;
+use std::{env::temp_dir, fs, path::Path, process::Command, sync::OnceLock};
 
 use tokio::{
   sync::Mutex,
@@ -104,13 +102,10 @@ pub async fn init() {
   state.max_refresh_rate = hz;
 }
 
-use std::collections::HashMap;
-use std::sync::OnceLock;
+static WINDOW_CACHE: OnceLock<Mutex<FxHashMap<String, (String, u32)>>> = OnceLock::new();
 
-static WINDOW_CACHE: OnceLock<Mutex<HashMap<String, (String, u32)>>> = OnceLock::new();
-
-fn get_window_cache() -> &'static Mutex<HashMap<String, (String, u32)>> {
-  WINDOW_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn get_window_cache() -> &'static Mutex<FxHashMap<String, (String, u32)>> {
+  WINDOW_CACHE.get_or_init(|| Mutex::new(FxHashMap::default()))
 }
 
 /// Parameters for toggle script execution

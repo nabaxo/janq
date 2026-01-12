@@ -1,5 +1,5 @@
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::{
-  collections::{HashMap, HashSet},
   fmt::Write,
   fs,
   path::Path,
@@ -13,10 +13,10 @@ use zbus::Connection;
 
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 
-static SPAWNING_APPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static SPAWNING_APPS: OnceLock<Mutex<FxHashSet<String>>> = OnceLock::new();
 
-fn get_spawning_apps() -> &'static Mutex<HashSet<String>> {
-  SPAWNING_APPS.get_or_init(|| Mutex::new(HashSet::new()))
+fn get_spawning_apps() -> &'static Mutex<FxHashSet<String>> {
+  SPAWNING_APPS.get_or_init(|| Mutex::new(FxHashSet::default()))
 }
 
 pub async fn ensure_terminal_running(
@@ -189,7 +189,7 @@ pub fn fetch_system_windows() -> Vec<FoundWindow> {
   }
 
   // 2. Get visible IDs for visibility boost
-  let visible_ids: HashSet<String> = run_kdotool_cmd(&["search", "--onlyvisible", "--class", ""])
+  let visible_ids: FxHashSet<String> = run_kdotool_cmd(&["search", "--onlyvisible", "--class", ""])
     .into_iter()
     .collect();
 
@@ -266,10 +266,10 @@ struct CachedWindow {
   pid: u32,
 }
 
-static PID_CACHE: OnceLock<Mutex<HashMap<String, CachedWindow>>> = OnceLock::new();
+static PID_CACHE: OnceLock<Mutex<FxHashMap<String, CachedWindow>>> = OnceLock::new();
 
-fn get_pid_cache() -> &'static Mutex<HashMap<String, CachedWindow>> {
-  PID_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn get_pid_cache() -> &'static Mutex<FxHashMap<String, CachedWindow>> {
+  PID_CACHE.get_or_init(|| Mutex::new(FxHashMap::default()))
 }
 
 pub fn invalidate_search_cache() {

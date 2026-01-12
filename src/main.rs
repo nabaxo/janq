@@ -68,12 +68,6 @@ fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Opt
 }
 
 fn main() -> anyhow::Result<()> {
-  #[cfg(target_os = "windows")]
-  unsafe {
-    use ::windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
-    let _ = AttachConsole(ATTACH_PARENT_PROCESS);
-  }
-
   let args = Args::parse();
   let (config, config_path) = match config::load_config(None) {
     Ok(c) => c,

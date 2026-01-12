@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use rustc_hash::FxHashMap;
+use std::sync::{Mutex, OnceLock, RwLock};
 
 use tokio::time::Instant;
 use windows::Win32::{
@@ -16,13 +16,13 @@ use windows::Win32::{
     Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
   },
   UI::WindowsAndMessaging::{
-    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, EnumWindows, GetCursorPos,
-    GetForegroundWindow, GetLayeredWindowAttributes, GetWindowLongW, GetWindowRect,
-    GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
-    SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
-    HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNA,
-    WS_EX_LAYERED,
+    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, EnumWindows, GetClassNameW,
+    GetCursorPos, GetForegroundWindow, GetLayeredWindowAttributes, GetWindow, GetWindowLongW,
+    GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
+    SetForegroundWindow, SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, ShowWindow,
+    GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNA, SW_SHOWNOACTIVATE, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
   },
 };
 
@@ -41,26 +41,25 @@ impl SendHwnd {
   }
 }
 
-static ANIMATION_TASK: OnceLock<std::sync::Mutex<Option<tokio::task::AbortHandle>>> =
-  OnceLock::new();
+static ANIMATION_TASK: OnceLock<Mutex<Option<tokio::task::AbortHandle>>> = OnceLock::new();
 static VISIBLE_APP: OnceLock<RwLock<Option<String>>> = OnceLock::new();
-static PREVIOUS_FOCUS: OnceLock<std::sync::Mutex<Option<SendHwnd>>> = OnceLock::new();
-static HWND_CACHE: OnceLock<RwLock<HashMap<String, SendHwnd>>> = OnceLock::new();
+static PREVIOUS_FOCUS: OnceLock<Mutex<Option<SendHwnd>>> = OnceLock::new();
+static HWND_CACHE: OnceLock<RwLock<FxHashMap<String, SendHwnd>>> = OnceLock::new();
 
-fn get_animation_task() -> &'static std::sync::Mutex<Option<tokio::task::AbortHandle>> {
-  ANIMATION_TASK.get_or_init(|| std::sync::Mutex::new(None))
+fn get_animation_task() -> &'static Mutex<Option<tokio::task::AbortHandle>> {
+  ANIMATION_TASK.get_or_init(|| Mutex::new(None))
 }
 
 fn get_visible_app() -> &'static RwLock<Option<String>> {
   VISIBLE_APP.get_or_init(|| RwLock::new(None))
 }
 
-fn get_previous_focus() -> &'static std::sync::Mutex<Option<SendHwnd>> {
-  PREVIOUS_FOCUS.get_or_init(|| std::sync::Mutex::new(None))
+fn get_previous_focus() -> &'static Mutex<Option<SendHwnd>> {
+  PREVIOUS_FOCUS.get_or_init(|| Mutex::new(None))
 }
 
-pub fn get_hwnd_cache() -> &'static RwLock<HashMap<String, SendHwnd>> {
-  HWND_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+pub fn get_hwnd_cache() -> &'static RwLock<FxHashMap<String, SendHwnd>> {
+  HWND_CACHE.get_or_init(|| RwLock::new(FxHashMap::default()))
 }
 
 unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -69,13 +68,13 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
   GetWindowThreadProcessId(hwnd, Some(&mut pid));
 
   let mut class_buffer = [0u16; 256];
-  let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buffer);
+  let class_len = GetClassNameW(hwnd, &mut class_buffer);
   let class_name = String::from_utf16_lossy(&class_buffer[..class_len as usize]).to_lowercase();
 
   // Basic junk filtering: tool windows are usually not terminals
   unsafe {
     let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-    if (style & windows::Win32::UI::WindowsAndMessaging::WS_EX_TOOLWINDOW.0) != 0 {
+    if (style & WS_EX_TOOLWINDOW.0) != 0 {
       return BOOL(1);
     }
   }
@@ -174,7 +173,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
     let cache = get_hwnd_cache().read().unwrap();
     if let Some(h) = cache.get(app_name) {
       unsafe {
-        if windows::Win32::UI::WindowsAndMessaging::IsWindow(h.inner()).as_bool() {
+        if IsWindow(h.inner()).as_bool() {
           cached_hwnd = Some(*h);
         }
       }
@@ -211,7 +210,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
       let cache = get_hwnd_cache().read().unwrap();
       if let Some(h) = cache.get(name) {
         unsafe {
-          if windows::Win32::UI::WindowsAndMessaging::IsWindow(h.inner()).as_bool() {
+          if IsWindow(h.inner()).as_bool() {
             cached_h = Some(*h);
           }
         }
@@ -265,7 +264,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
     if !fg_window.is_invalid() && fg_window != target_hwnd.inner() {
       // Don't "save" desktop/taskbar as previous focus for restoration, as it's janky
       let mut class_buf = [0u16; 256];
-      let len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(fg_window, &mut class_buf);
+      let len = GetClassNameW(fg_window, &mut class_buf);
       let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
       if class_name != "progman" && class_name != "workerw" && class_name != "shell_traywnd" {
         let mut prev = get_previous_focus().lock().unwrap();
@@ -338,7 +337,7 @@ fn run_animation_task_sync(
 
           if !use_fallback {
             let mut class_buf = [0u16; 256];
-            let len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(fg, &mut class_buf);
+            let len = GetClassNameW(fg, &mut class_buf);
             let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
             // If focus is on Desktop or Taskbar, it's safer to use mouse position
             if class_name == "progman" || class_name == "workerw" || class_name == "shell_traywnd" {
@@ -769,16 +768,13 @@ fn run_animation_task_sync(
           }
           if IsWindowVisible(valid_next).as_bool() {
             let style = GetWindowLongW(valid_next, GWL_EXSTYLE) as u32;
-            if (style & windows::Win32::UI::WindowsAndMessaging::WS_EX_TOOLWINDOW.0) == 0 {
+            if (style & WS_EX_TOOLWINDOW.0) == 0 {
               let mut prev = get_previous_focus().lock().unwrap();
               *prev = Some(SendHwnd(valid_next));
               break;
             }
           }
-          next = windows::Win32::UI::WindowsAndMessaging::GetWindow(
-            valid_next,
-            windows::Win32::UI::WindowsAndMessaging::GW_HWNDNEXT,
-          );
+          next = GetWindow(valid_next, GW_HWNDNEXT);
         }
 
         let prev = get_previous_focus().lock().unwrap();
@@ -870,12 +866,9 @@ fn restore_hwnd(hwnd: HWND) {
     let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
     let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
     if IsIconic(hwnd).as_bool() {
-      let _ = ShowWindow(
-        hwnd,
-        windows::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
-      );
+      let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     } else {
-      let _ = ShowWindow(hwnd, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA);
+      let _ = ShowWindow(hwnd, SW_SHOWNA);
     }
   }
 }
