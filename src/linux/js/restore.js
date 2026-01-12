@@ -1,15 +1,18 @@
 (function (windowClass) {
   /*{{COMMON_KWIN_JS}}*/
-  var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-  for (var i = 0; i < clients.length; i++) {
-    var c = clients[i];
-    var cClass = (c.resourceClass || "").toLowerCase();
-    var cName = (c.resourceName || "").toLowerCase();
-    if (cClass.indexOf(windowClass.toLowerCase()) !== -1 || cName.indexOf(windowClass.toLowerCase()) !== -1) {
-      console.log("janq_restore: Restoring window " + cClass);
-      var area = workspace.clientArea(KWin.PlacementArea, c);
-      var geo = c.frameGeometry;
-      var needsCenter = (geo.y + geo.height <= area.y + 50 || c.opacity < 0.1 || geo.y < area.y + 10);
+  const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  const searchClass = windowClass.toLowerCase();
+
+  for (let i = 0; i < clients.length; i++) {
+    const c = clients[i];
+    const cClass = (c.resourceClass || "").toLowerCase();
+    const cName = (c.resourceName || "").toLowerCase();
+
+    if (cClass.includes(searchClass) || cName.includes(searchClass)) {
+      console.log(`janq_restore: Restoring window ${cClass}`);
+      const area = workspace.clientArea(KWin.PlacementArea, c);
+      const geo = c.frameGeometry;
+      const needsCenter = (geo.y + geo.height <= area.y + 50 || c.opacity < 0.1 || geo.y < area.y + 10);
 
       resetQuakeProperties(c);
       focusKick(c, true);

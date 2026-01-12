@@ -1,26 +1,31 @@
-function normalizeId(id) {
+const normalizeId = (id) => {
   if (!id) return "";
   return id.toString().replace(/[{}]/g, "");
-}
+};
 
-function findTarget(windowClass, targetWindowId, targetPid) {
-  var clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-  var target = null;
-  var bestScore = -1;
-  var cleanTargetId = normalizeId(targetWindowId);
-  var safeTargetPid = targetPid || 0;
-  var lowerClass = (windowClass || "").toLowerCase();
+const findTarget = (windowClass, targetWindowId, targetPid) => {
+  const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  const cleanTargetId = normalizeId(targetWindowId);
+  const safeTargetPid = targetPid || 0;
+  const lowerClass = (windowClass || "").toLowerCase();
 
-  for (var i = 0; i < clients.length; i++) {
-    var c = clients[i];
-    var score = 0;
-    var cClass = (c.resourceClass || "").toLowerCase();
-    var cName = (c.resourceName || "").toLowerCase();
+  let target = null;
+  let bestScore = -1;
+
+  for (let i = 0; i < clients.length; i++) {
+    const c = clients[i];
+    let score = 0;
+    const cClass = (c.resourceClass || "").toLowerCase();
+    const cName = (c.resourceName || "").toLowerCase();
 
     if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) score += 1000;
     if (safeTargetPid > 0 && c.pid == safeTargetPid) score += 500;
-    if (lowerClass && (cClass.indexOf(lowerClass) !== -1 || cName.indexOf(lowerClass) !== -1)) score += 100;
-    if (lowerClass && c.desktopFileName && c.desktopFileName.toLowerCase().indexOf(lowerClass) !== -1) score += 50;
+
+    // Modern .includes() for readability
+    if (lowerClass) {
+      if (cClass.includes(lowerClass) || cName.includes(lowerClass)) score += 100;
+      if (c.desktopFileName && c.desktopFileName.toLowerCase().includes(lowerClass)) score += 50;
+    }
 
     if (score > 0) {
       if (c.normalWindow) score += 2000;
@@ -32,66 +37,85 @@ function findTarget(windowClass, targetWindowId, targetPid) {
     }
   }
   return target;
-}
+};
 
-function setForceBlur(target, enabled) {
-  if (target && target.setData) {
+const setForceBlur = (target, enabled) => {
+  if (target?.setData) {
     target.setData(1, enabled ? true : null);
   }
-}
+};
 
-function getEasing(progress, type) {
-  if (type.indexOf("(") !== -1) {
-    var content = "";
-    if (type.indexOf("cubic-bezier(") === 0) content = type.substring(13, type.length - 1);
-    else if (type.indexOf("bezier(") === 0) content = type.substring(7, type.length - 1);
-    else if (type.indexOf("(") === 0) content = type.substring(1, type.length - 1);
+/**
+ * Optimized Bezier Solver (The rewrite you liked)
+ */
+const solveBezier = (progress, x1, y1, x2, y2) => {
+  if (progress <= 0) return 0;
+  if (progress >= 1) return 1;
+
+  // Pre-calculate polynomial coefficients
+  const cx = 3.0 * x1;
+  const bx = 3.0 * (x2 - x1) - cx;
+  const ax = 1.0 - cx - bx;
+
+  const cy = 3.0 * y1;
+  const by = 3.0 * (y2 - y1) - cy;
+  const ay = 1.0 - cy - by;
+
+  let t = progress;
+  for (let i = 0; i < 8; i++) {
+    // x(t) = ((ax * t + bx) * t + cx) * t
+    const xt = ((ax * t + bx) * t + cx) * t;
+    // dx/dt = (3at^2 + 2bt + c)
+    const dxt = (3.0 * ax * t + 2.0 * bx) * t + cx;
+
+    if (Math.abs(dxt) < 1e-6) break;
+    t -= (xt - progress) / dxt;
+  }
+
+  // Return y(t) = ((ay * t + by) * t + cy) * t
+  return ((ay * t + by) * t + cy) * t;
+};
+
+const getEasing = (progress, type) => {
+  if (type.includes("(")) {
+    let content = "";
+    if (type.startsWith("cubic-bezier(")) content = type.slice(13, -1);
+    else if (type.startsWith("bezier(")) content = type.slice(7, -1);
+    else if (type.startsWith("(")) content = type.slice(1, -1);
 
     if (content) {
-      var parts = content.split(",").map(function (p) { return parseFloat(p.trim()); });
+      const parts = content.split(",").map(p => parseFloat(p.trim()));
       if (parts.length === 4 && !parts.some(isNaN)) {
-        var t = progress;
-        for (var i = 0; i < 8; i++) {
-          var xt = 3 * (1 - t) * (1 - t) * t * parts[0] + 3 * (1 - t) * t * t * parts[2] + t * t * t;
-          var dxt = 3 * (1 - 4 * t + 3 * t * t) * parts[0] + 3 * (2 * t - 3 * t * t) * parts[2] + 3 * t * t;
-          if (Math.abs(dxt) < 1e-6) break;
-          t -= (xt - progress) / dxt;
-        }
-        return 3 * (1 - t) * (1 - t) * t * parts[1] + 3 * (1 - t) * t * t * parts[3] + t * t * t;
+        return solveBezier(progress, ...parts);
       }
     }
   }
+
   if (type === "windows") {
-    var t = progress;
-    for (var i = 0; i < 8; i++) {
-      var xt = 3 * (1 - t) * (1 - t) * t * 0.25 + t * t * t;
-      var dxt = 3 * (1 - 4 * t + 3 * t * t) * 0.25 + 3 * t * t;
-      if (Math.abs(dxt) < 1e-6) break;
-      t -= (xt - progress) / dxt;
-    }
-    return 3 * (1 - t) * t * t * 1 + t * t * t;
+    return solveBezier(progress, 0.25, 0, 0.75, 1);
   }
+
   switch (type) {
     case "linear": return progress;
-    case "ease-in": return progress * progress;
+    case "ease-in": return progress ** 2;
     case "ease-out": return progress * (2 - progress);
     case "ease":
     case "ease-in-out":
-      return progress < .5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-    case "quart-in": case "ease-in-quart": return Math.pow(progress, 4);
-    case "quart-out": case "ease-out-quart": return 1 - Math.pow(1 - progress, 4);
+      return progress < 0.5 ? 2 * progress ** 2 : -1 + (4 - 2 * progress) * progress;
+    case "quart-in": case "ease-in-quart": return progress ** 4;
+    case "quart-out": case "ease-out-quart": return 1 - (1 - progress) ** 4;
     case "quart":
     case "quart-in-out":
     case "ease-in-out-quart":
-      return progress < 0.5 ? 8 * Math.pow(progress, 4) : 1 - Math.pow(-2 * progress + 2, 4) / 2;
+      return progress < 0.5 ? 8 * progress ** 4 : 1 - (-2 * progress + 2) ** 4 / 2;
     case "cubic-in":
     case "ease-in-cubic":
-      return Math.pow(progress, 3);
-    case "cubic-out": case "ease-out-cubic": return 1 - Math.pow(1 - progress, 3);
+      return progress ** 3;
+    case "cubic-out": case "ease-out-cubic": return 1 - (1 - progress) ** 3;
     case "cubic":
     case "cubic-in-out":
     case "ease-in-out-cubic":
-      return progress < 0.5 ? 4 * Math.pow(progress, 3) : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+      return progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
     case "sine-in":
     case "ease-in-sine":
       return 1 - Math.cos((progress * Math.PI) / 2);
@@ -100,32 +124,37 @@ function getEasing(progress, type) {
     case "sine-in-out":
     case "ease-in-out-sine":
       return -(Math.cos(Math.PI * progress) - 1) / 2;
-    case "back-in": case "ease-in-back":
-      var c1 = 1.70158; var c3 = c1 + 1;
-      return c3 * progress * progress * progress - c1 * progress * progress;
-    case "back-out": case "ease-out-back":
-      var c1 = 1.70158; var c3 = c1 + 1;
-      return 1 + c3 * Math.pow(progress - 1, 3) + c1 * Math.pow(progress - 1, 2);
+    case "back-in": case "ease-in-back": {
+      const c1 = 1.70158; const c3 = c1 + 1;
+      return c3 * progress ** 3 - c1 * progress ** 2;
+    }
+    case "back-out": case "ease-out-back": {
+      const c1 = 1.70158; const c3 = c1 + 1;
+      return 1 + c3 * (progress - 1) ** 3 + c1 * (progress - 1) ** 2;
+    }
     case "back":
-    case "back-in-out": case "ease-in-out-back":
-      var c1 = 1.70158; var c2 = c1 * 1.525;
+    case "back-in-out": case "ease-in-out-back": {
+      const c1 = 1.70158; const c2 = c1 * 1.525;
       return progress < 0.5
-        ? (Math.pow(2 * progress, 2) * ((c2 + 1) * 2 * progress - c2)) / 2
-        : (Math.pow(2 * progress - 2, 2) * ((c2 + 1) * (progress * 2 - 2) + c2) + 2) / 2;
+        ? ((2 * progress) ** 2 * ((c2 + 1) * 2 * progress - c2)) / 2
+        : ((2 * progress - 2) ** 2 * ((c2 + 1) * (progress * 2 - 2) + c2) + 2) / 2;
+    }
     case "expo-in": case "ease-in-expo":
-      return progress === 0 ? 0 : Math.pow(2, 10 * progress - 10);
+      return progress === 0 ? 0 : 2 ** (10 * progress - 10);
     case "expo-out": case "ease-out-expo":
-      return progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      return progress === 1 ? 1 : 1 - 2 ** (-10 * progress);
     case "expo":
     case "expo-in-out": case "ease-in-out-expo":
-      return progress === 0 ? 0 : progress === 1 ? 1 : progress < 0.5
-        ? Math.pow(2, 20 * progress - 10) / 2
-        : (2 - Math.pow(2, -20 * progress + 10)) / 2;
+      if (progress === 0) return 0;
+      if (progress === 1) return 1;
+      return progress < 0.5
+        ? 2 ** (20 * progress - 10) / 2
+        : (2 - 2 ** (-20 * progress + 10)) / 2;
     default: return progress * (2 - progress);
   }
-}
+};
 
-function setQuakeProperties(target, keepAbove, isVisible, forcePriority) {
+const setQuakeProperties = (target, keepAbove, isVisible, forcePriority) => {
   target.onAllDesktops = true;
   target.keepAbove = keepAbove;
   target.noBorder = true;
@@ -133,9 +162,9 @@ function setQuakeProperties(target, keepAbove, isVisible, forcePriority) {
   target.skipPager = true;
   if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
   if (forcePriority && !isVisible) target.fullScreen = true;
-}
+};
 
-function resetQuakeProperties(target) {
+const resetQuakeProperties = (target) => {
   target.keepAbove = false;
   target.onAllDesktops = false;
   target.noBorder = false;
@@ -144,10 +173,10 @@ function resetQuakeProperties(target) {
   if (target.skipSwitcher !== undefined) target.skipSwitcher = false;
   target.fullScreen = false;
   target.opacity = 1.0;
-}
+};
 
-function focusKick(target, restoreOriginal) {
-  var activeWin = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
+const focusKick = (target, restoreOriginal) => {
+  const activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
   if (workspace.activeWindow !== undefined) {
     workspace.activeWindow = null;
     workspace.activeWindow = target;
@@ -157,16 +186,16 @@ function focusKick(target, restoreOriginal) {
     workspace.activeClient = target;
     if (restoreOriginal && activeWin && activeWin !== target) workspace.activeClient = activeWin;
   }
-}
+};
 
-function resolveArea(target, displayMode, displayIndex, currentArea) {
-  var screens = workspace.screens || [];
+const resolveArea = (target, displayMode, displayIndex, currentArea) => {
+  const screens = workspace.screens || [];
   if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) {
     return screens[displayIndex].geometry;
   }
 
-  var activeWin = (workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient);
-  var isTargetActive = (activeWin && activeWin.internalId && target.internalId && normalizeId(activeWin.internalId) === normalizeId(target.internalId));
+  const activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
+  const isTargetActive = (activeWin && activeWin.internalId && target.internalId && normalizeId(activeWin.internalId) === normalizeId(target.internalId));
 
   if (displayMode === "active") {
     if (activeWin && !isTargetActive) {
@@ -178,20 +207,19 @@ function resolveArea(target, displayMode, displayIndex, currentArea) {
     return workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop);
   }
 
-  // follow-mouse
-  var cursorPos = workspace.cursorPos;
-  for (var i = 0; i < screens.length; i++) {
-    var geo = screens[i].geometry;
+  const cursorPos = workspace.cursorPos;
+  for (let i = 0; i < screens.length; i++) {
+    const geo = screens[i].geometry;
     if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
       cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
       return geo;
     }
   }
   return (workspace.activeScreen ? workspace.activeScreen.geometry : null);
-}
+};
 
-function resolveDimensions(width, isWidthPercent, height, isHeightPercent, area, target) {
-  var finalWidth = width > 0 ? (isWidthPercent ? area.width * width : width) : target.frameGeometry.width;
-  var finalHeight = height > 0 ? (isHeightPercent ? area.height * height : height) : target.frameGeometry.height;
+const resolveDimensions = (width, isWidthPercent, height, isHeightPercent, area, target) => {
+  const finalWidth = width > 0 ? (isWidthPercent ? area.width * width : width) : target.frameGeometry.width;
+  const finalHeight = height > 0 ? (isHeightPercent ? area.height * height : height) : target.frameGeometry.height;
   return { width: finalWidth, height: finalHeight };
-}
+};
