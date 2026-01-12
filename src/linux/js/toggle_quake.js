@@ -36,21 +36,19 @@
   const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
   const rawClasses = (janqClasses || "").toLowerCase().split(",");
   const allClasses = [];
-  for (let k = 0; k < rawClasses.length; k++) {
-    const trimmed = rawClasses[k].trim();
+  for (const rawClass of rawClasses) {
+    const trimmed = rawClass.trim();
     if (trimmed) allClasses.push(trimmed);
   }
 
   const siblingsToHide = [];
-  for (let i = 0; i < clients.length; i++) {
-    const c = clients[i];
+  for (const c of clients) {
     if (c === target) continue;
     const cClass = (c.resourceClass || "").toLowerCase();
     const cName = (c.resourceName || "").toLowerCase();
 
     let isManaged = false;
-    for (let j = 0; j < allClasses.length; j++) {
-      const siblingClass = allClasses[j];
+    for (const siblingClass of allClasses) {
       if (cClass.includes(siblingClass) || cName.includes(siblingClass)) {
         isManaged = true;
         break;
@@ -74,8 +72,7 @@
         const startTime = Date.now();
         const diff = finalY - startY;
         const siblingDatas = [];
-        for (let s = 0; s < siblingsToHide.length; s++) {
-          const sib = siblingsToHide[s];
+        for (const sib of siblingsToHide) {
           const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
           siblingDatas.push({
             client: sib,
@@ -110,8 +107,7 @@
           }
           target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
 
-          for (let d = 0; d < siblingDatas.length; d++) {
-            const data = siblingDatas[d];
+          for (const data of siblingDatas) {
             const sibY = data.startY + (data.endY - data.startY) * ease;
             data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
             if (animateOpacity) {
@@ -127,8 +123,7 @@
             target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
             focusKick(target, false);
             setForceBlur(target, false);
-            for (let d = 0; d < siblingDatas.length; d++) {
-              const data = siblingDatas[d];
+            for (const data of siblingDatas) {
               data.client.opacity = 0.0;
               const sibArea = workspace.clientArea(KWin.PlacementArea, data.client);
               data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibArea.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
@@ -168,8 +163,7 @@
       const diff = endY - startY;
 
       const siblingDatas = [];
-      for (let s = 0; s < siblingsToHide.length; s++) {
-        const sib = siblingsToHide[s];
+      for (const sib of siblingsToHide) {
         const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
         siblingDatas.push({
           client: sib,
@@ -196,8 +190,7 @@
 
         target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
 
-        for (let d = 0; d < siblingDatas.length; d++) {
-          const data = siblingDatas[d];
+        for (const data of siblingDatas) {
           const sibY = data.startY + (data.endY - data.startY) * ease;
           data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
           if (animateOpacity) {
@@ -215,8 +208,7 @@
           if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
           setForceBlur(target, false);
 
-          for (let d = 0; d < siblingDatas.length; d++) {
-            const data = siblingDatas[d];
+          for (const data of siblingDatas) {
             data.client.opacity = 0.0;
             const sibArea = workspace.clientArea(KWin.PlacementArea, data.client);
             data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibArea.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
@@ -247,8 +239,7 @@
               focusKick(targetBehind, false);
             } else if (prevWindowId && prevWindowId !== "") {
               const allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-              for (let j = 0; j < allClients.length; j++) {
-                const c = allClients[j];
+              for (const c of allClients) {
                 if (c.internalId && normalizeId(c.internalId) === normalizeId(prevWindowId)) {
                   focusKick(c, false);
                   break;
@@ -266,8 +257,7 @@
       target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
       target.fullScreen = false;
       if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
-      for (let i = 0; i < siblingsToHide.length; i++) {
-        const sib = siblingsToHide[i];
+      for (const sib of siblingsToHide) {
         sib.opacity = 0.0;
         const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
         sib.frameGeometry = { x: sib.frameGeometry.x, y: sibArea.y - sib.frameGeometry.height, width: sib.frameGeometry.width, height: sib.frameGeometry.height };

@@ -1,8 +1,7 @@
 (function (apps) {
   /*{{COMMON_KWIN_JS}}*/
 
-  for (let a = 0; a < apps.length; a++) {
-    const app = apps[a];
+  for (const app of apps) {
     const target = findTarget(app.windowClass, app.targetWindowId, app.targetPid);
 
     if (target) {

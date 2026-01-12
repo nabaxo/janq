@@ -3,8 +3,7 @@
   const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
   const searchClass = windowClass.toLowerCase();
 
-  for (let i = 0; i < clients.length; i++) {
-    const c = clients[i];
+  for (const c of clients) {
     const cClass = (c.resourceClass || "").toLowerCase();
     const cName = (c.resourceName || "").toLowerCase();
 

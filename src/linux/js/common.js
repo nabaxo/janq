@@ -12,8 +12,7 @@ const findTarget = (windowClass, targetWindowId, targetPid) => {
   let target = null;
   let bestScore = -1;
 
-  for (let i = 0; i < clients.length; i++) {
-    const c = clients[i];
+  for (const c of clients) {
     let score = 0;
     const cClass = (c.resourceClass || "").toLowerCase();
     const cName = (c.resourceName || "").toLowerCase();
@@ -208,8 +207,8 @@ const resolveArea = (target, displayMode, displayIndex, currentArea) => {
   }
 
   const cursorPos = workspace.cursorPos;
-  for (let i = 0; i < screens.length; i++) {
-    const geo = screens[i].geometry;
+  for (const screen of screens) {
+    const geo = screen.geometry;
     if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
       cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
       return geo;
