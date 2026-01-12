@@ -59,12 +59,50 @@ async fn run_kwin_script(
 struct KWinState {
   visible_app: Option<String>,
   previous_window_id: String, // Last window active before ANY quake window was shown
+  max_refresh_rate: f64,
 }
 
 static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
   visible_app: None,
   previous_window_id: String::new(),
+  max_refresh_rate: 60.0,
 });
+
+fn get_max_refresh_rate() -> f64 {
+  let output = Command::new("kscreen-doctor")
+    .arg("-o")
+    .output()
+    .ok()
+    .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    .unwrap_or_default();
+
+  let max_hz = output
+    .lines()
+    .flat_map(|l| {
+      l.split_whitespace()
+        .filter(|w| w.contains('*'))
+        .filter_map(|w| {
+          w.split('@')
+            .last()?
+            .chars()
+            .take_while(|c| c.is_digit(10) || *c == '.')
+            .collect::<String>()
+            .parse::<f64>()
+            .ok()
+        })
+    })
+    .fold(0.0, f64::max);
+
+  let final_hz = if max_hz > 0.0 { max_hz.round() } else { 60.0 };
+  println!("janq: Detected highest refresh rate: {}Hz", final_hz);
+  final_hz
+}
+
+pub async fn init() {
+  let hz = get_max_refresh_rate();
+  let mut state = STATE.lock().await;
+  state.max_refresh_rate = hz;
+}
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -275,7 +313,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
     windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
     duration, easingType, shouldShow, keepAbove, animateOpacity,
     showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, janqClasses,
-    forcePriority
+    forcePriority, refreshRate
 ) {
     {{COMMON_KWIN_JS}}
 
@@ -360,7 +398,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
 
               var firstFrame = true;
               var timer = new QTimer();
-              timer.interval = 8;
+              timer.interval = Math.max(1, Math.floor(1000 / refreshRate));
               timer.timeout.connect(function() {
                 var now = Date.now();
                 var elapsed = now - startTime;
@@ -453,7 +491,7 @@ const TOGGLE_SCRIPT_TEMPLATE: &str = r#"
           }
 
           var timer = new QTimer();
-          timer.interval = 8;
+          timer.interval = Math.max(1, Math.floor(1000 / refreshRate));
           timer.timeout.connect(function() {
             var now = Date.now();
             var elapsed = now - startTime;
@@ -697,6 +735,7 @@ pub async fn toggle_quake(
         target_pid,
         janq_classes: &classes_string,
       },
+      state.max_refresh_rate,
     )
     .await?;
     state.visible_app = Some(app_name.to_string());
@@ -716,6 +755,7 @@ pub async fn toggle_quake(
         target_pid,
         janq_classes: &classes_string,
       },
+      state.max_refresh_rate,
     )
     .await?;
     state.visible_app = None;
@@ -728,6 +768,7 @@ async fn run_toggle_script(
   config: &Config,
   conn: &Connection,
   params: ToggleParams<'_>,
+  refresh_rate: f64,
 ) -> anyhow::Result<()> {
   let duration = if params.visible {
     config.animation.show_duration
@@ -747,7 +788,7 @@ async fn run_toggle_script(
 
   let script_body = TOGGLE_SCRIPT_TEMPLATE.replace("{{COMMON_KWIN_JS}}", COMMON_KWIN_JS);
   let script_content = format!(
-    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}\n);",
+    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}, {}\n);",
     script_body,
     app_cfg.window_class,
     config.window.display_mode,
@@ -767,7 +808,8 @@ async fn run_toggle_script(
     params.target_id,
     params.target_pid,
     params.janq_classes,
-    config.window.force_priority
+    config.window.force_priority,
+    refresh_rate
   );
 
   run_kwin_script(conn, "janq_toggle_engine", &script_content, None)

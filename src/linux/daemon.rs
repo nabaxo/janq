@@ -20,8 +20,8 @@ use crate::config::{load_config, Config};
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
 use crate::linux::hotkey::sync_kde_shortcuts;
 use crate::linux::kwin::{
-  clear_removed_apps_from_cache, grab_apps, reset_visibility, restore_app, restore_quake,
-  toggle_quake,
+  clear_removed_apps_from_cache, grab_apps, init as init_kwin, reset_visibility, restore_app,
+  restore_quake, toggle_quake,
 };
 use crate::linux::show_error;
 use crate::linux::terminal::invalidate_search_cache;
@@ -130,6 +130,7 @@ impl StatusNotifierItem {
     let conn = self.conn.clone();
     tokio::spawn(async move {
       let _ = restore_quake(&config, &conn).await;
+      println!("Shutting down...");
       exit(0);
     });
   }
@@ -179,6 +180,7 @@ pub async fn run_daemon(
   }
 
   println!("Starting janq daemon...");
+  init_kwin().await;
   let config = Arc::new(RwLock::new(Arc::new(initial_config)));
   let conn = Connection::session().await?;
 
@@ -459,7 +461,7 @@ pub async fn run_daemon(
 
   let cfg = config_for_signals.read().unwrap().clone();
   let _ = restore_quake(&cfg, &conn_for_signals).await;
-  println!("Quitting...");
+  println!("Shutting down...");
 
   Ok(())
 }

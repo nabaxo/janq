@@ -4,7 +4,7 @@
 
 # janq v1.0.0 — Behold, The Slop Works
 
-**Release Date:** January 10, 2026
+**Release Date:** January 12, 2026
 
 > **janq** - The Janky Quake-Style Terminal Manager
 
@@ -17,6 +17,7 @@
 - Native integrations on both platforms—no wrappers, no compromises
 
 - Hardware-accelerated animations with **15+ easing curves**, plus support for **custom cubic-bezier curves** for ultimate control
+- **Smart Refresh Rate Detection (Linux):** Automatically detects your monitor's highest refresh rate via `kscreen-doctor` to ensure frame-perfect animation intervals on high-refresh (144Hz+) displays.
 
 ### Zero-Config Hotkeys
 - **Linux:** Automatically syncs your hotkey configuration directly with KDE System Settings via D-Bus
@@ -75,7 +76,7 @@
 
 ### Reliability
 - **Single instance enforcement** via file locks
-- Proper **signal handling** (SIGINT/SIGTERM) ensuring graceful shutdown
+- Proper **signal handling** (SIGINT/SIGTERM) ensuring graceful shutdown with clear console logging ("Shutting down...")
 - **Window restoration** on daemon exit—your apps return to their original positions
 - Robust error handling with user-friendly error dialogs
 
