@@ -1,4 +1,4 @@
-# janq - The Janqy Quake-Style Terminal Manager, Rust Edition
+# janq - The Janky Quake-Style Terminal Manager, Rust Edition
 
 ## janq is 100%, unadultareted vibe coded slop. User discretion is advised.
 
@@ -264,7 +264,7 @@ Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl
 - **kdotool**: Powering the Wayland window management on Linux.
 - **zbus**: Facilitating D-Bus communication.
 
-## Known Issues
+## Known Issues and other notes
 
 ### Linux: Hotkey registration delay
 On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
@@ -272,7 +272,7 @@ On KDE Plasma, there's a small intentional delay (~500ms) when registering or up
 ### App Compatibility: Opacity Animations
 Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord(Human note: maybe?)) may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
 
-**Note:** It is up to the user to test and decide whether to enable `animate_opacity` on a per-app basis. If you notice flickering, "blank" windows during toggle, or if the animation just feels sluggish, disable this feature for that specific app in your config.
+**Note:** Just test and find out if enabling `animate_opacity` works for your particular app. If you notice flickering, "blank" windows during toggle, or if the animation just feels sluggish or weird, Just don't enable `animate_opacity` for that specific app in your config.
 
 ### Linux: Animation Artifacts (Ghosting / Jitter)
 **If you experience intense jittering or "fighting" animations**, you likely have a third-party KWin effect active (like "Geometry Change") that is competing with janq to animate the window. To fix this:
