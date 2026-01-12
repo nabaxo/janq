@@ -127,6 +127,7 @@
             target.opacity = 1.0;
             target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
             focusKick(target, false);
+            setForceBlur(target, false);
             for (var d = 0; d < siblingDatas.length; d++) {
               var data = siblingDatas[d];
               data.client.opacity = 0.0;
@@ -135,6 +136,7 @@
             }
           }
         });
+        setForceBlur(target, true);
         timer.start();
       } else {
         target.opacity = 1.0;
@@ -213,6 +215,7 @@
           target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
           target.fullScreen = false;
           if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+          setForceBlur(target, false);
 
           for (var d = 0; d < siblingDatas.length; d++) {
             var data = siblingDatas[d];
@@ -258,6 +261,7 @@
           if (KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
         }
       });
+      setForceBlur(target, true);
       timer.start();
     } else {
       target.opacity = 0.0;

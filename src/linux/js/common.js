@@ -34,6 +34,12 @@ function findTarget(windowClass, targetWindowId, targetPid) {
   return target;
 }
 
+function setForceBlur(target, enabled) {
+  if (target && target.setData) {
+    target.setData(1, enabled ? true : null);
+  }
+}
+
 function getEasing(progress, type) {
   if (type.indexOf("(") !== -1) {
     var content = "";
@@ -106,6 +112,15 @@ function getEasing(progress, type) {
       return progress < 0.5
         ? (Math.pow(2 * progress, 2) * ((c2 + 1) * 2 * progress - c2)) / 2
         : (Math.pow(2 * progress - 2, 2) * ((c2 + 1) * (progress * 2 - 2) + c2) + 2) / 2;
+    case "expo-in": case "ease-in-expo":
+      return progress === 0 ? 0 : Math.pow(2, 10 * progress - 10);
+    case "expo-out": case "ease-out-expo":
+      return progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+    case "expo":
+    case "expo-in-out": case "ease-in-out-expo":
+      return progress === 0 ? 0 : progress === 1 ? 1 : progress < 0.5
+        ? Math.pow(2, 20 * progress - 10) / 2
+        : (2 - Math.pow(2, -20 * progress + 10)) / 2;
     default: return progress * (2 - progress);
   }
 }
