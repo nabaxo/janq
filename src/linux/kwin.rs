@@ -273,7 +273,11 @@ async fn run_toggle_script(
   let show_opacity_point = config.animation.show_opacity_point.clamp(0.0, 1.0);
   let hide_opacity_point = config.animation.hide_opacity_point.clamp(0.0, 1.0);
 
-  let script_body = TOGGLE_SCRIPT_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
+  let script_body_raw = TOGGLE_SCRIPT_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
+  let script_body_trimmed = script_body_raw.trim();
+  let script_body = script_body_trimmed
+    .strip_suffix(';')
+    .unwrap_or(script_body_trimmed);
   let script_content = format!(
     "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}, {}\n);",
     script_body,
@@ -350,7 +354,12 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
         ));
   }
 
-  let script_body = ENSURE_GRABBED_BATCH_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
+  let script_body_raw =
+    ENSURE_GRABBED_BATCH_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
+  let script_body_trimmed = script_body_raw.trim();
+  let script_body = script_body_trimmed
+    .strip_suffix(';')
+    .unwrap_or(script_body_trimmed);
   let script_content = format!("{}([\n  {}\n]);", script_body, apps_json.join(",\n  "));
 
   run_kwin_script(
@@ -364,7 +373,11 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
 }
 
 pub async fn restore_app(window_class: &str, conn: &Connection) -> anyhow::Result<()> {
-  let script_body = RESTORE_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
+  let script_body_raw = RESTORE_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
+  let script_body_trimmed = script_body_raw.trim();
+  let script_body = script_body_trimmed
+    .strip_suffix(';')
+    .unwrap_or(script_body_trimmed);
   let script_content = format!("{}(\"{}\");", script_body, window_class);
   run_kwin_script(
     conn,
