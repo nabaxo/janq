@@ -98,9 +98,11 @@ The `window_class` field is highly flexible. janq uses **advanced weighted fuzzy
 #### Recommended setup for Windows Terminal:
 If `wt` is in your system `PATH`, this is the most reliable setup:
 ```toml
-window_class = "windowsterminal" # Or "Windows Terminal", "wterm", "wind" - all should work!
+window_class = "CASCADIA_HOSTING_WINDOW_CLASS" # Official hosting class
 start_command = "wt"
 ```
+> [!NOTE]
+> While janq's fuzzy matcher is strong, **Windows Terminal** is a complex UWP/WinUI app. Using the official `CASCADIA_HOSTING_WINDOW_CLASS` ensures it is caught reliably even when minimized or during its complex startup sequence.
 
 #### Path Formatting (Windows)
 

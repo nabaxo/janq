@@ -68,31 +68,42 @@ pub fn get_hwnd_cache() -> &'static RwLock<FxHashMap<String, SendHwnd>> {
 
 unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
   let target_struct = &mut *(lparam.0 as *mut TargetSearch);
-  let mut pid = 0;
-  GetWindowThreadProcessId(hwnd, Some(&mut pid));
 
-  let mut class_buffer = [0u16; 256];
-  let class_len = GetClassNameW(hwnd, &mut class_buffer);
-  let class_name = String::from_utf16_lossy(&class_buffer[..class_len as usize]).to_lowercase();
-
-  // Basic junk filtering: tool windows are usually not terminals
   unsafe {
+    // 1. Instant check: Style (ignore tool windows, shadows, etc)
     let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
     if (style & WS_EX_TOOLWINDOW.0) != 0 {
       return BOOL(1);
     }
+
+    // 2. Instant check: Visibility
+    // Note: We still want to catch windows that are "parked" (IsWindowVisible == false)
+    // but for the INITIAL enumeration during hotkey trigger,
+    // we often prioritize visible ones. Actually, the current logic is to collect
+    // ALL so we can fuzzy match them. But we can skip obvious system "ghost" windows.
   }
+
+  let mut pid = 0;
+  unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+  if pid == 0 {
+    return BOOL(1);
+  }
+
+  let mut class_buffer = [0u16; 256];
+  let class_len = unsafe { GetClassNameW(hwnd, &mut class_buffer) };
+  let class_name = String::from_utf16_lossy(&class_buffer[..class_len as usize]).to_lowercase();
 
   // Filter out known junk classes
   if class_name.contains("nvopengl")
     || class_name.contains("wgpu")
     || class_name == "ime"
     || class_name == "msctfime ui"
+    || class_name.contains("gdi+ hooks")
   {
     return BOOL(1);
   }
 
-  // Always open process for technical ID
+  // Only open process if we passed the class name filter
   let mut proc_name = String::new();
   if let Ok(process) =
     unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) }
