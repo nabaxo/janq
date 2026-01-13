@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 use std::sync::{Mutex, OnceLock, RwLock};
 
-use tokio::time::Instant;
+use std::time::Instant;
 use windows::Win32::{
   Foundation::{BOOL, COLORREF, HWND, LPARAM, POINT, RECT, TRUE},
   Graphics::{
@@ -13,16 +13,17 @@ use windows::Win32::{
   },
   System::{
     ProcessStatus::GetModuleBaseNameW,
-    Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
+    Threading::{AttachThreadInput, OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
   },
   UI::WindowsAndMessaging::{
-    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, EnumWindows, GetClassNameW,
-    GetCursorPos, GetForegroundWindow, GetLayeredWindowAttributes, GetWindow, GetWindowLongW,
-    GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
-    SetForegroundWindow, SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, ShowWindow,
-    GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNA, SW_SHOWNOACTIVATE, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
+    AllowSetForegroundWindow, BeginDeferWindowPos, BringWindowToTop, DeferWindowPos,
+    EndDeferWindowPos, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow,
+    GetLayeredWindowAttributes, GetWindow, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId,
+    IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow, SetLayeredWindowAttributes,
+    SetWindowLongW, SetWindowPos, ShowWindow, ASFW_ANY, GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST,
+    HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOCOPYBITS,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNA,
+    SW_SHOWNOACTIVATE, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
   },
 };
 
@@ -41,13 +42,16 @@ impl SendHwnd {
   }
 }
 
-static ANIMATION_TASK: OnceLock<Mutex<Option<tokio::task::AbortHandle>>> = OnceLock::new();
+static ANIMATION_TASK_CANCEL: OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
+  OnceLock::new();
 static VISIBLE_APP: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 static PREVIOUS_FOCUS: OnceLock<Mutex<Option<SendHwnd>>> = OnceLock::new();
 static HWND_CACHE: OnceLock<RwLock<FxHashMap<String, SendHwnd>>> = OnceLock::new();
 
-fn get_animation_task() -> &'static Mutex<Option<tokio::task::AbortHandle>> {
-  ANIMATION_TASK.get_or_init(|| Mutex::new(None))
+fn get_animation_cancel() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+  ANIMATION_TASK_CANCEL
+    .get_or_init(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
+    .clone()
 }
 
 fn get_visible_app() -> &'static RwLock<Option<String>> {
@@ -113,11 +117,11 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
   BOOL(1)
 }
 
-struct TargetSearch {
-  found_data: Vec<FoundWindow>,
+pub struct TargetSearch {
+  pub found_data: Vec<FoundWindow>,
 }
 
-pub fn find_window_by_process(name: &str) -> Option<HWND> {
+pub fn fetch_system_windows() -> Vec<FoundWindow> {
   let mut search = TargetSearch {
     found_data: Vec::new(),
   };
@@ -127,19 +131,68 @@ pub fn find_window_by_process(name: &str) -> Option<HWND> {
       LPARAM(&mut search as *mut _ as isize),
     );
   }
+  search.found_data
+}
 
+pub fn find_window_by_process(name: &str, candidates: Option<&[FoundWindow]>) -> Option<HWND> {
   let cache = get_hwnd_cache().read().unwrap();
   let managed_ids: Vec<String> = cache
     .values()
     .map(|sh| (sh.inner().0 as usize).to_string())
     .collect();
 
-  if let Some(best) = fuzzy_match_window(name, &search.found_data, &managed_ids) {
+  if let Some(list) = candidates {
+    if let Some(best) = fuzzy_match_window(name, list, &managed_ids) {
+      let handle = best.id.parse::<usize>().unwrap();
+      return Some(HWND(handle as *mut _));
+    }
+    return None;
+  }
+
+  let found_data = fetch_system_windows();
+  if let Some(best) = fuzzy_match_window(name, &found_data, &managed_ids) {
     let handle = best.id.parse::<usize>().unwrap();
     return Some(HWND(handle as *mut _));
   }
 
   None
+}
+
+/// Robustly forces a window into the foreground, even if the current process
+/// doesn't have focus. Uses the "AttachThreadInput" trick to bypass locks.
+pub fn force_focus(hwnd: HWND) {
+  unsafe {
+    if hwnd.is_invalid() || !IsWindow(hwnd).as_bool() {
+      return;
+    }
+
+    // 1. Give ourselves permission
+    let _ = AllowSetForegroundWindow(ASFW_ANY);
+
+    // 2. Initial attempt
+    if SetForegroundWindow(hwnd).as_bool() {
+      let _ = BringWindowToTop(hwnd);
+      return;
+    }
+
+    // 3. Robust attempt: Attach to the current foreground thread
+    let fg_window = GetForegroundWindow();
+    if !fg_window.is_invalid() && fg_window != hwnd {
+      let target_thread_id = GetWindowThreadProcessId(hwnd, None);
+      let current_fg_thread_id = GetWindowThreadProcessId(fg_window, None);
+
+      if target_thread_id != current_fg_thread_id {
+        let _ = AttachThreadInput(current_fg_thread_id, target_thread_id, true);
+        let _ = SetForegroundWindow(hwnd);
+        let _ = BringWindowToTop(hwnd);
+        let _ = AttachThreadInput(current_fg_thread_id, target_thread_id, false);
+      }
+    }
+
+    // 4. Fallback: ShowWindow with SW_SHOW is often more forceful than SetForegroundWindow
+    let _ = ShowWindow(hwnd, SW_SHOW);
+    let _ = SetForegroundWindow(hwnd);
+  }
 }
 
 struct MonitorEnumCtx {
@@ -156,7 +209,7 @@ unsafe extern "system" fn monitor_enum_proc(
   BOOL(1)
 }
 
-pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
+pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   let is_visible = {
     let v = get_visible_app().read().unwrap();
     v.as_deref() == Some(app_name)
@@ -182,7 +235,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
   let target_hwnd = if let Some(h) = cached_hwnd {
     h
   } else {
-    match find_window_by_process(&app_cfg.window_class) {
+    match find_window_by_process(&app_cfg.window_class, None) {
       Some(h) => {
         let mut cache = get_hwnd_cache().write().unwrap();
         let wrapper = SendHwnd(h);
@@ -219,7 +272,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
     let found_hwnd = if let Some(h) = cached_h {
       h
     } else {
-      match find_window_by_process(&cfg.window_class) {
+      match find_window_by_process(&cfg.window_class, None) {
         Some(h) => {
           let mut cache = get_hwnd_cache().write().unwrap();
           let wrapper = SendHwnd(h);
@@ -237,10 +290,7 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
 
   // Abort current animation
   {
-    let mut task_handle = get_animation_task().lock().unwrap();
-    if let Some(handle) = task_handle.take() {
-      handle.abort();
-    }
+    get_animation_cancel().store(true, std::sync::atomic::Ordering::SeqCst);
   }
 
   let mut restore_focus = false;
@@ -276,24 +326,26 @@ pub async fn toggle_window(app_name: &str, config: &Config) -> bool {
   let config_clone = config.clone();
   let app_name_clone = app_name.to_string();
 
-  let handle = tokio::spawn(async move {
-    let _ = tokio::task::spawn_blocking(move || {
-      run_animation_task_sync(
-        &app_name_clone,
-        &config_clone,
-        target_hwnd,
-        should_show,
-        siblings,
-        restore_focus,
-      );
-    })
-    .await;
+  // Update the global cancel flag to this NEW one
+  {
+    // We don't have a clean way to "swap" the Arc in OnceLock easily if it's already there
+    // Actually, I should just use a Mutex<Arc<AtomicBool>> or just one AtomicBool that we reset.
+    // Let's use one AtomicBool and reset it here.
+    let cancel = get_animation_cancel();
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+  }
+
+  std::thread::spawn(move || {
+    run_animation_task_sync(
+      &app_name_clone,
+      &config_clone,
+      target_hwnd,
+      should_show,
+      siblings,
+      restore_focus,
+    );
   });
 
-  {
-    let mut task_handle = get_animation_task().lock().unwrap();
-    *task_handle = Some(handle.abort_handle());
-  }
   true
 }
 
@@ -578,7 +630,7 @@ fn run_animation_task_sync(
           } else {
             v.as_deref() != Some(app_name)
           };
-          if !still_target {
+          if !still_target || get_animation_cancel().load(std::sync::atomic::Ordering::SeqCst) {
             return;
           }
         }
@@ -725,8 +777,8 @@ fn run_animation_task_sync(
         }
 
         if first_frame && should_show {
-          let _ = ShowWindow(target_hwnd.inner(), SW_SHOWNA);
-          let _ = SetForegroundWindow(target_hwnd.inner());
+          let _ = ShowWindow(target_hwnd.inner(), SW_SHOW);
+          force_focus(target_hwnd.inner());
         }
 
         first_frame = false;
@@ -752,6 +804,7 @@ fn run_animation_task_sync(
         target_h,
         SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOZORDER,
       );
+      force_focus(target_hwnd.inner());
     } else {
       if IsWindowVisible(target_hwnd.inner()).as_bool() {
         let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
@@ -791,7 +844,7 @@ fn run_animation_task_sync(
   }
 }
 
-pub async fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConfig) {
+pub fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConfig) {
   let hwnd = send_hwnd.inner();
   unsafe {
     let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
@@ -842,7 +895,7 @@ pub async fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConf
 }
 
 pub fn restore_app_window(window_class: &str) {
-  if let Some(hwnd) = find_window_by_process(window_class) {
+  if let Some(hwnd) = find_window_by_process(window_class, None) {
     restore_hwnd(hwnd);
   }
 }
@@ -875,12 +928,7 @@ fn restore_hwnd(hwnd: HWND) {
 
 pub fn restore_window_visibility() {
   // 1. Abort current animation
-  {
-    let mut task_handle = get_animation_task().lock().unwrap();
-    if let Some(handle) = task_handle.take() {
-      handle.abort();
-    }
-  }
+  get_animation_cancel().store(true, std::sync::atomic::Ordering::SeqCst);
 
   // 2. Restore all cached windows
   let cache = get_hwnd_cache().read().unwrap();

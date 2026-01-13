@@ -1,10 +1,10 @@
 use rustc_hash::FxHashMap;
+use std::io::Write;
 use std::{
   env::temp_dir,
   fs::File,
   path::PathBuf,
   sync::{
-    atomic::{AtomicU64, Ordering},
     mpsc::{channel, RecvTimeoutError},
     Arc, RwLock,
   },
@@ -16,30 +16,23 @@ use anyhow::Result;
 use fs2::FileExt;
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::{
-  io::{AsyncReadExt, AsyncWriteExt},
-  net::windows::named_pipe::{ClientOptions, ServerOptions},
-  runtime::Runtime,
-  signal,
-  time::sleep as tokio_sleep,
-};
 use tray_icon::{
-  menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
+  menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
   MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
+use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::{
   HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
-  WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY},
-};
-use winit::{
-  event::Event,
-  event_loop::{ControlFlow, EventLoopBuilder},
+  WindowsAndMessaging::{
+    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, PostThreadMessageW, TranslateMessage,
+    ASFW_ANY, MSG, WM_USER,
+  },
 };
 
 use crate::{
   config::{load_config, Config},
   hotkey::parse_hotkey,
-  windows::window::{get_hwnd_cache, restore_app_window, toggle_window},
+  windows::window::get_hwnd_cache,
 };
 
 const PIPE_NAME: &str = r"\\.\pipe\janq";
@@ -49,19 +42,8 @@ enum DaemonEvent {
   Hotkey(global_hotkey::GlobalHotKeyEvent),
   TrayPoll,
   ReloadHotkeys,
+  RespawnCheck,
   Exit,
-}
-
-fn load_icon() -> tray_icon::Icon {
-  let bytes = include_bytes!("../../icon.png");
-  let image = image::load_from_memory(bytes)
-    .expect("Failed to load icon.ico")
-    .to_rgba8();
-  let (width, height) = image.dimensions();
-  let rgba = image.into_raw();
-  let tray_icon =
-    tray_icon::Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon");
-  tray_icon
 }
 
 pub fn run_daemon(
@@ -69,10 +51,7 @@ pub fn run_daemon(
   config_path: Option<PathBuf>,
   target_app: Option<String>,
 ) -> Result<()> {
-  // 1. Setup Runtime for async tasks (IPC, Animation, Watcher)
-  let rt = Runtime::new()?;
-  let _guard = rt.enter(); // Keep runtime context active for this thread
-
+  let main_thread_id = unsafe { GetCurrentThreadId() };
   // 0. Acquire Lock File
   let lock_path = temp_dir().join("janq.lock");
   let lock_file = File::create(&lock_path)?;
@@ -82,68 +61,104 @@ pub fn run_daemon(
     ));
   }
 
-  // Enable DPI Awareness (Per Monitor V2) to ensure correct coordinates
+  // Enable DPI Awareness
   unsafe {
     let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   }
 
   let config = Arc::new(RwLock::new(Arc::new(initial_config)));
 
-  // 2. Setup Winit EventLoop with Custom Event Type
-  let event_loop = EventLoopBuilder::<DaemonEvent>::with_user_event().build()?;
-
-  // 3. Setup IPC Server (Spawned on Runtime)
+  // 3. Setup IPC Server (Standard Thread)
   let config_clone = config.clone();
-  let server = ServerOptions::new()
-    .first_pipe_instance(true)
-    .create(PIPE_NAME)?;
+  Builder::new()
+    .name("ipc-server".to_string())
+    .spawn(move || loop {
+      let handle = unsafe {
+        windows::Win32::System::Pipes::CreateNamedPipeW(
+          windows::core::w!(r"\\.\pipe\janq"),
+          std::mem::transmute(3u32),
+          std::mem::transmute(6u32),
+          255,
+          1024,
+          1024,
+          0,
+          None,
+        )
+      };
 
-  rt.spawn(async move {
-    let mut server = server;
-    loop {
-      if let Err(e) = server.connect().await {
-        eprintln!("Pipe connection error: {}", e);
-      } else {
-        let mut buf = [0u8; 1024];
-        let cfg = config_clone.read().unwrap().clone();
-        if let Ok(n) = server.read(&mut buf).await {
-          let msg = String::from_utf8_lossy(&buf[..n]);
-          let app_name = if msg.starts_with("toggle:") {
-            msg.strip_prefix("toggle:").unwrap().trim().to_string()
-          } else {
-            cfg.app.keys().next().cloned().unwrap_or_default()
-          };
+      if !handle.is_invalid() {
+        if unsafe { windows::Win32::System::Pipes::ConnectNamedPipe(handle, None).is_ok() } {
+          let mut buf = [0u8; 1024];
+          let mut bytes_read = 0;
+          unsafe {
+            let _ = windows::Win32::Storage::FileSystem::ReadFile(
+              handle,
+              Some(&mut buf),
+              Some(&mut bytes_read),
+              None,
+            );
+          }
 
-          let target_app = if cfg.app.len() == 1 {
-            cfg.app.keys().next().cloned()
-          } else if cfg.app.contains_key(&app_name) {
-            Some(app_name)
-          } else {
-            None
-          };
+          if bytes_read > 0 {
+            let msg = String::from_utf8_lossy(&buf[..bytes_read as usize]);
+            let cfg = config_clone.read().unwrap().clone();
+            let app_name = if msg.starts_with("toggle:") {
+              msg.strip_prefix("toggle:").unwrap().trim().to_string()
+            } else {
+              cfg.app.keys().next().cloned().unwrap_or_default()
+            };
 
-          if let Some(target_name) = target_app {
-            if let Some(app_cfg) = cfg.app.get(&target_name) {
-              crate::windows::terminal::ensure_terminal_running(&target_name, app_cfg, &cfg).await;
-              toggle_window(&target_name, &cfg).await;
+            let target_app = if cfg.app.len() == 1 {
+              cfg.app.keys().next().cloned()
+            } else if cfg.app.contains_key(&app_name) {
+              Some(app_name)
+            } else {
+              None
+            };
+
+            if let Some(target_name) = target_app {
+              if let Some(app_cfg) = cfg.app.get(&target_name) {
+                crate::windows::terminal::ensure_terminal_running(
+                  &target_name,
+                  app_cfg,
+                  &cfg,
+                  None,
+                );
+                crate::windows::window::toggle_window(&target_name, &cfg);
+                unsafe {
+                  let _ = windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                    main_thread_id,
+                    windows::Win32::UI::WindowsAndMessaging::WM_USER + 1,
+                    None,
+                    None,
+                  );
+                }
+              }
             }
           }
         }
+        unsafe {
+          let _ = windows::Win32::Foundation::CloseHandle(handle);
+        }
+      } else {
+        thread_sleep(Duration::from_millis(500));
       }
-      if let Err(e) = server.disconnect() {
-        eprintln!("Pipe disconnect error: {}", e);
-      }
-    }
-  });
+    })?;
 
   // 4. Hotkey State
   let current_hotkeys = Arc::new(RwLock::new(Vec::<HotKey>::new()));
   let hotkey_map = Arc::new(RwLock::new(FxHashMap::default()));
 
-  // 5. Config Watcher (Spawned task or thread)
+  // 5. Config Watcher
+  // (Watcher code remains mostly the same, but using std::thread and sync calls)
   let config_clone_watcher = config.clone();
   let path_to_watch = config_path.clone();
-  let watcher_proxy = event_loop.create_proxy();
+
+  // We need a way to send events back to the main loop.
+  // Since we don't have Winit, we'll use a manual channel and wake up the message loop.
+  let (event_tx, event_rx) = channel::<DaemonEvent>();
+  let event_tx_watcher = event_tx.clone();
+
   Builder::new()
     .name("config-watcher".to_string())
     .stack_size(128 * 1024)
@@ -162,7 +177,6 @@ pub fn run_daemon(
           let _ = watcher.watch(path, RecursiveMode::NonRecursive);
         }
       } else if let Some(home) = dirs::home_dir() {
-        // For .janq.toml in home dir, watch the home dir itself
         let _ = watcher.watch(&home, RecursiveMode::NonRecursive);
       }
 
@@ -215,11 +229,10 @@ pub fn run_daemon(
                   // Restore all apps from current config before shutting down
                   let current_cfg = config_clone_watcher.read().unwrap().clone();
                   for app_cfg in current_cfg.app.values() {
-                    restore_app_window(&app_cfg.window_class);
+                    crate::windows::window::restore_app_window(&app_cfg.window_class);
                   }
-
                   crate::windows::show_error(&e.to_string());
-                  let _ = watcher_proxy.send_event(DaemonEvent::Exit);
+                  let _ = event_tx_watcher.send(DaemonEvent::Exit);
                   return;
                 }
               };
@@ -231,34 +244,31 @@ pub fn run_daemon(
                 // 1. Handle removed or changed apps
                 let mut to_restore = Vec::new();
                 {
-                  let mut cache = get_hwnd_cache().write().unwrap();
+                  let mut cache = crate::windows::window::get_hwnd_cache().write().unwrap();
                   for (name, old_app_cfg) in &old_config.app {
                     match new_config.app.get(name) {
                       Some(new_app_cfg) => {
                         // App still exists, but check if class changed
                         if new_app_cfg.window_class != old_app_cfg.window_class {
-                          println!(
-                            "App '{}' window_class changed. Clearing cache for re-detection.",
-                            name
-                          );
                           cache.remove(name);
                         }
                       }
                       None => {
                         // App removed - restore window and clear cache
-                        println!("App '{}' removed from config. Restoring window.", name);
                         to_restore.push(old_app_cfg.window_class.clone());
                         cache.remove(name);
                       }
                     }
                   }
                 }
-
                 for class in to_restore {
-                  restore_app_window(&class);
+                  crate::windows::window::restore_app_window(&class);
                 }
               }
-              let _ = watcher_proxy.send_event(DaemonEvent::ReloadHotkeys);
+              let _ = event_tx_watcher.send(DaemonEvent::ReloadHotkeys);
+              unsafe {
+                let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+              }
             }
           }
           Err(RecvTimeoutError::Disconnected) => break,
@@ -270,7 +280,6 @@ pub fn run_daemon(
   let hotkey_receiver = GlobalHotKeyEvent::receiver();
   let menu_receiver = MenuEvent::receiver();
   let tray_receiver = TrayIconEvent::receiver();
-  let config_clone_loop = config.clone();
 
   let manager_arc = Arc::new(GlobalHotKeyManager::new().expect("Failed to create HotKeyManager"));
   sync_hotkeys(
@@ -280,171 +289,135 @@ pub fn run_daemon(
     &current_hotkeys,
   )?;
 
-  let manager = Some(manager_arc);
-  let mut tray_icon: Option<TrayIcon> = None;
+  let tray_icon: Option<TrayIcon>;
   let mut app_menu_items = FxHashMap::default();
-  let mut quit_item_id = MenuId::new("quit");
+  let mut quit_item_id;
 
-  // Setup EventLoopProxy for external signals (Ctrl+C, Hotkeys, and Tray polling)
-  let proxy = event_loop.create_proxy();
-  let hotkey_proxy = proxy.clone();
-  let tray_proxy = proxy.clone();
-
-  // Spawn Hotkey Listener Thread (instant wakeup)
-  Builder::new()
-    .name("hotkey-listener".to_string())
-    .stack_size(128 * 1024)
-    .spawn(move || {
-      while let Ok(event) = hotkey_receiver.recv() {
-        let _ = hotkey_proxy.send_event(DaemonEvent::Hotkey(event));
-      }
-    })?;
-
-  // Spawn Tray Polling Thread (100ms interval)
-  let tray_proxy_poll = tray_proxy.clone();
-  Builder::new()
-    .name("tray-poller".to_string())
-    .stack_size(128 * 1024)
-    .spawn(move || loop {
-      thread_sleep(Duration::from_millis(100));
-      let _ = tray_proxy_poll.send_event(DaemonEvent::TrayPoll);
-    })?;
-
-  // Watch for Ctrl+C
-  let proxy_ctrlc = proxy.clone();
-  rt.spawn(async move {
-    if signal::ctrl_c().await.is_ok() {
-      println!("\nCtrl+C received. Shutting down...");
-      let _ = proxy_ctrlc.send_event(DaemonEvent::Exit);
+  // Initial Tray Setup
+  {
+    let tray_menu = Menu::new();
+    let cfg = config.read().unwrap();
+    for name in cfg.app.keys() {
+      let item = MenuItem::new(name, true, None);
+      let _ = tray_menu.append(&item);
+      app_menu_items.insert(item.id().clone(), name.clone());
     }
-  });
+    let _ = tray_menu.append(&PredefinedMenuItem::separator());
+    let quit_i = MenuItem::new("Quit", true, None);
+    quit_item_id = quit_i.id().clone();
+    let _ = tray_menu.append(&quit_i);
 
-  event_loop.run(move |event, elwt| {
-    // Keep these alive by capturing them in the closure
-    let _ = &tray_icon;
-    let _ = &manager;
+    // Optimization 4: Native Resource Loading
+    let icon = tray_icon::Icon::from_resource(1, None).expect("Failed to load icon from resource");
+    let ti = TrayIconBuilder::new()
+      .with_menu(Box::new(tray_menu))
+      .with_tooltip("janq")
+      .with_icon(icon)
+      .build()?;
+    tray_icon = Some(ti);
+  }
 
-    elwt.set_control_flow(ControlFlow::Wait);
+  // Initial app spawning
+  {
+    let candidates = crate::windows::window::fetch_system_windows();
+    let cfg = config.read().unwrap().clone();
+    for (name, app_cfg) in &cfg.app {
+      let name = name.clone();
+      let app_cfg = app_cfg.clone();
+      let cfg_copy = cfg.clone();
+      let candidates_clone = candidates.clone();
+      Builder::new().spawn(move || {
+        crate::windows::terminal::ensure_terminal_running(
+          &name,
+          &app_cfg,
+          &cfg_copy,
+          Some(&candidates_clone),
+        );
+      })?;
+    }
 
-    match event {
-      Event::NewEvents(winit::event::StartCause::Init) => {
-        // 3. Tray Icon
-        let tray_menu = Menu::new();
-        {
-          let cfg = config_clone_loop.read().unwrap();
-          let keys = cfg.app.keys().cloned().collect::<Vec<_>>();
-
-          for name in keys {
-            if !cfg.app.contains_key(&name) {
-              continue;
-            }
-            let item = MenuItem::new(&name, true, None);
-            let _ = tray_menu.append(&item);
-            app_menu_items.insert(item.id().clone(), name.clone());
+    if cfg.window.auto_show {
+      let app_name =
+        target_app.unwrap_or_else(|| cfg.app.keys().next().cloned().unwrap_or_default());
+      if !app_name.is_empty() {
+        let app_name_c = app_name.clone();
+        let cfg_c = cfg.clone();
+        Builder::new().spawn(move || {
+          thread_sleep(Duration::from_millis(500));
+          crate::windows::window::toggle_window(&app_name_c, &cfg_c);
+          unsafe {
+            let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
           }
-        }
-
-        let _ = tray_menu.append(&PredefinedMenuItem::separator());
-        let quit_i = MenuItem::new("Quit", true, None);
-        quit_item_id = quit_i.id().clone();
-        let _ = tray_menu.append(&quit_i);
-
-        let icon = load_icon();
-        match TrayIconBuilder::new()
-          .with_menu(Box::new(tray_menu))
-          .with_tooltip("janq")
-          .with_icon(icon)
-          .build()
-        {
-          Ok(ti) => {
-            tray_icon = Some(ti);
-          }
-          Err(e) => eprintln!("    ✗ Failed to create tray icon: {}", e),
-        }
-
-        // 4. Initial app spawning
-        {
-          let cfg = config_clone_loop.read().unwrap().clone();
-          let mut spawn_tasks = Vec::new();
-
-          for (name, app_cfg) in &cfg.app {
-            let name = name.clone();
-            let app_cfg = app_cfg.clone();
-            let cfg = cfg.clone();
-            spawn_tasks.push(rt.spawn(async move {
-              let _ =
-                crate::windows::terminal::ensure_terminal_running(&name, &app_cfg, &cfg).await;
-            }));
-          }
-
-          let target_app_clone = target_app.clone();
-          let rt_clone = rt.handle().clone();
-          rt.spawn(async move {
-            for task in spawn_tasks {
-              let _ = task.await;
-            }
-
-            if cfg.window.auto_show {
-              let app_to_show = target_app_clone.as_ref();
-              if let Some(app_name) = app_to_show {
-                if let Some(_app_cfg) = cfg.app.get(app_name) {
-                  let cfg = (*cfg).clone();
-                  let app_name = app_name.clone();
-                  rt_clone.spawn(async move {
-                    tokio_sleep(Duration::from_millis(500)).await;
-                    toggle_window(&app_name, &cfg).await;
-                  });
-                }
-              } else if let Some(first_app) = cfg.app.keys().next() {
-                let cfg = (*cfg).clone();
-                let app_name = first_app.clone();
-                rt_clone.spawn(async move {
-                  tokio_sleep(Duration::from_millis(500)).await;
-                  toggle_window(&app_name, &cfg).await;
-                });
-              }
-            }
-          });
-        }
+        })?;
       }
-      Event::LoopExiting => {
-        crate::windows::window::restore_window_visibility();
+    }
+  }
+
+  // Threads to bridge receivers to DaemonEvent channel
+  let event_tx_hk = event_tx.clone();
+  Builder::new().spawn(move || {
+    while let Ok(event) = hotkey_receiver.recv() {
+      let _ = event_tx_hk.send(DaemonEvent::Hotkey(event));
+      unsafe {
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
       }
-      Event::UserEvent(daemon_event) => {
+    }
+  })?;
+
+  let event_tx_tray = event_tx.clone();
+  Builder::new().spawn(move || loop {
+    thread_sleep(Duration::from_millis(100));
+    let _ = event_tx_tray.send(DaemonEvent::TrayPoll);
+    unsafe {
+      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+    }
+  })?;
+
+  let event_tx_heartbeat = event_tx.clone();
+  Builder::new().spawn(move || loop {
+    thread_sleep(Duration::from_secs(2));
+    let _ = event_tx_heartbeat.send(DaemonEvent::RespawnCheck);
+    unsafe {
+      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+    }
+  })?;
+
+  // Main Win32 Message Loop
+  unsafe {
+    let mut msg = MSG::default();
+    while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+      let _ = TranslateMessage(&msg);
+      DispatchMessageW(&msg);
+
+      // Process our internal events
+      while let Ok(daemon_event) = event_rx.try_recv() {
         match daemon_event {
           DaemonEvent::Exit => {
-            elwt.exit();
+            crate::windows::window::restore_window_visibility();
+            return Ok(());
           }
           DaemonEvent::ReloadHotkeys => {
-            println!("Reloading config (hotkeys & tray menu)...");
-            let cfg = config_clone_loop.read().unwrap().clone();
+            println!("Reloading config...");
+            let cfg = config.read().unwrap().clone();
+            let _ = sync_hotkeys(
+              Arc::clone(&manager_arc),
+              &cfg,
+              &hotkey_map,
+              &current_hotkeys,
+            );
 
-            // 1. Sync Hotkeys
-            if let Some(m) = &manager {
-              if let Err(e) = sync_hotkeys(Arc::clone(m), &cfg, &hotkey_map, &current_hotkeys) {
-                crate::windows::show_error(&e.to_string());
-              }
-            }
-
-            // 2. Refresh Tray Menu
+            // Refresh Tray
             let tray_menu = Menu::new();
             app_menu_items.clear();
-            let keys = cfg.app.keys().cloned().collect::<Vec<_>>();
-
-            for name in keys {
-              if !cfg.app.contains_key(&name) {
-                continue;
-              }
-              let item = MenuItem::new(&name, true, None);
+            for name in cfg.app.keys() {
+              let item = MenuItem::new(name, true, None);
               let _ = tray_menu.append(&item);
               app_menu_items.insert(item.id().clone(), name.clone());
             }
-
             let _ = tray_menu.append(&PredefinedMenuItem::separator());
             let quit_i = MenuItem::new("Quit", true, None);
             quit_item_id = quit_i.id().clone();
             let _ = tray_menu.append(&quit_i);
-
             if let Some(ti) = &tray_icon {
               let _ = ti.set_menu(Some(Box::new(tray_menu)));
             }
@@ -453,156 +426,122 @@ pub fn run_daemon(
             if event.state == HotKeyState::Pressed {
               let map = hotkey_map.read().unwrap();
               if let Some(app_name) = map.get(&event.id) {
-                unsafe {
-                  let _ = AllowSetForegroundWindow(ASFW_ANY);
-                }
-                let cfg = config_clone_loop.read().unwrap().clone();
+                let _ = AllowSetForegroundWindow(ASFW_ANY);
+                let cfg = config.read().unwrap().clone();
                 let app_name = app_name.clone();
-
-                rt.spawn(async move {
+                Builder::new().spawn(move || {
                   if let Some(app_cfg) = cfg.app.get(&app_name) {
-                    if !toggle_window(&app_name, &cfg).await {
-                      crate::windows::terminal::ensure_terminal_running(&app_name, app_cfg, &cfg)
-                        .await;
-                      toggle_window(&app_name, &cfg).await;
+                    if !crate::windows::window::toggle_window(&app_name, &cfg) {
+                      crate::windows::terminal::ensure_terminal_running(
+                        &app_name, app_cfg, &cfg, None,
+                      );
+                      crate::windows::window::toggle_window(&app_name, &cfg);
                     }
                   }
-                });
+                })?;
               }
             }
           }
           DaemonEvent::TrayPoll => {
-            // Check Tray Icon Events on 100ms timer
             while let Ok(event) = tray_receiver.try_recv() {
-              match event {
-                TrayIconEvent::Click {
-                  button,
-                  button_state,
-                  ..
-                } => {
-                  if button_state == MouseButtonState::Up {
-                    if button == MouseButton::Left {
-                      let cfg = config_clone_loop.read().unwrap().clone();
-                      let app_to_toggle = cfg.app.keys().next().cloned();
-
-                      if let Some(app_name) = app_to_toggle {
-                        if let Some(app_cfg) = cfg.app.get(&app_name) {
-                          let app_cfg = app_cfg.clone();
-                          let cfg_spawn = cfg.clone();
-                          let name_clone = app_name.clone();
-                          rt.spawn(async move {
-                            crate::windows::terminal::ensure_terminal_running(
-                              &name_clone,
-                              &app_cfg,
-                              &cfg_spawn,
-                            )
-                            .await;
-                            toggle_window(&app_name, &cfg_spawn).await;
-                          });
-                        }
-                      }
-                    } else if button == MouseButton::Middle {
-                      let _ = tray_proxy.send_event(DaemonEvent::Exit);
-                    }
+              if let TrayIconEvent::Click {
+                button,
+                button_state,
+                ..
+              } = event
+              {
+                if button_state == MouseButtonState::Up && button == MouseButton::Left {
+                  let cfg = config.read().unwrap().clone();
+                  if let Some(app_name) = cfg.app.keys().next().cloned() {
+                    let app_cfg = cfg.app.get(&app_name).unwrap().clone();
+                    Builder::new().spawn(move || {
+                      crate::windows::terminal::ensure_terminal_running(
+                        &app_name, &app_cfg, &cfg, None,
+                      );
+                      crate::windows::window::toggle_window(&app_name, &cfg);
+                    })?;
                   }
                 }
-                _ => {}
               }
             }
-
-            // Check Menu
             while let Ok(event) = menu_receiver.try_recv() {
               if event.id == quit_item_id {
-                let _ = proxy.send_event(DaemonEvent::Exit);
+                crate::windows::window::restore_window_visibility();
+                return Ok(());
               } else if let Some(app_name) = app_menu_items.get(&event.id) {
-                let cfg = config_clone_loop.read().unwrap().clone();
+                let cfg = config.read().unwrap().clone();
                 let app_name = app_name.clone();
-                if let Some(app_cfg) = cfg.app.get(&app_name) {
-                  let app_cfg = app_cfg.clone();
-                  let cfg_spawn = cfg.clone();
-                  let name_clone = app_name.clone();
-                  rt.spawn(async move {
-                    crate::windows::terminal::ensure_terminal_running(
-                      &name_clone,
-                      &app_cfg,
-                      &cfg_spawn,
-                    )
-                    .await;
-                    toggle_window(&app_name, &cfg_spawn).await;
-                  });
-                }
+                let app_cfg = cfg.app.get(&app_name).unwrap().clone();
+                Builder::new().spawn(move || {
+                  crate::windows::terminal::ensure_terminal_running(
+                    &app_name, &app_cfg, &cfg, None,
+                  );
+                  crate::windows::window::toggle_window(&app_name, &cfg);
+                })?;
               }
             }
           }
-        }
-      }
-      Event::AboutToWait => {
-        // Respawn Loop check
-        static LAST_CHECK_SEC: AtomicU64 = AtomicU64::new(0);
+          DaemonEvent::RespawnCheck => {
+            let candidates = crate::windows::window::fetch_system_windows();
+            let cfg = config.read().unwrap().clone();
+            for (name, app_cfg) in &cfg.app {
+              let needs_check = {
+                let cache = get_hwnd_cache().read().unwrap();
+                let already_spawning = {
+                  let spawning = crate::windows::terminal::get_spawning_apps()
+                    .lock()
+                    .unwrap();
+                  spawning.contains(name)
+                };
 
-        let now_sec = std::time::SystemTime::now()
-          .duration_since(std::time::UNIX_EPOCH)
-          .unwrap_or_default()
-          .as_secs();
-
-        if now_sec - LAST_CHECK_SEC.load(Ordering::Relaxed) >= 2 {
-          LAST_CHECK_SEC.store(now_sec, Ordering::Relaxed);
-          let cfg = config_clone_loop.read().unwrap().clone();
-          for (name, app_cfg) in &cfg.app {
-            // Only check if NOT in cache, invalid, OR NOT already spawning
-            let needs_check = {
-              let cache = get_hwnd_cache().read().unwrap();
-              let already_spawning = {
-                let spawning = crate::windows::terminal::get_spawning_apps()
-                  .lock()
-                  .unwrap();
-                spawning.contains(name)
+                if already_spawning {
+                  false
+                } else if let Some(hwnd) = cache.get(name) {
+                  !windows::Win32::UI::WindowsAndMessaging::IsWindow(hwnd.0).as_bool()
+                } else {
+                  true
+                }
               };
 
-              if already_spawning {
-                false
-              } else if let Some(hwnd) = cache.get(name) {
-                unsafe { !windows::Win32::UI::WindowsAndMessaging::IsWindow(hwnd.0).as_bool() }
-              } else {
-                true
+              if needs_check {
+                crate::windows::window::reset_visible_app();
+                println!("App '{}' not managed. Checking/Respawning...", name);
+                let app_cfg = app_cfg.clone();
+                let cfg_spawn = cfg.clone();
+                let name_clone = name.clone();
+                let candidates_clone = candidates.clone();
+                Builder::new().spawn(move || {
+                  crate::windows::terminal::ensure_terminal_running(
+                    &name_clone,
+                    &app_cfg,
+                    &cfg_spawn,
+                    Some(&candidates_clone),
+                  );
+                  let _ = windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                    main_thread_id,
+                    windows::Win32::UI::WindowsAndMessaging::WM_USER + 1,
+                    None,
+                    None,
+                  );
+                })?;
               }
-            };
-
-            if needs_check {
-              // If this was the visible app, reset it
-              crate::windows::window::reset_visible_app();
-
-              println!("App '{}' not managed. Checking/Respawning...", name);
-              let app_cfg = app_cfg.clone();
-              let cfg_spawn = cfg.clone();
-              let name_clone = name.clone();
-              rt.spawn(async move {
-                crate::windows::terminal::ensure_terminal_running(
-                  &name_clone,
-                  &app_cfg,
-                  &cfg_spawn,
-                )
-                .await;
-              });
             }
           }
         }
       }
-      _ => (),
     }
-  })?;
+  }
 
   Ok(())
 }
 
-pub async fn send_toggle(app_name: Option<String>) -> Result<()> {
-  let mut client = ClientOptions::new().open(PIPE_NAME)?;
+pub fn send_toggle_sync(app_name: Option<String>) -> Result<()> {
+  use std::fs::OpenOptions;
+  let mut file = OpenOptions::new().write(true).open(PIPE_NAME)?;
   if let Some(name) = app_name {
-    client
-      .write_all(format!("toggle:{}", name).as_bytes())
-      .await?;
+    file.write_all(format!("toggle:{}", name).as_bytes())?;
   } else {
-    client.write_all(b"toggle").await?;
+    file.write_all(b"toggle")?;
   }
   Ok(())
 }

@@ -16,9 +16,9 @@ fn main() {
       let rc_path = Path::new(&out_dir).join("janq_generated.rc");
       let obj_path = Path::new(&out_dir).join("janq_icon.o");
 
-      // Generate .rc with absolute path to icon to avoid path resolution issues in windres
+      // Generate .rc with absolute path to icon
       let rc_content = format!(
-        "id ICON \"{}\"",
+        "1 ICON \"{}\"",
         icon_path.display().to_string().replace("\\", "/")
       );
       std::fs::write(&rc_path, rc_content).unwrap();
@@ -41,6 +41,7 @@ fn main() {
     } else {
       let mut res = winres::WindowsResource::new();
       res.set_icon(icon_path.to_str().unwrap());
+      res.set_resource_file("1"); // Use ID 1
       let _ = res.compile();
     }
   }

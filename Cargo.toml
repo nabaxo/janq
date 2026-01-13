@@ -4,14 +4,11 @@ version = "1.0.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.32", default-features = false, features = ["rt", "macros", "sync", "time", "signal", "process"] }
-zbus = { version = "4.1", default-features = false, features = ["tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 anyhow = "1.0"
 dirs = "5.0"
 notify = { version = "6.1", default-features = false }
-image = { version = "0.24", default-features = false, features = ["png"] }
 fs2 = "0.4"
 clap = { version = "4.4", default-features = false, features = ["derive", "std", "help", "usage"] }
 indexmap = { version = "2.0", features = ["serde"] }
@@ -19,6 +16,10 @@ rustc-hash = "2.1"
 
 [build-dependencies]
 winres = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio = { version = "1.32", default-features = false, features = ["rt", "macros", "sync", "time", "signal", "process"] }
+zbus = { version = "4.1", default-features = false, features = ["tokio"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
@@ -29,10 +30,14 @@ windows = { version = "0.58", features = [
     "Win32_System_ProcessStatus",
     "Win32_UI_HiDpi",
     "Win32_Graphics_Dwm",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_Security",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Input_KeyboardAndMouse",
 ], default-features = false }
 tray-icon = "0.14"
-winit = "0.29"
-tokio = { version = "1.32", features = ["rt-multi-thread"] }
 global-hotkey = "0.5"
 
 [profile.release]

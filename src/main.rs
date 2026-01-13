@@ -1,14 +1,10 @@
 #![windows_subsystem = "windows"]
 
 use std::process::exit;
-#[cfg(target_os = "windows")]
-use std::time::Duration;
 
 use clap::Parser;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
-#[cfg(target_os = "windows")]
-use tokio::time::timeout;
 
 mod config;
 mod daemon;
@@ -133,27 +129,12 @@ fn main() -> anyhow::Result<()> {
       return Ok(());
     }
 
-    // For Windows "Smart Mode", we need a temporary runtime to check IPC
-    let rt = tokio::runtime::Runtime::new()?;
-    let ipc_success = rt.block_on(async {
-      // Add timeout to prevent hanging on zombie pipes
-      match timeout(
-        Duration::from_secs(1),
-        daemon::send_toggle(target_app_owned.clone()),
-      )
-      .await
-      {
-        Ok(Ok(())) => true,
-        _ => false,
-      }
-    });
-
-    if ipc_success {
+    // Synchronous IPC check for Windows
+    if daemon::send_toggle_sync(target_app_owned.clone()).is_ok() {
       return Ok(());
     }
 
     println!("Daemon not running (or reachable). Starting new daemon instance...");
-    // This takes over the thread with Winit loop
     if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned) {
       windows::show_error(&e.to_string());
       exit(1);

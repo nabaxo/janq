@@ -21,8 +21,7 @@
 
 ### Zero-Config Hotkeys
 - **Linux:** Automatically syncs your hotkey configuration directly with KDE System Settings via D-Bus
-- **Windows:** Native hotkey registration with instant response times
-
+- **Windows: Native Win32 Overhaul.** A high-performance, thin-daemon architecture. By stripping away heavy runtimes (Tokio/Winit), the Windows version now provides instantaneous hotkey response times with zero polling overhead.
 - **Advanced weighted fuzzy matching** on both platforms—find windows using abbreviations, substrings, or delimiters with a sophisticated scoring engine that rewards word boundaries and penalizes gaps.
 - **High-Performance Linux Path**: Zero-IPC liveness checks via `/proc` and **ForceBlur** (Role 1) integration ensuring that toggling and animations occur with $<0.1$ms overhead and perfect visual stability.
 
@@ -70,8 +69,10 @@
 ## 🛠️ Technical Improvements
 
 ### Performance
-- **Zero polling** architecture—event-driven on both platforms
-- **Lazy window caching** to minimize Win32/KWin API calls
+- **Zero polling** architecture—event-driven on both platforms.
+- **Instant Loop Wakeup (Windows)**: Uses `PostThreadMessageW` to immediately wake the backend on any event, eliminating the 15-30ms "GetMessage" sleep lag found in traditional loops.
+- **Architectural Consolidation**: Removed Tokio and Winit from the Windows daemon, drastically reducing RAM footprint and eliminating runtime-induced jitter.
+- **Lazy window caching** and **Batch Enumeration** to minimize Win32/KWin API calls. Capture windows by scanning the system once instead of per-app.
 - **LTO and release optimizations** for minimal binary size
 - Memory leak prevention with automatic cache cleanup on config reload
 
@@ -82,6 +83,7 @@
 - **Cache-Based Window Restoration**: Significantly improved restoration on exit—uses a runtime handle cache to reliably return *all* managed windows (even those removed from config) to their original positions.
 - **Single Instance Enforcement**: Prevents multiple daemon instances via file locks.
 - **Robust Error Handling**: User-friendly error dialogs on both platforms.
+- **Focus-Stealing Fix (Windows)**: Implemented an aggressive focus mechanism using `AttachThreadInput` to bypass Win32 foreground locks, ensuring focus lands correctly even during rapid app switching.
 
 ### Code Quality
 - Comprehensive refactoring for maintainability

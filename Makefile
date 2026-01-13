@@ -19,7 +19,7 @@ build-linux-musl: prepare-dist
 	cargo build --release --target x86_64-unknown-linux-musl
 	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq
 
-build-linux: build-linux-glibc build-linux-musl
+build-linux: build-linux-musl build-linux-glibc
 
 build-windows-nonstatic: prepare-dist
 	cargo build --release --target x86_64-pc-windows-gnu
@@ -29,7 +29,7 @@ build-windows-static: prepare-dist
 	RUSTFLAGS="-C link-arg=-static" cargo build --release --target x86_64-pc-windows-gnu
 	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq.exe
 
-build-windows: build-windows-nonstatic build-windows-static
+build-windows: build-windows-static build-windows-nonstatic
 
 build-all: build-linux build-windows
 
