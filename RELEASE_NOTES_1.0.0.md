@@ -76,6 +76,7 @@
 - Memory leak prevention with automatic cache cleanup on config reload
 
 ### Reliability
+- **Portable Windows Build**: Added a static CRT linking profile (`make build-windows-static`) that produces a standalone executable without requiring the Visual C++ Redistributable.
 - **Robust Windows Hot-Reloading**: Optimized configuration watcher to monitor parent directories, ensuring stability with editors that perform atomic saves (like VS Code).
 - **Graceful Shutdown**: Proper signal handling (SIGINT/SIGTERM) and descriptive console logging ("Quitting via systray", "Received SIGINT", etc.) ensuring absolute clarity on exit.
 - **Cache-Based Window Restoration**: Significantly improved restoration on exit—uses a runtime handle cache to reliably return *all* managed windows (even those removed from config) to their original positions.

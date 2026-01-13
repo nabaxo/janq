@@ -1,6 +1,6 @@
 DIST_DIR := dist
 
-build: format lint build-linux-musl build-windows
+build: format lint build-linux-musl build-windows-static
 
 lint:
 	cargo fmt --all -- --check
@@ -11,17 +11,25 @@ format:
 prepare-dist:
 	mkdir -p $(DIST_DIR)
 
-build-linux: prepare-dist
+build-linux-glibc: prepare-dist
 	cargo build --release
-	cp target/release/janq $(DIST_DIR)/janq
+	cp target/release/janq $(DIST_DIR)/janq-glibc
 
 build-linux-musl: prepare-dist
 	cargo build --release --target x86_64-unknown-linux-musl
 	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq
 
-build-windows: prepare-dist
+build-linux: build-linux-glibc build-linux-musl
+
+build-windows-nonstatic: prepare-dist
 	cargo build --release --target x86_64-pc-windows-gnu
+	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq-nonstatic.exe
+
+build-windows-static: prepare-dist
+	RUSTFLAGS="-C link-arg=-static" cargo build --release --target x86_64-pc-windows-gnu
 	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq.exe
+
+build-windows: build-windows-nonstatic build-windows-static
 
 build-all: build-linux build-windows
 
