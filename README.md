@@ -69,11 +69,22 @@ _(Sloperator note: Just use `full_cleanup.sh`.)_
 ### Linux (KDE)
 janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
 
+#### Linux Startup (Automatic)
+To make janq start automatically on login:
+```bash
+./janq --enable-autostart
+```
+To disable it:
+```bash
+./janq --disable-autostart
+```
+These flags create/remove a symlink in `~/.config/autostart/` pointing to the application's desktop file.
+
 ### Windows
 
 janq handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
 
-#### Windows Startup (Manual)
+#### Add janq to Windows Startup/Autostart (Manual)
 
 To make janq start automatically when you log in:
 1.  Press `Win + R`, type `shell:startup`, and press Enter.

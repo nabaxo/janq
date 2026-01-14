@@ -61,6 +61,7 @@
 - **Custom Easing Support**: Define your own curves with `cubic-bezier(x1, y1, x2, y2)`, `bezier(...)`, or simply `(x1, y1, x2, y2)`
 
 ### System Integration
+- **Linux:** Native autostart management via `--enable-autostart` and `--disable-autostart` flags.
 - **Linux:** Desktop entry generation, icon installation, D-Bus activation support
 - **Windows:** System tray icon with context menu, startup support via shortcuts
 
@@ -146,6 +147,8 @@ make build-windows # Outputs: ./dist/janq.exe
 ./janq           # Start daemon (first run) or toggle (subsequent runs)
 ./janq --daemon  # Start in background mode
 ./janq --app zed # Toggle a specific app
+./janq --enable-autostart  # (Linux) Enable autostart on login
+./janq --disable-autostart # (Linux) Disable autostart
 ```
 
 ---

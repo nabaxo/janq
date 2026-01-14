@@ -1,8 +1,51 @@
-use std::{env::current_exe, fs, path::PathBuf, process::Command};
+use std::{env::current_exe, fs, os::unix::fs::symlink, path::PathBuf, process::Command};
 
 use anyhow::{Context, Result};
+use dirs::{config_dir, data_local_dir};
 
 use crate::config::Config;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn get_desktop_path() -> PathBuf {
+  data_local_dir()
+    .expect("No data dir")
+    .join("applications/dev.nabaxo.janq.desktop")
+}
+
+pub fn enable_autostart(config: &Config) -> Result<()> {
+  let desktop = get_desktop_path();
+  if !desktop.exists() {
+    println!("Desktop file missing at {:?}, generating it...", desktop);
+    generate_desktop_file_headless(config)?;
+  }
+
+  let autostart = config_dir().expect("No config dir").join("autostart");
+  let link = autostart.join("dev.nabaxo.janq.desktop");
+
+  fs::create_dir_all(&autostart)?;
+  let _ = fs::remove_file(&link);
+  symlink(&desktop, &link).context("Failed to create autostart symlink")?;
+
+  println!("✓ Autostart enabled: {:?} -> {:?}", link, desktop);
+  Ok(())
+}
+
+pub fn disable_autostart() -> Result<()> {
+  let link = config_dir()
+    .expect("No config dir")
+    .join("autostart/dev.nabaxo.janq.desktop");
+
+  if link.exists() || link.is_symlink() {
+    fs::remove_file(&link)?;
+    println!("✓ Autostart disabled: removed {:?}", link);
+  } else {
+    println!("Autostart is not enabled (no symlink at {:?})", link);
+  }
+  Ok(())
+}
 
 pub fn generate_desktop_file(config: &Config) -> Result<()> {
   let _ = generate_desktop_file_impl(config, true)?;
@@ -27,16 +70,8 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
   let exec_cmd = format!("{} --daemon", exe_path);
 
   // 2. Desktop File
-  let xdg_data = dirs::data_local_dir().unwrap_or_else(|| {
-    dirs::home_dir()
-      .expect("Failed to get home dir")
-      .join(".local")
-      .join("share")
-  });
-  let app_dir = xdg_data.join("applications");
-  fs::create_dir_all(&app_dir)?;
-
-  let desktop_path = app_dir.join("dev.nabaxo.janq.desktop");
+  let desktop_path = get_desktop_path();
+  fs::create_dir_all(desktop_path.parent().unwrap())?;
 
   // Build content in memory to check for changes
   let mut desktop_content = String::new();
@@ -107,7 +142,9 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
   }
 
   // 3. Service File (for DBusActivatable auto-start)
-  let service_dir = xdg_data.join("dbus-1").join("services");
+  let service_dir = data_local_dir()
+    .expect("No data dir")
+    .join("dbus-1/services");
   fs::create_dir_all(&service_dir)?;
 
   let service_path = service_dir.join("dev.nabaxo.janq.service");
@@ -158,12 +195,9 @@ fn run_kbuildsycoca6() {
 
 fn install_icon() -> Result<()> {
   let icon_data = include_bytes!("../../icon.svg");
-  let icon_dir = dirs::data_local_dir()
-    .context("Failed to get local data dir")?
-    .join("icons")
-    .join("hicolor")
-    .join("scalable")
-    .join("apps");
+  let icon_dir = data_local_dir()
+    .expect("No data dir")
+    .join("icons/hicolor/scalable/apps");
 
   fs::create_dir_all(&icon_dir)?;
   let icon_path = icon_dir.join("janq.svg");

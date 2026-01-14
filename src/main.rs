@@ -19,13 +19,23 @@ mod windows;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-  /// Force run in daemon mode
-  #[arg(long, default_value_t = false, alias = "demon")]
+  /// Run as a persistent process in the terminal (Server Mode)
+  #[arg(long, default_value_t = false, aliases = ["demon", "deamon"])]
   daemon: bool,
 
   /// Name of the app to toggle (from config)
   #[arg(long)]
   app: Option<String>,
+
+  /// Enable autostart on login (Linux only: creates symlink in ~/.config/autostart)
+  #[cfg(target_os = "linux")]
+  #[arg(long)]
+  enable_autostart: bool,
+
+  /// Disable autostart on login (Linux only: removes symlink from ~/.config/autostart)
+  #[cfg(target_os = "linux")]
+  #[arg(long)]
+  disable_autostart: bool,
 }
 
 fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Option<&str>, String> {
@@ -65,6 +75,7 @@ fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Opt
 
 fn main() -> anyhow::Result<()> {
   let args = Args::parse();
+
   let (config, config_path) = match config::load_config(None) {
     Ok(c) => c,
     Err(e) => {
@@ -75,6 +86,25 @@ fn main() -> anyhow::Result<()> {
       exit(1);
     }
   };
+
+  // Handle autostart flags (Linux only) - these exit immediately
+  #[cfg(target_os = "linux")]
+  {
+    if args.enable_autostart {
+      if let Err(e) = linux::desktop::enable_autostart(&config) {
+        linux::show_error(&e.to_string());
+        exit(1);
+      }
+      return Ok(());
+    }
+    if args.disable_autostart {
+      if let Err(e) = linux::desktop::disable_autostart() {
+        linux::show_error(&e.to_string());
+        exit(1);
+      }
+      return Ok(());
+    }
+  }
 
   #[cfg(target_os = "linux")]
   {
