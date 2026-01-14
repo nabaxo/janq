@@ -211,36 +211,18 @@ pub async fn check_window_exists_with_candidates(
     return fuzzy_match_window(target_class, list, &[]).map(|w| w.id);
   }
 
-  // 2. Hot path: Check cache and verify liveness via /proc
-  let cached_info: Option<(String, u32)> = {
-    let mut cache = get_pid_cache().lock().unwrap();
-    if let Some(cached) = cache.get_mut(target_class) {
-      if Path::new(&format!("/proc/{}", cached.pid)).exists() {
-        if !cached.id.is_empty() {
-          Some((cached.id.clone(), cached.pid))
-        } else {
-          None
-        }
-      } else {
-        cache.remove(target_class);
-        None
+  // 2. Hot path: Check cache and verify liveness via /proc (no expensive script call)
+  {
+    let cache = get_pid_cache().lock().unwrap();
+    if let Some(cached) = cache.get(target_class) {
+      if !cached.id.is_empty() && Path::new(&format!("/proc/{}", cached.pid)).exists() {
+        // Process is alive, trust the cached window ID
+        return Some(cached.id.clone());
       }
-    } else {
-      None
-    }
-  };
-
-  // Validate cached ID outside the lock
-  if let Some((cached_id, _)) = cached_info {
-    if is_window_valid(&cached_id).await {
-      return Some(cached_id);
-    }
-    // Clear the dead ID from cache
-    let mut cache = get_pid_cache().lock().unwrap();
-    if let Some(c) = cache.get_mut(target_class) {
-      c.id.clear();
     }
   }
+
+  // Dead cache entry will be cleaned up in the fallback path below
 
   // 3. Fallback: Full system fetch and fuzzy match
   let all_windows = fetch_system_windows_async().await;

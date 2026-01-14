@@ -268,6 +268,9 @@ pub async fn run_daemon(
     });
   }
 
+  // Small delay to ensure D-Bus service is fully registered before KWin scripts call back
+  sleep(Duration::from_millis(100)).await;
+
   // Initial setup (Parallel)
   {
     let cfg = config.read().unwrap().clone();

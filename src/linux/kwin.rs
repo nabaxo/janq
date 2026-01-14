@@ -184,6 +184,54 @@ pub async fn report_active_window(payload: String) {
   }
 }
 
+// Short-term cache for active window (debounces rapid toggles)
+struct CachedActiveWindow {
+  id: String,
+  class: String,
+  fetched_at: std::time::Instant,
+}
+
+static ACTIVE_WINDOW_CACHE: OnceLock<StdMutex<Option<CachedActiveWindow>>> = OnceLock::new();
+
+fn get_active_window_cache() -> &'static StdMutex<Option<CachedActiveWindow>> {
+  ACTIVE_WINDOW_CACHE.get_or_init(|| StdMutex::new(None))
+}
+
+async fn fetch_active_window_cached(conn: &Connection) -> Option<(String, String)> {
+  // Set to false to disable caching (always fetch fresh)
+  const ENABLE_ACTIVE_WINDOW_CACHE: bool = true;
+  const CACHE_TTL_MS: u128 = 100;
+
+  if !ENABLE_ACTIVE_WINDOW_CACHE {
+    return fetch_active_window(conn).await;
+  }
+
+  // Check cache first
+  {
+    let cache = get_active_window_cache().lock().unwrap();
+    if let Some(ref cached) = *cache {
+      if cached.fetched_at.elapsed().as_millis() < CACHE_TTL_MS {
+        return Some((cached.id.clone(), cached.class.clone()));
+      }
+    }
+  }
+
+  // Cache miss or stale, fetch fresh
+  let result = fetch_active_window(conn).await;
+
+  // Update cache
+  if let Some((ref id, ref class)) = result {
+    let mut cache = get_active_window_cache().lock().unwrap();
+    *cache = Some(CachedActiveWindow {
+      id: id.clone(),
+      class: class.clone(),
+      fetched_at: std::time::Instant::now(),
+    });
+  }
+
+  result
+}
+
 async fn fetch_active_window(conn: &Connection) -> Option<(String, String)> {
   let request_id = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
@@ -226,7 +274,7 @@ async fn fetch_active_window(conn: &Connection) -> Option<(String, String)> {
 }
 
 async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn: &Connection) {
-  let (current_id, class_name) = match fetch_active_window(conn).await {
+  let (current_id, class_name) = match fetch_active_window_cached(conn).await {
     Some(info) => info,
     None => return,
   };
