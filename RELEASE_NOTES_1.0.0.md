@@ -84,6 +84,7 @@
 - **Single Instance Enforcement**: Prevents multiple daemon instances via file locks.
 - **Robust Error Handling**: User-friendly error dialogs on both platforms.
 - **Focus-Stealing Fix (Windows)**: Implemented an aggressive focus mechanism using `AttachThreadInput` to bypass Win32 foreground locks, ensuring focus lands correctly even during rapid app switching.
+- **Cold Startup Hotkey Sync (Linux)**: Forces a full D-Bus shortcut refresh on daemon startup to ensure keybindings are properly registered after reboot or abrupt shutdown.
 
 ### Code Quality
 - Comprehensive refactoring for maintainability

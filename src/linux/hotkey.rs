@@ -224,6 +224,8 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
   let mut needs_refresh = false;
 
   // Detection A: Configuration Change (Compared to memory)
+  // On cold startup (old_config is None), always force a full refresh
+  // to ensure clean D-Bus state after reboot or abrupt shutdown
   if let Some(old) = old_config {
     if old.app.len() != config.app.len() || old.app.keys().ne(config.app.keys()) {
       needs_refresh = true;
@@ -240,6 +242,10 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
         }
       }
     }
+  } else {
+    // Cold startup: always refresh to ensure clean state
+    println!("Hotkey: Cold startup detected, performing full sync...");
+    needs_refresh = true;
   }
 
   // Detection B: D-Bus State Validation (Startup or corruption check)
