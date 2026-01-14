@@ -1,8 +1,15 @@
-# janq - The Janky Quake-Style Terminal Manager sloperated in Rust
+# janq - A Somewhat Janky Quake-Style Terminal Manager
 
-## janq is 100%, unadultareted vibe coded slop. User discretion is advised.
+## janq is 100%, unadulterated vibe coded slop. User discretion is advised.
 
-**janq** is a lightweight, high-performance Quake-style terminal wrapper. It manages your favorite terminal emulator (WezTerm, Alacritty, Kitty, Zed, etc.), allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
+**janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
+
+_(But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq uses like 1.2 MB RAM on Windows and 3.6 MB on my Fedora KDE system)._
+
+It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
+
+> [!CAUTION]
+> I have only tested this on two machines, your mileage may vary and all that.
 
 ## Supported Platforms
 
@@ -41,11 +48,11 @@ make build-windows-static      # Binary: ./dist/janq-portable.exe (Static/Portab
 
 ### The `utilities/` Folder (For When Things Go Wrong)
 
-The `utilities/` directory contains cleanup scripts for Linux. These exist because during development we managed to break KDE shortcuts, leave zombie processes, and generally make a mess of the desktop integration more times than we'd like to admit.
+The `utilities/` directory contains cleanup scripts for Linux. These exist because during development we managed to break KDE shortcuts, leave zombie processes, and generally make a mess of the desktop integration more times than we'd like to admit. (Sloperator: Speak for yourself, I had to use it countless times because of your bullshit).
 
 | Script | Description |
 |--------|-------------|
-| `full_cleanup.sh` | Nuclear option. Removes all janq/goake/ruake traces from your system. |
+| `full_cleanup.sh` | Nuclear option. Removes all janq/legacy janq traces from your system. |
 | `cleanup_shortcuts.sh` | Fixes KDE global shortcuts when they inevitably get stuck. |
 | `cleanup_desktop.sh` | Removes desktop entries and icons. |
 | `cleanup_processes.sh` | Kills any lingering daemon processes. |
@@ -83,6 +90,9 @@ These flags create/remove a symlink in `~/.config/autostart/` pointing to the ap
 ### Windows
 
 janq handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
+
+> [!TIP]
+> If Windows refuses to run the downloaded .exe; Right click on the file, choose properties, tick the `unblock` checkbox at the bottom, (the one that comes with scary security warnings), then click apply, OK, and you're good to go.
 
 #### Add janq to Windows Startup/Autostart (Manual)
 
@@ -185,7 +195,7 @@ hotkey = "Meta+Z"
 ```
 
 > [!WARNING]
-> Configuring a multiwindow app as `window_class` will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)_/¯
+> Configuring a multiwindow app as `window_class` will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)_/¯ (But do thank her from me for yesterday, she knows why).
 
 ### Default Values
 
@@ -213,7 +223,7 @@ hotkey = "Meta+Z"
 
 | Mode | Description |
 | :--- | :--- |
-| `windows` | High-end cubic-bezier curve matching modern Windows 11 animations. |
+| `windows` | Cubic-bezier curve matching modern Windows 11 animations. |
 | `expo`* | Exponential curve for a snappier, "high-speed" feeling. |
 | `linear` | Direct, constant movement. |
 | `ease`* | Smooth acceleration and deceleration. |
