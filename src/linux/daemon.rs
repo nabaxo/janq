@@ -25,10 +25,18 @@ use crate::linux::kwin::{
   restore_quake, toggle_quake,
 };
 use crate::linux::show_error;
-use crate::terminal::ensure_terminal_running;
+use crate::linux::terminal::{
+  ensure_terminal_running, ensure_terminal_running_with_candidates, fetch_system_windows_async,
+};
 
 #[derive(Clone)]
 struct QuakeApplication {
+  config: Arc<RwLock<Arc<Config>>>,
+  conn: Connection,
+}
+
+#[derive(Clone)]
+struct QuakeDaemon {
   config: Arc<RwLock<Arc<Config>>>,
   conn: Connection,
 }
@@ -67,12 +75,6 @@ impl QuakeApplication {
   }
 }
 
-#[derive(Clone)]
-struct QuakeDaemon {
-  config: Arc<RwLock<Arc<Config>>>,
-  conn: Connection,
-}
-
 #[interface(name = "dev.nabaxo.janq")]
 impl QuakeDaemon {
   #[zbus(name = "Toggle")]
@@ -101,6 +103,11 @@ impl QuakeDaemon {
     if let Some(target_name) = target {
       let _ = toggle_quake(&target_name, &config, &self.conn).await;
     }
+  }
+
+  #[zbus(name = "ReportWindowMetadata")]
+  async fn report_window_metadata(&self, payload: String) {
+    crate::linux::terminal::report_metadata(payload).await;
   }
 }
 
@@ -213,11 +220,24 @@ pub async fn run_daemon(
   };
 
   for path in &[activatable_path, xdg_path, daemon_path] {
-    let _ = conn.object_server().at(*path, app_instance.clone()).await;
-    let _ = conn
+    let r1 = conn.object_server().at(*path, app_instance.clone()).await;
+    let r2 = conn
       .object_server()
       .at(*path, daemon_instance.clone())
       .await;
+
+    if let Err(e) = r1 {
+      eprintln!(
+        "janq: Failed to register Application interface at {}: {}",
+        path, e
+      );
+    }
+    if let Err(e) = r2 {
+      eprintln!(
+        "janq: Failed to register Daemon interface at {}: {}",
+        path, e
+      );
+    }
   }
 
   conn.request_name(activatable_bus).await?;
@@ -246,19 +266,25 @@ pub async fn run_daemon(
   // Initial setup (Parallel)
   {
     let cfg = config.read().unwrap().clone();
+    let initial_candidates = Arc::new(fetch_system_windows_async().await);
+
     let mut terminal_tasks = Vec::new();
-    let mut apps_for_grabbing = Vec::new();
     for name in cfg.app.keys() {
       if let Some(app_cfg) = cfg.app.get(name) {
         let app_cfg_owned = app_cfg.clone();
-        let app_cfg_for_spawn = app_cfg_owned.clone();
         let cfg_clone = (*cfg).clone();
         let conn_clone = conn.clone();
+        let candidates_clone = initial_candidates.clone();
 
         terminal_tasks.push(tokio::spawn(async move {
-          let _ = ensure_terminal_running(&app_cfg_for_spawn, &cfg_clone, &conn_clone).await;
+          let _ = ensure_terminal_running_with_candidates(
+            &app_cfg_owned,
+            &cfg_clone,
+            &conn_clone,
+            Some(&candidates_clone),
+          )
+          .await;
         }));
-        apps_for_grabbing.push((app_cfg_owned, (*cfg).clone()));
       }
     }
 
@@ -266,6 +292,11 @@ pub async fn run_daemon(
       let _ = task.await;
     }
 
+    // Grabbing apps (now using the pre-fetched list is too old, grab_apps will do its own scan if needed)
+    let mut apps_for_grabbing = Vec::new();
+    for (_name, app_cfg) in &cfg.app {
+      apps_for_grabbing.push((app_cfg.clone(), (*cfg).clone()));
+    }
     let _ = grab_apps(&apps_for_grabbing, &conn).await;
 
     if cfg.window.auto_show {

@@ -127,6 +127,26 @@ const ENSURE_GRABBED_BATCH_TEMPLATE: &str = include_str!("js/ensure_grabbed.js")
 
 const RESTORE_TEMPLATE: &str = include_str!("js/restore.js");
 
+const FETCH_WINDOWS_SCRIPT: &str = include_str!("js/fetch_windows.js");
+
+pub async fn trigger_fetch_windows(conn: &Connection, request_id: u64) -> Result<()> {
+  let script_body_raw = FETCH_WINDOWS_SCRIPT.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
+  let script_body_trimmed = script_body_raw.trim();
+  let script_body = script_body_trimmed
+    .strip_suffix(';')
+    .unwrap_or(script_body_trimmed);
+  let script_content = format!("{}(\"{}\");", script_body, request_id);
+
+  let script_name = format!("janq_fetch_{}", request_id);
+  run_kwin_script(
+    conn,
+    &script_name,
+    &script_content,
+    Some(Duration::from_millis(100)),
+  )
+  .await
+}
+
 fn update_focus_state(state: &mut KWinState, janq_classes: &[String]) {
   let id_output = Command::new("kdotool").arg("getactivewindow").output();
   let current_id = match id_output {
@@ -155,7 +175,7 @@ fn update_focus_state(state: &mut KWinState, janq_classes: &[String]) {
   }
 }
 
-fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
+async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
   // 1. Check Cache
   {
     if let Ok(cache) = get_window_cache().try_lock() {
@@ -169,7 +189,7 @@ fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
   }
 
   // 2. Fallback to Search
-  if let Some(id) = check_window_exists(class) {
+  if let Some(id) = check_window_exists(class).await {
     let pid = get_pid_for_class(class).unwrap_or(0);
     // 3. Update Cache
     if let Ok(mut cache) = get_window_cache().try_lock() {
@@ -195,8 +215,9 @@ pub async fn toggle_quake(
 
   // If we think it's visible, verify the window still exists
   if is_currently_visible {
-    let (target_id, _) =
-      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+    let (target_id, _) = get_window_id_and_pid(app_name, &app_cfg.window_class)
+      .await
+      .unwrap_or((String::new(), 0));
     if target_id.is_empty() || !is_window_valid(&target_id) {
       state.visible_app = None;
       return Ok(()); // Just reset state, don't immediately try to show/spawn.
@@ -215,8 +236,9 @@ pub async fn toggle_quake(
   if should_show {
     let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
     update_focus_state(&mut state, &janq_classes);
-    let (target_id, target_pid) =
-      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class)
+      .await
+      .unwrap_or((String::new(), 0));
 
     run_toggle_script(
       app_cfg,
@@ -234,8 +256,9 @@ pub async fn toggle_quake(
     .await?;
     state.visible_app = Some(app_name.to_string());
   } else {
-    let (target_id, target_pid) =
-      get_window_id_and_pid(app_name, &app_cfg.window_class).unwrap_or((String::new(), 0));
+    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class)
+      .await
+      .unwrap_or((String::new(), 0));
 
     let prev_id = state.previous_window_id.clone();
     run_toggle_script(
@@ -324,8 +347,8 @@ pub async fn ensure_grabbed(
 }
 
 pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyhow::Result<()> {
-  println!("janq: Grabbing apps...");
-  let all_windows = fetch_system_windows();
+  println!("janq: Yoinking apps...");
+  let all_windows = fetch_system_windows().await;
   let state = STATE.lock().await;
 
   let mut apps_json = Vec::new();
@@ -338,7 +361,7 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
       .unwrap_or("");
 
     let (target_id, target_pid) = if let Some(id) =
-      check_window_exists_with_candidates(&app_cfg.window_class, Some(&all_windows))
+      check_window_exists_with_candidates(&app_cfg.window_class, Some(&all_windows)).await
     {
       let pid = get_pid_for_class(&app_cfg.window_class).unwrap_or(0);
       if !app_name.is_empty() {

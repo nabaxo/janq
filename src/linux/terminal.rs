@@ -8,10 +8,48 @@ use std::{
   time::Duration,
 };
 
+use tokio::sync::oneshot;
 use tokio::time::sleep;
 use zbus::Connection;
 
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
+
+static DISCOVERY_CONN: OnceLock<Connection> = OnceLock::new();
+
+async fn get_discovery_conn() -> Option<Connection> {
+  if let Some(conn) = DISCOVERY_CONN.get() {
+    return Some(conn.clone());
+  }
+  if let Ok(conn) = Connection::session().await {
+    let _ = DISCOVERY_CONN.set(conn.clone());
+    return Some(conn);
+  }
+  None
+}
+
+pub struct WindowMetadataBatch {
+  pub raw: String,
+}
+
+static METADATA_WAITERS: OnceLock<Mutex<FxHashMap<u64, oneshot::Sender<WindowMetadataBatch>>>> =
+  OnceLock::new();
+
+fn get_metadata_waiters() -> &'static Mutex<FxHashMap<u64, oneshot::Sender<WindowMetadataBatch>>> {
+  METADATA_WAITERS.get_or_init(|| Mutex::new(FxHashMap::default()))
+}
+
+pub async fn report_metadata(payload: String) {
+  if let Some((id_str, raw)) = payload.split_once(':') {
+    if let Ok(request_id) = id_str.parse::<u64>() {
+      let mut waiters = get_metadata_waiters().lock().unwrap();
+      if let Some(tx) = waiters.remove(&request_id) {
+        let _ = tx.send(WindowMetadataBatch {
+          raw: raw.to_string(),
+        });
+      }
+    }
+  }
+}
 
 static SPAWNING_APPS: OnceLock<Mutex<FxHashSet<String>>> = OnceLock::new();
 
@@ -24,11 +62,23 @@ pub async fn ensure_terminal_running(
   config: &Config,
   conn: &Connection,
 ) -> bool {
+  ensure_terminal_running_with_candidates(app_cfg, config, conn, None).await
+}
+
+pub async fn ensure_terminal_running_with_candidates(
+  app_cfg: &AppConfig,
+  config: &Config,
+  conn: &Connection,
+  candidates: Option<&[FoundWindow]>,
+) -> bool {
   let window_class = &app_cfg.window_class;
   let start_command = &app_cfg.start_command;
 
   // 1. Check if window already exists
-  if check_window_exists(window_class).is_some() {
+  if check_window_exists_with_candidates(window_class, candidates)
+    .await
+    .is_some()
+  {
     return false;
   }
 
@@ -48,7 +98,7 @@ pub async fn ensure_terminal_running(
 
     // Wait and re-check if the window exists (the other track might have finished)
     sleep(Duration::from_millis(200)).await;
-    if check_window_exists(window_class).is_some() {
+    if check_window_exists(window_class).await.is_some() {
       return false;
     }
   }
@@ -80,7 +130,7 @@ pub async fn ensure_terminal_running(
     sleep(Duration::from_millis(400)).await;
 
     // If release uncovered an existing window, reuse it immediately
-    if let Some(id) = check_window_exists(window_class) {
+    if let Some(id) = check_window_exists(window_class).await {
       println!(
         "janq: Recovering window {} for '{}' after release.",
         id, window_class
@@ -116,7 +166,7 @@ pub async fn ensure_terminal_running(
 
   // Wait for window to appear (more reliable than just process)
   for i in 0..20 {
-    if let Some(_id) = check_window_exists(window_class) {
+    if let Some(_id) = check_window_exists(window_class).await {
       // Give it a moment to finalize
       tokio::time::sleep(Duration::from_millis(500)).await;
       // Call ensure_grabbed (async)
@@ -148,11 +198,11 @@ pub async fn ensure_terminal_running(
   false
 }
 
-pub fn check_window_exists(target_class: &str) -> Option<String> {
-  check_window_exists_with_candidates(target_class, None)
+pub async fn check_window_exists(target_class: &str) -> Option<String> {
+  check_window_exists_with_candidates(target_class, None).await
 }
 
-pub fn check_window_exists_with_candidates(
+pub async fn check_window_exists_with_candidates(
   target_class: &str,
   candidates: Option<&[FoundWindow]>,
 ) -> Option<String> {
@@ -177,7 +227,7 @@ pub fn check_window_exists_with_candidates(
   }
 
   // 3. Fallback: Full system fetch and fuzzy match
-  let all_windows = fetch_system_windows();
+  let all_windows = fetch_system_windows_async().await;
   let mut cache = get_pid_cache().lock().unwrap();
   let managed_ids: Vec<String> = cache.values().map(|c| c.id.clone()).collect();
 
@@ -196,49 +246,69 @@ pub fn check_window_exists_with_candidates(
   None
 }
 
-pub fn fetch_system_windows() -> Vec<FoundWindow> {
+pub async fn fetch_system_windows() -> Vec<FoundWindow> {
+  fetch_system_windows_async().await
+}
+
+pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
   let mut windows = Vec::new();
 
-  // 1. Get all IDs
-  let all_ids = run_kdotool_cmd(&["search", "--class", ""]);
-  if all_ids.is_empty() {
+  // 1. Setup waiter with unique ID (timestamp based)
+  let request_id = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_nanos() as u64;
+  let (tx, rx) = oneshot::channel();
+  {
+    let mut waiters = get_metadata_waiters().lock().unwrap();
+    waiters.insert(request_id, tx);
+  }
+
+  // 2. Trigger KWin script (Reuse shared connection)
+  let conn = match get_discovery_conn().await {
+    Some(c) => c,
+    None => return windows,
+  };
+
+  if let Err(e) = crate::linux::kwin::trigger_fetch_windows(&conn, request_id).await {
+    eprintln!("janq: Failed to trigger window fetch script: {}", e);
+    let mut waiters = get_metadata_waiters().lock().unwrap();
+    waiters.remove(&request_id);
     return windows;
   }
 
-  // 2. Get visible IDs for visibility boost
-  let visible_ids: FxHashSet<String> = run_kdotool_cmd(&["search", "--onlyvisible", "--class", ""])
-    .into_iter()
-    .collect();
+  let batch = match tokio::time::timeout(Duration::from_millis(2000), rx).await {
+    Ok(Ok(b)) => b,
+    _ => {
+      eprintln!(
+        "janq: Timeout waiting for window metadata ID {} from KWin.",
+        request_id
+      );
+      let mut waiters = get_metadata_waiters().lock().unwrap();
+      waiters.remove(&request_id);
+      return windows;
+    }
+  };
 
-  for id in all_ids {
-    let id = id.trim();
-    if id.is_empty() {
+  // 4. Transform into FoundWindow objects
+  for line in batch.raw.split(';') {
+    if line.is_empty() {
+      continue;
+    }
+    let parts: Vec<&str> = line.split('|').collect();
+    if parts.len() < 4 {
       continue;
     }
 
-    // Optimization: Skip obviously non-app windows if possible, but for now we follow the old logic
-    // but with real visibility.
-    let class = Command::new("kdotool")
-      .args(["getwindowclassname", id])
-      .output()
-      .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_lowercase())
-      .unwrap_or_default();
+    let id = parts[0];
+    let class = parts[1].to_lowercase();
+    let pid = parts[2].parse::<u32>().unwrap_or(0);
+    let is_visible = parts[3] == "1";
 
     if class.is_empty() || class == "plasmashell" || class == "kwin_x11" || class == "kwin_wayland"
     {
       continue;
     }
-
-    let pid = Command::new("kdotool")
-      .args(["getwindowpid", id])
-      .output()
-      .map(|o| {
-        String::from_utf8_lossy(&o.stdout)
-          .trim()
-          .parse::<u32>()
-          .unwrap_or(0)
-      })
-      .unwrap_or(0);
 
     let mut proc_name = String::new();
     if pid > 0 {
@@ -258,24 +328,11 @@ pub fn fetch_system_windows() -> Vec<FoundWindow> {
       class_name: class,
       proc_name,
       pid,
-      is_visible: visible_ids.contains(id),
+      is_visible,
     });
   }
-  windows
-}
 
-fn run_kdotool_cmd(args: &[&str]) -> Vec<String> {
-  let output = Command::new("kdotool").args(args).output();
-  if let Ok(out) = output {
-    if out.status.success() {
-      return String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    }
-  }
-  Vec::new()
+  windows
 }
 
 pub fn is_window_valid(id: &str) -> bool {
