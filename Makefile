@@ -31,7 +31,7 @@ build-windows-static: prepare-dist
 
 build-windows: build-windows-static build-windows-nonstatic
 
-build-all: build-linux build-windows
+build-all: format lint build-linux build-windows
 
 check:
 	cargo check --target x86_64-unknown-linux-gnu

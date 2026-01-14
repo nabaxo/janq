@@ -509,6 +509,8 @@ pub async fn run_daemon(
 
   let cfg = config_for_signals.read().unwrap().clone();
   let _ = restore_quake(&cfg, &conn_for_signals).await;
+  // Ensure scripts have time to finish before process exit
+  tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
   println!("janq: Termination complete.");
 
   Ok(())
