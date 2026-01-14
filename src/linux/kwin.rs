@@ -218,7 +218,7 @@ pub async fn toggle_quake(
     let (target_id, _) = get_window_id_and_pid(app_name, &app_cfg.window_class)
       .await
       .unwrap_or((String::new(), 0));
-    if target_id.is_empty() || !is_window_valid(&target_id) {
+    if target_id.is_empty() || !is_window_valid(&target_id).await {
       state.visible_app = None;
       return Ok(()); // Just reset state, don't immediately try to show/spawn.
     }
