@@ -16,6 +16,15 @@ mod terminal;
 #[cfg(target_os = "windows")]
 mod windows;
 
+// Attach to parent console if running from terminal (Windows only)
+#[cfg(target_os = "windows")]
+fn attach_parent_console() {
+  unsafe {
+    const ATTACH_PARENT_PROCESS: u32 = 0xFFFFFFFF;
+    let _ = ::windows::Win32::System::Console::AttachConsole(ATTACH_PARENT_PROCESS);
+  }
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -74,6 +83,9 @@ fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Opt
 }
 
 fn main() -> anyhow::Result<()> {
+  #[cfg(target_os = "windows")]
+  attach_parent_console();
+
   let args = Args::parse();
 
   let (config, config_path) = match config::load_config(None) {

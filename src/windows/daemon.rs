@@ -20,19 +20,29 @@ use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
   MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
+use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Storage::FileSystem::ReadFile;
+use windows::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::{
   HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
   WindowsAndMessaging::{
-    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, PostThreadMessageW, TranslateMessage,
-    ASFW_ANY, MSG, WM_USER,
+    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, IsWindow, PostThreadMessageW,
+    TranslateMessage, ASFW_ANY, MSG, WM_USER,
   },
 };
 
 use crate::{
   config::{load_config, Config},
   hotkey::parse_hotkey,
-  windows::window::get_hwnd_cache,
+  windows::{
+    show_error,
+    terminal::{ensure_terminal_running, get_spawning_apps},
+    window::{
+      fetch_system_windows, get_hwnd_cache, reset_visible_app, restore_app_window,
+      restore_window_visibility, toggle_window,
+    },
+  },
 };
 
 // =============================================================================
@@ -47,7 +57,7 @@ const PIPE_NAME: &str = r"\\.\pipe\janq";
 
 #[derive(Debug)]
 enum DaemonEvent {
-  Hotkey(global_hotkey::GlobalHotKeyEvent),
+  Hotkey(GlobalHotKeyEvent),
   TrayPoll,
   ReloadHotkeys,
   RespawnCheck,
@@ -59,6 +69,7 @@ pub fn run_daemon(
   config_path: Option<PathBuf>,
   target_app: Option<String>,
 ) -> Result<()> {
+  println!("Starting janq daemon...");
   let main_thread_id = unsafe { GetCurrentThreadId() };
   // 0. Acquire Lock File
   let lock_path = temp_dir().join("janq.lock");
@@ -82,7 +93,7 @@ pub fn run_daemon(
     .name("ipc-server".to_string())
     .spawn(move || loop {
       let handle = unsafe {
-        windows::Win32::System::Pipes::CreateNamedPipeW(
+        CreateNamedPipeW(
           windows::core::w!(r"\\.\pipe\janq"),
           std::mem::transmute(3u32),
           std::mem::transmute(6u32),
@@ -95,16 +106,11 @@ pub fn run_daemon(
       };
 
       if !handle.is_invalid() {
-        if unsafe { windows::Win32::System::Pipes::ConnectNamedPipe(handle, None).is_ok() } {
+        if unsafe { ConnectNamedPipe(handle, None).is_ok() } {
           let mut buf = [0u8; 1024];
           let mut bytes_read = 0;
           unsafe {
-            let _ = windows::Win32::Storage::FileSystem::ReadFile(
-              handle,
-              Some(&mut buf),
-              Some(&mut bytes_read),
-              None,
-            );
+            let _ = ReadFile(handle, Some(&mut buf), Some(&mut bytes_read), None);
           }
 
           if bytes_read > 0 {
@@ -126,27 +132,17 @@ pub fn run_daemon(
 
             if let Some(target_name) = target_app {
               if let Some(app_cfg) = cfg.app.get(&target_name) {
-                crate::windows::terminal::ensure_terminal_running(
-                  &target_name,
-                  app_cfg,
-                  &cfg,
-                  None,
-                );
-                crate::windows::window::toggle_window(&target_name, &cfg);
+                ensure_terminal_running(&target_name, app_cfg, &cfg, None);
+                toggle_window(&target_name, &cfg);
                 unsafe {
-                  let _ = windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
-                    main_thread_id,
-                    windows::Win32::UI::WindowsAndMessaging::WM_USER + 1,
-                    None,
-                    None,
-                  );
+                  let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
                 }
               }
             }
           }
         }
         unsafe {
-          let _ = windows::Win32::Foundation::CloseHandle(handle);
+          let _ = CloseHandle(handle);
         }
       } else {
         thread_sleep(Duration::from_millis(500));
@@ -237,9 +233,9 @@ pub fn run_daemon(
                   // Restore all apps from current config before shutting down
                   let current_cfg = config_clone_watcher.read().unwrap().clone();
                   for app_cfg in current_cfg.app.values() {
-                    crate::windows::window::restore_app_window(&app_cfg.window_class);
+                    restore_app_window(&app_cfg.window_class);
                   }
-                  crate::windows::show_error(&e.to_string());
+                  show_error(&e.to_string());
                   let _ = event_tx_watcher.send(DaemonEvent::Exit);
                   return;
                 }
@@ -252,7 +248,7 @@ pub fn run_daemon(
                 // 1. Handle removed or changed apps
                 let mut to_restore = Vec::new();
                 {
-                  let mut cache = crate::windows::window::get_hwnd_cache().write().unwrap();
+                  let mut cache = get_hwnd_cache().write().unwrap();
                   for (name, old_app_cfg) in &old_config.app {
                     match new_config.app.get(name) {
                       Some(new_app_cfg) => {
@@ -270,7 +266,7 @@ pub fn run_daemon(
                   }
                 }
                 for class in to_restore {
-                  crate::windows::window::restore_app_window(&class);
+                  restore_app_window(&class);
                 }
               }
               let _ = event_tx_watcher.send(DaemonEvent::ReloadHotkeys);
@@ -327,7 +323,7 @@ pub fn run_daemon(
 
   // Initial app spawning
   {
-    let candidates = crate::windows::window::fetch_system_windows();
+    let candidates = fetch_system_windows();
     let cfg = config.read().unwrap().clone();
     for (name, app_cfg) in &cfg.app {
       let name = name.clone();
@@ -335,12 +331,7 @@ pub fn run_daemon(
       let cfg_copy = cfg.clone();
       let candidates_clone = candidates.clone();
       Builder::new().spawn(move || {
-        crate::windows::terminal::ensure_terminal_running(
-          &name,
-          &app_cfg,
-          &cfg_copy,
-          Some(&candidates_clone),
-        );
+        ensure_terminal_running(&name, &app_cfg, &cfg_copy, Some(&candidates_clone));
       })?;
     }
 
@@ -352,7 +343,7 @@ pub fn run_daemon(
         let cfg_c = cfg.clone();
         Builder::new().spawn(move || {
           thread_sleep(Duration::from_millis(500));
-          crate::windows::window::toggle_window(&app_name_c, &cfg_c);
+          toggle_window(&app_name_c, &cfg_c);
           unsafe {
             let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
           }
@@ -401,7 +392,7 @@ pub fn run_daemon(
       while let Ok(daemon_event) = event_rx.try_recv() {
         match daemon_event {
           DaemonEvent::Exit => {
-            crate::windows::window::restore_window_visibility();
+            restore_window_visibility();
             return Ok(());
           }
           DaemonEvent::ReloadHotkeys => {
@@ -439,11 +430,9 @@ pub fn run_daemon(
                 let app_name = app_name.clone();
                 Builder::new().spawn(move || {
                   if let Some(app_cfg) = cfg.app.get(&app_name) {
-                    if !crate::windows::window::toggle_window(&app_name, &cfg) {
-                      crate::windows::terminal::ensure_terminal_running(
-                        &app_name, app_cfg, &cfg, None,
-                      );
-                      crate::windows::window::toggle_window(&app_name, &cfg);
+                    if !toggle_window(&app_name, &cfg) {
+                      ensure_terminal_running(&app_name, app_cfg, &cfg, None);
+                      toggle_window(&app_name, &cfg);
                     }
                   }
                 })?;
@@ -463,10 +452,8 @@ pub fn run_daemon(
                   if let Some(app_name) = cfg.app.keys().next().cloned() {
                     let app_cfg = cfg.app.get(&app_name).unwrap().clone();
                     Builder::new().spawn(move || {
-                      crate::windows::terminal::ensure_terminal_running(
-                        &app_name, &app_cfg, &cfg, None,
-                      );
-                      crate::windows::window::toggle_window(&app_name, &cfg);
+                      ensure_terminal_running(&app_name, &app_cfg, &cfg, None);
+                      toggle_window(&app_name, &cfg);
                     })?;
                   }
                 }
@@ -474,63 +461,54 @@ pub fn run_daemon(
             }
             while let Ok(event) = menu_receiver.try_recv() {
               if event.id == quit_item_id {
-                crate::windows::window::restore_window_visibility();
+                restore_window_visibility();
                 return Ok(());
               } else if let Some(app_name) = app_menu_items.get(&event.id) {
                 let cfg = config.read().unwrap().clone();
                 let app_name = app_name.clone();
                 let app_cfg = cfg.app.get(&app_name).unwrap().clone();
                 Builder::new().spawn(move || {
-                  crate::windows::terminal::ensure_terminal_running(
-                    &app_name, &app_cfg, &cfg, None,
-                  );
-                  crate::windows::window::toggle_window(&app_name, &cfg);
+                  ensure_terminal_running(&app_name, &app_cfg, &cfg, None);
+                  toggle_window(&app_name, &cfg);
                 })?;
               }
             }
           }
           DaemonEvent::RespawnCheck => {
-            let candidates = crate::windows::window::fetch_system_windows();
+            let candidates = fetch_system_windows();
             let cfg = config.read().unwrap().clone();
             for (name, app_cfg) in &cfg.app {
               let needs_check = {
                 let cache = get_hwnd_cache().read().unwrap();
                 let already_spawning = {
-                  let spawning = crate::windows::terminal::get_spawning_apps()
-                    .lock()
-                    .unwrap();
+                  let spawning = get_spawning_apps().lock().unwrap();
                   spawning.contains(name)
                 };
 
                 if already_spawning {
                   false
                 } else if let Some(hwnd) = cache.get(name) {
-                  !windows::Win32::UI::WindowsAndMessaging::IsWindow(hwnd.0).as_bool()
+                  !IsWindow(hwnd.0).as_bool()
                 } else {
                   true
                 }
               };
 
               if needs_check {
-                crate::windows::window::reset_visible_app();
+                reset_visible_app();
                 println!("App '{}' not managed. Checking/Respawning...", name);
                 let app_cfg = app_cfg.clone();
                 let cfg_spawn = cfg.clone();
                 let name_clone = name.clone();
                 let candidates_clone = candidates.clone();
                 Builder::new().spawn(move || {
-                  crate::windows::terminal::ensure_terminal_running(
+                  ensure_terminal_running(
                     &name_clone,
                     &app_cfg,
                     &cfg_spawn,
                     Some(&candidates_clone),
                   );
-                  let _ = windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
-                    main_thread_id,
-                    windows::Win32::UI::WindowsAndMessaging::WM_USER + 1,
-                    None,
-                    None,
-                  );
+                  let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
                 })?;
               }
             }
@@ -540,6 +518,7 @@ pub fn run_daemon(
     }
   }
 
+  println!("janq: Termination complete.");
   Ok(())
 }
 

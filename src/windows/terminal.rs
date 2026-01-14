@@ -1,18 +1,20 @@
+use rustc_hash::FxHashSet;
 use std::{
-  collections::HashSet,
   os::windows::process::CommandExt,
   process::{Command, Stdio},
   sync::{Mutex, OnceLock},
   time::Duration,
 };
 
+use windows::Win32::UI::WindowsAndMessaging::{IsWindow, IsWindowVisible};
+
 use crate::config::{AppConfig, Config, FoundWindow};
-use crate::windows::window::{find_window_by_process, get_hwnd_cache, SendHwnd};
+use crate::windows::window::{find_window_by_process, get_hwnd_cache, park_window, SendHwnd};
 
-static SPAWNING_APPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static SPAWNING_APPS: OnceLock<Mutex<FxHashSet<String>>> = OnceLock::new();
 
-pub fn get_spawning_apps() -> &'static Mutex<HashSet<String>> {
-  SPAWNING_APPS.get_or_init(|| Mutex::new(HashSet::new()))
+pub fn get_spawning_apps() -> &'static Mutex<FxHashSet<String>> {
+  SPAWNING_APPS.get_or_init(|| Mutex::new(FxHashSet::default()))
 }
 
 pub fn ensure_terminal_running(
@@ -26,7 +28,7 @@ pub fn ensure_terminal_running(
     let cache = get_hwnd_cache().read().unwrap();
     if let Some(hwnd) = cache.get(app_name) {
       unsafe {
-        if windows::Win32::UI::WindowsAndMessaging::IsWindow(hwnd.0).as_bool() {
+        if IsWindow(hwnd.0).as_bool() {
           return false; // Already managed and running
         }
       }
@@ -48,7 +50,7 @@ pub fn ensure_terminal_running(
         cache.insert(app_name.to_string(), SendHwnd(hwnd));
       }
 
-      crate::windows::window::park_window(SendHwnd(hwnd), config, app_cfg);
+      park_window(SendHwnd(hwnd), config, app_cfg);
       return false;
     }
 
@@ -94,8 +96,8 @@ pub fn ensure_terminal_running(
   let cmd = parts[0];
   let final_args = &parts[1..];
 
+  println!("Starting terminal: {}", app_cfg.start_command);
   const DETACHED_PROCESS: u32 = 0x00000008;
-
   let spawn_result = Command::new(cmd)
     .args(final_args)
     .creation_flags(DETACHED_PROCESS)
@@ -114,19 +116,21 @@ pub fn ensure_terminal_running(
 
   // Wait for window to appear
   let mut found = false;
-  for _ in 0..80 {
+  for i in 0..80 {
     // Wait up to 8s (100ms * 80)
     std::thread::sleep(Duration::from_millis(100));
     let send_hwnd = {
       if let Some(hwnd) = find_window_by_process(&app_cfg.window_class, None) {
-        found = true;
-
-        {
-          let mut cache = get_hwnd_cache().write().unwrap();
-          cache.insert(app_name.to_string(), SendHwnd(hwnd));
+        if unsafe { IsWindowVisible(hwnd).as_bool() } {
+          found = true;
+          {
+            let mut cache = get_hwnd_cache().write().unwrap();
+            cache.insert(app_name.to_string(), SendHwnd(hwnd));
+          }
+          Some(SendHwnd(hwnd))
+        } else {
+          None
         }
-
-        Some(SendHwnd(hwnd))
       } else {
         None
       }
@@ -137,10 +141,25 @@ pub fn ensure_terminal_running(
       std::thread::sleep(Duration::from_millis(50));
 
       // AUTOMATIC GRAB: Park newly discovered window immediately
-      crate::windows::window::park_window(sh, config, app_cfg);
+      park_window(sh, config, app_cfg);
 
       break;
     }
+
+    if i > 0 && (i + 1) % 20 == 0 {
+      println!(
+        "janq: Still waiting for window '{}' to appear (attempt {}/80)...",
+        app_name,
+        i + 1
+      );
+    }
+  }
+
+  if !found {
+    println!(
+      "janq: Failed to detect window for '{}' after spawning.",
+      app_name
+    );
   }
   found
 }
