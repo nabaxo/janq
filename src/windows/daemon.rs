@@ -35,7 +35,15 @@ use crate::{
   windows::window::get_hwnd_cache,
 };
 
+// =============================================================================
+// IPC Constants
+// =============================================================================
+
 const PIPE_NAME: &str = r"\\.\pipe\janq";
+
+// =============================================================================
+// Daemon Event Loop
+// =============================================================================
 
 #[derive(Debug)]
 enum DaemonEvent {
@@ -535,6 +543,10 @@ pub fn run_daemon(
   Ok(())
 }
 
+// =============================================================================
+// IPC Client
+// =============================================================================
+
 pub fn send_toggle_sync(app_name: Option<String>) -> Result<()> {
   use std::fs::OpenOptions;
   let mut file = OpenOptions::new().write(true).open(PIPE_NAME)?;
@@ -545,6 +557,10 @@ pub fn send_toggle_sync(app_name: Option<String>) -> Result<()> {
   }
   Ok(())
 }
+
+// =============================================================================
+// Hotkey Management
+// =============================================================================
 
 pub fn sync_hotkeys(
   manager: Arc<GlobalHotKeyManager>,

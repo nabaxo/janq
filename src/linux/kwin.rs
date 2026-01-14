@@ -13,6 +13,10 @@ use crate::linux::terminal::{
   get_pid_for_class, is_window_valid,
 };
 
+// =============================================================================
+// KWin Script Runner
+// =============================================================================
+
 /// Helper to run a KWin script with common boilerplate:
 /// unload old script, write to temp file, load, run, and optionally cleanup.
 async fn run_kwin_script(
@@ -54,7 +58,10 @@ async fn run_kwin_script(
   Ok(())
 }
 
-// Global state
+// =============================================================================
+// Global State
+// =============================================================================
+
 struct KWinState {
   visible_app: Option<String>,
   previous_window_id: String, // Last window active before ANY quake window was shown
@@ -118,9 +125,11 @@ struct ToggleParams<'a> {
   janq_classes: &'a str,
 }
 
-const COMMON_KWIN_JS: &str = include_str!("js/common.js");
+// =============================================================================
+// KWin Script Templates
+// =============================================================================
 
-// Template bodies that take arguments in their IIFE
+const COMMON_KWIN_JS: &str = include_str!("js/common.js");
 const TOGGLE_SCRIPT_TEMPLATE: &str = include_str!("js/toggle_quake.js");
 
 const ENSURE_GRABBED_BATCH_TEMPLATE: &str = include_str!("js/ensure_grabbed.js");
@@ -149,7 +158,10 @@ pub async fn trigger_fetch_windows(conn: &Connection, request_id: u64) -> Result
   .await
 }
 
-// Active window fetcher infrastructure
+// =============================================================================
+// Active Window Fetcher (D-Bus callback infrastructure)
+// =============================================================================
+
 use std::sync::Mutex as StdMutex;
 use tokio::sync::oneshot;
 
@@ -198,7 +210,16 @@ fn get_active_window_cache() -> &'static StdMutex<Option<CachedActiveWindow>> {
 }
 
 async fn fetch_active_window_cached(conn: &Connection) -> Option<(String, String)> {
-  // Set to false to disable caching (always fetch fresh)
+  // DEBOUNCE CONFIGURATION:
+  // - ENABLE_ACTIVE_WINDOW_CACHE: Set to false to always fetch fresh (disables caching)
+  // - CACHE_TTL_MS: How long (in ms) to reuse cached active window info
+  //
+  // Purpose: Prevents KWin script flooding during rapid toggling. When you spam
+  // the hotkey, multiple show-toggles would each trigger a KWin script to get
+  // the active window. With caching, subsequent calls within TTL reuse the result.
+  //
+  // Trade-off: Higher TTL = fewer scripts but potentially stale focus restoration
+  // if user Alt+Tabs during the window. 100ms is fast enough for human perception.
   const ENABLE_ACTIVE_WINDOW_CACHE: bool = true;
   const CACHE_TTL_MS: u128 = 100;
 
@@ -316,6 +337,10 @@ async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u
   }
   None
 }
+
+// =============================================================================
+// Toggle Logic
+// =============================================================================
 
 pub async fn toggle_quake(
   app_name: &str,

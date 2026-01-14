@@ -54,7 +54,7 @@ The `utilities/` directory contains cleanup scripts for Linux. These exist becau
 
 If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
 
-_(Human note: Just use `full_cleanup.sh`.)_
+_(Sloperator note: Just use `full_cleanup.sh`.)_
 
 ## Usage
 
@@ -276,7 +276,7 @@ Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl
 On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
 
 ### App Compatibility: Opacity Animations
-Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord(Human note: maybe?)) may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
+Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord(Sloperator note: maybe?)) may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
 
 **Note:** Just test and find out if enabling `animate_opacity` works for your particular app. If you notice flickering, "blank" windows during toggle, or if the animation just feels sluggish or weird, Just don't enable `animate_opacity` for that specific app in your config.
 

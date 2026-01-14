@@ -30,7 +30,10 @@ use windows::Win32::{
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 use crate::windows::easing::get_easing;
 
-// Wrapper to make HWND Send/Sync for async tasks
+// =============================================================================
+// HWND Wrapper (Send/Sync for threading)
+// =============================================================================
+
 #[derive(Clone, Copy)]
 pub struct SendHwnd(pub HWND);
 unsafe impl Send for SendHwnd {}
@@ -220,6 +223,10 @@ unsafe extern "system" fn monitor_enum_proc(
   BOOL(1)
 }
 
+// =============================================================================
+// Toggle Logic
+// =============================================================================
+
 pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   let is_visible = {
     let v = get_visible_app().read().unwrap();
@@ -359,6 +366,10 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
 
   true
 }
+
+// =============================================================================
+// Animation Engine
+// =============================================================================
 
 fn run_animation_task_sync(
   app_name: &str,
@@ -854,6 +865,10 @@ fn run_animation_task_sync(
     }
   }
 }
+
+// =============================================================================
+// Window Management Utilities
+// =============================================================================
 
 pub fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConfig) {
   let hwnd = send_hwnd.inner();

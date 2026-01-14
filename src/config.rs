@@ -8,6 +8,10 @@ use serde::{
   Deserialize,
 };
 
+// =============================================================================
+// Window Matching
+// =============================================================================
+
 #[derive(Clone, Debug, Default)]
 pub struct FoundWindow {
   pub id: String,
@@ -163,6 +167,10 @@ impl<'de> serde::Deserialize<'de> for Dimension {
     }
   }
 }
+
+// =============================================================================
+// Configuration Structs
+// =============================================================================
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct Config {
@@ -398,6 +406,10 @@ impl Default for AnimationConfig {
   }
 }
 
+// =============================================================================
+// Validation Helpers
+// =============================================================================
+
 fn default_hotkey() -> String {
   "Meta+Grave".to_string()
 }
@@ -491,6 +503,10 @@ fn is_valid_easing(s: &str) -> bool {
   }
 }
 
+// =============================================================================
+// Config Loading
+// =============================================================================
+
 pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathBuf>), String> {
   if let Some(path) = target_path {
     if path.exists() {
@@ -569,6 +585,10 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
       .to_string(),
   )
 }
+
+// =============================================================================
+// Custom Deserialization
+// =============================================================================
 
 fn deserialize_app<'de, D>(deserializer: D) -> Result<IndexMap<String, AppConfig>, D::Error>
 where

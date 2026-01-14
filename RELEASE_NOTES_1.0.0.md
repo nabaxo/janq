@@ -1,6 +1,6 @@
-*(Human note: AI wrote all of it, I don't know how to write rust. I just gave it directions and provided the bezier curve for "windows" scrolling at most. Seriously, I have no idea if this is a well written app or not, but it works fine with everything I've thrown at it.).*
+*(Sloperator note: AI wrote all of it, I don't know how to write rust. I just gave it directions and provided the bezier curve for "windows" scrolling at most. Seriously, I have no idea if this is a well written app or not, but it works fine with everything I've thrown at it.).*
 
-*What follows was written by AI, lightly edited by the human*
+*What follows was written by AI, lightly edited by the Sloperator*
 
 # janq v1.0.0 — Behold, The Slop Works
 
@@ -128,7 +128,7 @@ On KDE Plasma, there's a small intentional delay (~500ms) when registering or up
 
 ## 📦 Installation
 
-*(Human note: Just download an run the binary. If you want build directions follow).*
+*(Sloperator note: Just download an run the binary. If you want build directions follow).*
 
 ### Prerequisites
 - **Linux:** KDE Plasma 6

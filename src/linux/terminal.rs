@@ -14,6 +14,10 @@ use zbus::Connection;
 
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 
+// =============================================================================
+// D-Bus Connection Cache (shared for window discovery)
+// =============================================================================
+
 static DISCOVERY_CONN: OnceLock<Connection> = OnceLock::new();
 
 async fn get_discovery_conn() -> Option<Connection> {
@@ -26,6 +30,10 @@ async fn get_discovery_conn() -> Option<Connection> {
   }
   None
 }
+
+// =============================================================================
+// Batch Metadata Fetcher (D-Bus callback infrastructure)
+// =============================================================================
 
 pub struct WindowMetadataBatch {
   pub raw: String,
@@ -51,11 +59,19 @@ pub async fn report_metadata(payload: String) {
   }
 }
 
+// =============================================================================
+// Spawn Idempotency Lock
+// =============================================================================
+
 static SPAWNING_APPS: OnceLock<Mutex<FxHashSet<String>>> = OnceLock::new();
 
 fn get_spawning_apps() -> &'static Mutex<FxHashSet<String>> {
   SPAWNING_APPS.get_or_init(|| Mutex::new(FxHashSet::default()))
 }
+
+// =============================================================================
+// Terminal Management
+// =============================================================================
 
 pub async fn ensure_terminal_running(
   app_cfg: &AppConfig,
@@ -197,6 +213,10 @@ pub async fn ensure_terminal_running_with_candidates(
   );
   false
 }
+
+// =============================================================================
+// Window Discovery
+// =============================================================================
 
 pub async fn check_window_exists(target_class: &str) -> Option<String> {
   check_window_exists_with_candidates(target_class, None).await
@@ -340,6 +360,10 @@ pub async fn is_window_valid(id: &str) -> bool {
   let windows = fetch_system_windows_async().await;
   windows.iter().any(|w| w.id == id)
 }
+
+// =============================================================================
+// Process & Window Cache
+// =============================================================================
 
 struct CachedWindow {
   id: String,

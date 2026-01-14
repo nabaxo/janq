@@ -29,6 +29,10 @@ use crate::linux::terminal::{
   ensure_terminal_running, ensure_terminal_running_with_candidates, fetch_system_windows_async,
 };
 
+// =============================================================================
+// D-Bus Interfaces
+// =============================================================================
+
 #[derive(Clone)]
 struct QuakeApplication {
   config: Arc<RwLock<Arc<Config>>>,

@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use anyhow::{Context, Result};
 
 use crate::config::Config;
-// Convert KDE shortcut string (e.g. "Meta+Grave") to Qt keycode integer
+
+// =============================================================================
+// Shortcut Normalization
+// =============================================================================
 
 /// Normalize a shortcut string to KDE's expected format for display in System Settings.
 /// Converts internal names like "Grave", "Section" to the format KDE uses.
@@ -62,6 +65,16 @@ pub fn normalize_shortcut_for_kde(shortcut: &str) -> String {
   }
   normalized
 }
+
+// =============================================================================
+// Qt Key Mapping
+// =============================================================================
+// NOTE: This duplicates some key names from normalize_shortcut_for_kde above.
+// The duplication is intentional: normalize_shortcut_for_kde returns display
+// strings for KDE System Settings (e.g., "Meta", "`"), while map_qt_key returns
+// Qt keycodes for D-Bus shortcut registration (e.g., 0x10000000, 0x60).
+// Combining them would save ~50 lines but risk subtle registration bugs that
+// are slow to diagnose. These are stable lookup tables that rarely change.
 
 fn map_qt_key(s: &str) -> i32 {
   match s {
@@ -198,7 +211,9 @@ trait KGlobalAccel {
   fn unregister(&self, component_unique: &str, shortcut_unique: &str) -> zbus::Result<bool>;
 }
 
-// Shortcut synchronization via D-Bus.
+// =============================================================================
+// D-Bus Shortcut Registration
+// =============================================================================
 
 pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> Result<()> {
   let component = "dev.nabaxo.janq.desktop";
