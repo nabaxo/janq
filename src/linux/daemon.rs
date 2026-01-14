@@ -109,6 +109,11 @@ impl QuakeDaemon {
   async fn report_window_metadata(&self, payload: String) {
     crate::linux::terminal::report_metadata(payload).await;
   }
+
+  #[zbus(name = "ReportActiveWindow")]
+  async fn report_active_window(&self, payload: String) {
+    crate::linux::kwin::report_active_window(payload).await;
+  }
 }
 
 struct StatusNotifierItem {

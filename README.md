@@ -25,7 +25,6 @@
 
 ### Prerequisites
 - **KDE Plasma 6** (Linux) or **Windows 10/11**.
-- **kdotool** (Linux/Wayland requirement).
 - _(Optional: **musl-tools** for static Linux builds)._
 - _(Optional: **mingw-w64** for Windows builds on Linux)._
 
@@ -268,8 +267,8 @@ Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl
 *   `dead_grave`
 
 ## Related Projects
-- **kdotool**: Powering the Wayland window management on Linux.
 - **zbus**: Facilitating D-Bus communication.
+- **KWin Scripting API**: Direct integration for Wayland window management on Linux.
 
 ## Known Issues and other notes
 

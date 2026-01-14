@@ -131,7 +131,7 @@ On KDE Plasma, there's a small intentional delay (~500ms) when registering or up
 *(Human note: Just download an run the binary. If you want build directions follow).*
 
 ### Prerequisites
-- **Linux:** KDE Plasma 6, `kdotool` for Wayland window management
+- **Linux:** KDE Plasma 6
 - **Windows:** Windows 10 or 11
 
 ### Building
@@ -151,7 +151,7 @@ make build-windows # Outputs: ./dist/janq.exe
 
 ## 🙏 Acknowledgments
 
-- **kdotool** for Wayland window management
+- **KWin Scripting API** for Wayland window management
 - **zbus** for D-Bus communication
 - The Rust community for excellent crates
 

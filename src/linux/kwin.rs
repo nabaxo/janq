@@ -129,6 +129,8 @@ const RESTORE_TEMPLATE: &str = include_str!("js/restore.js");
 
 const FETCH_WINDOWS_SCRIPT: &str = include_str!("js/fetch_windows.js");
 
+const GET_ACTIVE_WINDOW_SCRIPT: &str = include_str!("js/get_active_window.js");
+
 pub async fn trigger_fetch_windows(conn: &Connection, request_id: u64) -> Result<()> {
   let script_body_raw = FETCH_WINDOWS_SCRIPT.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
   let script_body_trimmed = script_body_raw.trim();
@@ -147,32 +149,99 @@ pub async fn trigger_fetch_windows(conn: &Connection, request_id: u64) -> Result
   .await
 }
 
-fn update_focus_state(state: &mut KWinState, janq_classes: &[String]) {
-  let id_output = Command::new("kdotool").arg("getactivewindow").output();
-  let current_id = match id_output {
-    Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-    _ => return,
+// Active window fetcher infrastructure
+use std::sync::Mutex as StdMutex;
+use tokio::sync::oneshot;
+
+struct ActiveWindowInfo {
+  id: String,
+  class: String,
+}
+
+static ACTIVE_WINDOW_WAITERS: OnceLock<
+  StdMutex<FxHashMap<u64, oneshot::Sender<ActiveWindowInfo>>>,
+> = OnceLock::new();
+
+fn get_active_window_waiters(
+) -> &'static StdMutex<FxHashMap<u64, oneshot::Sender<ActiveWindowInfo>>> {
+  ACTIVE_WINDOW_WAITERS.get_or_init(|| StdMutex::new(FxHashMap::default()))
+}
+
+pub async fn report_active_window(payload: String) {
+  let parts: Vec<&str> = payload.splitn(3, ':').collect();
+  if parts.len() < 3 {
+    return;
+  }
+  if let Ok(request_id) = parts[0].parse::<u64>() {
+    let info = ActiveWindowInfo {
+      id: parts[1].to_string(),
+      class: parts[2].to_string(),
+    };
+    let mut waiters = get_active_window_waiters().lock().unwrap();
+    if let Some(tx) = waiters.remove(&request_id) {
+      let _ = tx.send(info);
+    }
+  }
+}
+
+async fn fetch_active_window(conn: &Connection) -> Option<(String, String)> {
+  let request_id = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_nanos() as u64;
+
+  let (tx, rx) = oneshot::channel();
+  {
+    let mut waiters = get_active_window_waiters().lock().unwrap();
+    waiters.insert(request_id, tx);
+  }
+
+  let script_body_raw = GET_ACTIVE_WINDOW_SCRIPT.trim();
+  let script_body = script_body_raw.strip_suffix(';').unwrap_or(script_body_raw);
+  let script_content = format!("{}(\"{}\");", script_body, request_id);
+  let script_name = format!("janq_active_{}", request_id);
+
+  if run_kwin_script(
+    conn,
+    &script_name,
+    &script_content,
+    Some(Duration::from_millis(100)),
+  )
+  .await
+  .is_err()
+  {
+    let mut waiters = get_active_window_waiters().lock().unwrap();
+    waiters.remove(&request_id);
+    return None;
+  }
+
+  match tokio::time::timeout(Duration::from_millis(500), rx).await {
+    Ok(Ok(info)) if !info.id.is_empty() => Some((info.id, info.class)),
+    _ => {
+      let mut waiters = get_active_window_waiters().lock().unwrap();
+      waiters.remove(&request_id);
+      None
+    }
+  }
+}
+
+async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn: &Connection) {
+  let (current_id, class_name) = match fetch_active_window(conn).await {
+    Some(info) => info,
+    None => return,
   };
+
   if current_id.is_empty() {
     return;
   }
 
-  let class_output = Command::new("kdotool")
-    .args(["getwindowclassname", &current_id])
-    .output();
-  match class_output {
-    Ok(o) if o.status.success() => {
-      let class_name = String::from_utf8_lossy(&o.stdout).trim().to_string();
-      let class_lower = class_name.to_lowercase();
-      for managed_class in janq_classes {
-        if class_lower.contains(&managed_class.to_lowercase()) {
-          return;
-        }
-      }
-      state.previous_window_id = current_id;
+  let class_lower = class_name.to_lowercase();
+  for managed_class in janq_classes {
+    if class_lower.contains(&managed_class.to_lowercase()) {
+      return;
     }
-    _ => {}
   }
+  state.previous_window_id = current_id;
 }
 
 async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
@@ -235,7 +304,7 @@ pub async fn toggle_quake(
 
   if should_show {
     let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
-    update_focus_state(&mut state, &janq_classes);
+    update_focus_state(&mut state, &janq_classes, conn).await;
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class)
       .await
       .unwrap_or((String::new(), 0));
