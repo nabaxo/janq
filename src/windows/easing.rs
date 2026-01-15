@@ -1,3 +1,19 @@
+//! Animation easing functions for smooth motion curves.
+//!
+//! ## Available Curves
+//!
+//! - **ease** (default), **ease-in**, **ease-out**, **ease-in-out**
+//! - **sine-in**, **sine-out**, **sine-in-out** - Sinusoidal motion
+//! - **quart-in**, **quart-out**, **quart-in-out** - Quartic curves
+//! - **cubic-in**, **cubic-out**, **cubic-in-out** - Cubic curves
+//! - **back-in**, **back-out**, **back-in-out** - Overshoot effect
+//! - **expo-in**, **expo-out**, **expo-in-out** - Exponential curves
+//! - **windows** - Custom curve matching Windows animations
+//!
+//! ## Custom Cubic Bezier
+//!
+//! Users can define custom curves: `cubic-bezier(x1, y1, x2, y2)`
+
 use std::f64::consts::PI;
 
 pub fn get_easing(progress: f64, type_: &str) -> f64 {
@@ -79,7 +95,7 @@ pub fn get_easing(progress: f64, type_: &str) -> f64 {
     }
     "windows" => cubic_bezier(progress, 0.25, 0.0, 0.0, 1.0),
     other => {
-      if let Some((x1, y1, x2, y2)) = crate::config::parse_bezier(other) {
+      if let Some((x1, y1, x2, y2)) = crate::validation::parse_bezier(other) {
         cubic_bezier(progress, x1, y1, x2, y2)
       } else {
         progress * (2.0 - progress) // ease-out default
@@ -119,29 +135,6 @@ fn cubic_bezier(x: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  #[test]
-  fn test_parse_bezier() {
-    assert_eq!(
-      crate::config::parse_bezier("cubic-bezier(0, 0.5, 0.5, 1)"),
-      Some((0.0, 0.5, 0.5, 1.0))
-    );
-    assert_eq!(
-      crate::config::parse_bezier("(0, 1, 1, 0)"),
-      Some((0.0, 1.0, 1.0, 0.0))
-    );
-    assert_eq!(
-      crate::config::parse_bezier(" ( 0.1 , 0.2 , 0.3 , 0.4 ) "),
-      Some((0.1, 0.2, 0.3, 0.4))
-    );
-    assert_eq!(crate::config::parse_bezier("linear"), None);
-    assert_eq!(crate::config::parse_bezier("cubic-bezier(1, 2, 3)"), None);
-    assert_eq!(crate::config::parse_bezier("(1, 2, 3, 4, 5)"), None);
-    assert_eq!(
-      crate::config::parse_bezier("cubic-bezier(a, b, c, d)"),
-      None
-    );
-  }
 
   #[test]
   fn test_get_easing_custom() {

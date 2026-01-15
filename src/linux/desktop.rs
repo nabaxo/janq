@@ -201,8 +201,25 @@ fn install_icon() -> Result<()> {
 
   fs::create_dir_all(&icon_dir)?;
   let icon_path = icon_dir.join("janq.svg");
-  if !icon_path.exists() {
+
+  // Compare contents to detect updates (not just existence)
+  let needs_update = match fs::read(&icon_path) {
+    Ok(existing) => {
+      let changed = existing != icon_data.as_slice();
+      if changed {
+        println!("Icon changed, updating: {:?}", icon_path);
+      }
+      changed
+    }
+    Err(_) => {
+      println!("Icon not found, installing: {:?}", icon_path);
+      true
+    }
+  };
+
+  if needs_update {
     fs::write(&icon_path, icon_data)?;
+    println!("Icon written successfully");
   }
 
   Ok(())

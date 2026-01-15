@@ -1,6 +1,32 @@
+//! Windows global hotkey parsing and registration.
+//!
+//! Converts user-friendly hotkey strings (e.g., "Meta+Grave") into the format
+//! required by the `global-hotkey` crate. The crate handles platform-specific
+//! registration with Windows' RegisterHotKey API.
+//!
+//! ## Supported Modifiers
+//! - `ctrl`, `control` → CONTROL
+//! - `alt` → ALT
+//! - `shift` → SHIFT
+//! - `meta`, `super`, `win`, `cmd` → SUPER (Windows key)
+//!
+//! ## Special Key Handling
+//! - Grave/backtick (`` ` ``) maps to `Code::Backquote`
+//! - Section sign (`§`) maps to `Code::IntlBackslash` (EU keyboards)
+//! - Function keys F1-F12 supported
+
 use anyhow::{Context, Result};
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 
+/// Parses a hotkey string into a `HotKey` struct for registration.
+///
+/// # Format
+/// `[Modifier+]...[Modifier+]Key` where modifiers are optional.
+///
+/// # Examples
+/// - `"Meta+Grave"` → Super + Backtick
+/// - `"Ctrl+Alt+F12"` → Control + Alt + F12
+/// - `"F1"` → F1 with no modifiers
 pub fn parse_hotkey(hotkey_str: &str) -> Result<HotKey> {
   let parts: Vec<&str> = hotkey_str.split('+').collect();
   let mut mods = Modifiers::empty();
@@ -28,6 +54,14 @@ pub fn parse_hotkey(hotkey_str: &str) -> Result<HotKey> {
   Ok(HotKey::new(Some(mods), code))
 }
 
+/// Maps a key name string to its `global_hotkey::Code` enum variant.
+///
+/// Handles lowercase normalization internally. Supports:
+/// - Single alphanumeric characters (a-z, 0-9)
+/// - Special keys (grave, section, plusminus, dead_grave)
+/// - Navigation keys (up, down, left, right, pgup, pgdn, home, end)
+/// - Function keys (f1-f12)
+/// - Punctuation (minus, equal, brackets, semicolon, etc.)
 fn parse_code(s: &str) -> Option<Code> {
   match s {
     "`" | "grave" | "backtick" => Some(Code::Backquote),

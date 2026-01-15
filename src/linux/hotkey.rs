@@ -1,3 +1,25 @@
+//! KDE keyboard shortcut registration via D-Bus.
+//!
+//! ## Architecture
+//!
+//! janq registers hotkeys with KDE's global shortcut system (KGlobalAccel)
+//! rather than grabbing keys directly. This provides:
+//! - Native KDE System Settings integration
+//! - Conflict detection with other applications
+//! - Persistence across reboots (via desktop file)
+//!
+//! ## Registration Flow
+//!
+//! 1. Generate `.desktop` file with `X-KDE-Shortcuts` entries
+//! 2. Run `kbuildsycoca6` to update KDE's cache
+//! 3. Register actions via `org.kde.KGlobalAccel.doRegister`
+//! 4. Set keybindings via `org.kde.KGlobalAccel.setShortcut`
+//!
+//! ## Key Mapping
+//!
+//! Shortcuts are converted to Qt keycodes (e.g., Meta+Grave → 0x10000060).
+//! The `map_qt_key` function handles this translation.
+
 use std::collections::HashSet;
 
 use anyhow::{Context, Result};
@@ -362,4 +384,41 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
 pub async fn sync_kde_shortcuts(config: &Config, old_config: Option<&Config>) -> Result<()> {
   tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
   register_via_dbus(config, old_config).await
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_normalize_shortcut_for_kde() {
+    assert_eq!(normalize_shortcut_for_kde("Meta+Grave"), "Meta+`");
+    assert_eq!(normalize_shortcut_for_kde("meta+grave"), "Meta+`");
+    assert_eq!(normalize_shortcut_for_kde("Ctrl+Alt+F12"), "Ctrl+Alt+F12");
+    assert_eq!(normalize_shortcut_for_kde("shift+a"), "Shift+A");
+    assert_eq!(normalize_shortcut_for_kde("Super+Section"), "Meta+§");
+  }
+
+  #[test]
+  fn test_map_qt_key() {
+    // Modifiers
+    assert_eq!(map_qt_key("meta"), 0x10000000);
+    assert_eq!(map_qt_key("ctrl"), 0x04000000);
+    assert_eq!(map_qt_key("alt"), 0x08000000);
+    assert_eq!(map_qt_key("shift"), 0x02000000);
+
+    // Special keys
+    assert_eq!(map_qt_key("grave"), 0x60);
+    assert_eq!(map_qt_key("`"), 0x60);
+    assert_eq!(map_qt_key("section"), 0xa7);
+
+    // Function keys
+    assert_eq!(map_qt_key("f1"), 0x01000030);
+    assert_eq!(map_qt_key("f12"), 0x0100003b);
+
+    // Alphanumeric
+    assert_eq!(map_qt_key("a"), 0x41);
+    assert_eq!(map_qt_key("z"), 0x5a);
+    assert_eq!(map_qt_key("1"), 0x31);
+  }
 }

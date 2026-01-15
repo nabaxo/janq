@@ -1,5 +1,38 @@
+//! Linux daemon implementation using D-Bus for IPC and system integration.
+//!
+//! ## Architecture
+//!
+//! The janq daemon on Linux exposes multiple D-Bus interfaces:
+//!
+//! 1. **`org.freedesktop.Application`** (`QuakeApplication`)
+//!    - Standard desktop activation interface
+//!    - Receives hotkey triggers from KDE's KGlobalAccel via desktop actions
+//!    - `activate_action(name)` is called when user presses registered hotkey
+//!
+//! 2. **`dev.nabaxo.janq`** (`QuakeDaemon`)
+//!    - Custom janq interface for direct IPC
+//!    - `Toggle()` / `ToggleApp(name)` - toggles window visibility
+//!    - `ReportWindowMetadata()` / `ReportActiveWindow()` - callbacks from KWin scripts
+//!
+//! 3. **`org.kde.StatusNotifierItem`** (`StatusNotifierItem`)
+//!    - System tray integration for KDE Plasma
+//!    - Left-click: toggle first app
+//!    - Middle-click: quit daemon
+//!
+//! ## Config Hot-Reloading
+//!
+//! A separate thread watches the config file using `notify` crate:
+//! - Debounces rapid changes (500ms window)
+//! - On valid reload: updates apps, re-grabs windows, syncs shortcuts
+//! - On invalid config: restores all windows and exits (fail-fast)
+//!
+//! ## Signal Handling
+//!
+//! Gracefully handles SIGINT/SIGTERM by restoring all managed windows
+//! to their normal state before exit.
+
 use std::{
-  collections::HashMap,
+  collections::HashMap, // Required for D-Bus HashMap parameter types
   env::temp_dir,
   fs::File,
   path::PathBuf,
@@ -33,12 +66,20 @@ use crate::linux::terminal::{
 // D-Bus Interfaces
 // =============================================================================
 
+/// D-Bus Application interface for desktop activation.
+///
+/// Implements `org.freedesktop.Application` to receive activation signals
+/// from KDE when the user triggers a registered shortcut.
 #[derive(Clone)]
 struct QuakeApplication {
   config: Arc<RwLock<Arc<Config>>>,
   conn: Connection,
 }
 
+/// D-Bus interface for janq-specific IPC.
+///
+/// Exposes janq's toggle functionality to external callers and receives
+/// callbacks from KWin scripts reporting window metadata.
 #[derive(Clone)]
 struct QuakeDaemon {
   config: Arc<RwLock<Arc<Config>>>,

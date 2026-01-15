@@ -1,3 +1,31 @@
+//! Windows daemon implementation using Win32 message loop and named pipe IPC.
+//!
+//! ## Architecture
+//!
+//! Unlike Linux's async D-Bus approach, Windows uses a synchronous event loop:
+//!
+//! 1. **Win32 Message Loop** - Main thread runs `GetMessageW`/`DispatchMessageW`
+//! 2. **Named Pipe IPC** - Receives toggle commands from janq client instances
+//! 3. **Global Hotkey** - Registers system-wide hotkeys via `global-hotkey` crate
+//! 4. **System Tray** - Shows tray icon for quick access and quit
+//!
+//! ## Event Handling
+//!
+//! Events from different sources are unified into `DaemonEvent` enum:
+//! - `Hotkey(event)` - Global hotkey pressed
+//! - `TrayPoll` - Check for tray/menu events
+//! - `ReloadHotkeys` - Config changed, re-register hotkeys
+//! - `RespawnCheck` - Periodic check for crashed apps
+//! - `Exit` - Graceful shutdown requested
+//!
+//! Background threads post `WM_USER+1` to wake the main message loop
+//! when they have events ready.
+//!
+//! ## Hotkey Fallback
+//!
+//! For European keyboards, IntlBackslash (§) key may fail to register.
+//! The daemon automatically tries Backquote then Backslash as fallbacks.
+
 use rustc_hash::FxHashMap;
 use std::io::Write;
 use std::{
@@ -49,12 +77,17 @@ use crate::{
 // IPC Constants
 // =============================================================================
 
+/// Named pipe path for IPC between janq client and daemon.
 const PIPE_NAME: &str = r"\\.\pipe\janq";
 
 // =============================================================================
 // Daemon Event Loop
 // =============================================================================
 
+/// Internal event type for the daemon event loop.
+///
+/// Unifies events from different sources (hotkeys, tray, config watcher)
+/// into a single enum for processing in the main message loop.
 #[derive(Debug)]
 enum DaemonEvent {
   Hotkey(GlobalHotKeyEvent),

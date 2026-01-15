@@ -2,6 +2,8 @@
 
 ## janq is 100%, unadulterated vibe coded slop. User discretion is advised.
 
+<img src="icon.svg" width="36" height="36" align="left">
+
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
 _(But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq uses like 1.2 MB RAM on Windows and 3.6 MB on my Fedora KDE system)._
@@ -33,14 +35,15 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 ### Prerequisites
 - **KDE Plasma 6** (Linux) or **Windows 10/11**.
 - _(Optional: **musl-tools** for static Linux builds)._
-- _(Optional: **mingw-w64** for Windows builds on Linux)._
 
 ### Build
 ```bash
-make build-linux               # Binary: ./dist/janq
+make build-linux               # Binary: ./dist/janq (musl) & ./dist/janq-glibc
 make build-linux-musl          # Binary: ./dist/janq (Static, recommended)
-make build-windows             # Binary: ./dist/janq.exe
-make build-windows-static      # Binary: ./dist/janq-portable.exe (Static/Portable, recommended)
+make build-linux-glibc         # Binary: ./dist/janq-glibc
+make build-windows             # Binary: ./dist/janq.exe (static) & ./dist/janq-nonstatic.exe
+make build-windows-static      # Binary: ./dist/janq.exe (Static/Portable, recommended)
+make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 ```
 
 > [!TIP]
@@ -74,7 +77,7 @@ _(Sloperator note: Just use `full_cleanup.sh`.)_
 > **Single-App Peace of Mind**: If you only have one app configured, janq ignores typos and always picks that app. In multi-app mode, it validates your input and shows a helpful error window if an app isn't found.
 
 ### Linux (KDE)
-janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
+janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly. **Left-click the tray icon to toggle the first defined app in your config, or middle-click to quit.**
 
 #### Linux Startup (Automatic)
 To make janq start automatically on login:
@@ -100,17 +103,13 @@ To make janq start automatically when you log in:
 1.  Press `Win + R`, type `shell:startup`, and press Enter.
 2.  Right-click in the folder and select **New > Shortcut**.
 3.  Browse to your `janq.exe` location.
-4.  **Important**: To start in background mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\janq.exe" --daemon`).
+4.  **Important**: To start in server mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\janq.exe" --daemon`).
 
 ### Window Class & Fuzzy Matching
 
 The `window_class` field is highly flexible. janq uses **advanced weighted fuzzy matching** to find your app even if the name isn't exact (e.g., `obs` for `Obsidian`).
 
-- **Context-Aware Scoring**:
-  - **Exact/Substring**: +5000-10000 points.
-  - **Word Boundaries**: +300 bonus for matches at the start of words or following delimiters (`.`, `-`, `_`, ` `).
-  - **Consecutive Bonuses**: Exponential rewards for letters that appear in sequence.
-  - **Gap Penalties**: Negative scores for characters skipped between letters.
+- **Context-Aware Scoring**: janq prioritizes exact matches and substrings, but also understands abbreviations and word boundaries (e.g., `wt` will reliably find `WindowsTerminal` (Sloperator: Maybe.)). It rewards consecutive matches and penalized gaps, ensuring the most logical window is always selected.
 - **High-Confidence Threshold**: janq rejects weak "junk" matches (score < 500), ensuring it will spawn a new instance rather than grabbing a random visible window.
 - **Zero-IPC Liveness (Linux)**: Toggling an existing window verifies its existence via `/proc` in $<0.1$ms, ensuring zero latency during animation reversals.
 - **Best Practice**: While the engine is robust, using an **exact match** (e.g., `wezterm`) is always recommended for maximum speed and deterministic behavior.
@@ -140,7 +139,7 @@ start_command = 'C:\Program Files\Terminal\wt.exe'
 
 ### Search Priority
 
-janq searches for a configuration file in the following order:
+janq searches for a configuration file _(janq.toml or .janq.toml) _in the following order:
 
 1.  **Binary Directory** (Portable Mode):
     - Same folder as the `janq` executable.
@@ -148,8 +147,8 @@ janq searches for a configuration file in the following order:
     - `~/.config/janq/janq.toml`
     - _On Windows_: `%AppData%\Roaming\janq\janq.toml`
 3.  **User Configuration**:
-    - `~/.janq.toml`
-    - _On Windows_: `%UserProfile%\.janq.toml`
+    - `~/janq.toml`
+    - _On Windows_: `%UserProfile%\janq.toml`
 
 > [!CAUTION]
 > **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. janq includes a safeguard to prevent destroying your system integration.
@@ -233,7 +232,7 @@ hotkey = "Meta+Z"
 | `back`* | Overshoots slightly before settling. |
 | `cubic-bezier` | Custom CSS-style curve: `cubic-bezier(x1, y1, x2, y2)`. |
 
-\* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`. **If an invalid string is provided, janq falls back to an `ease-out` curve.**
+\* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`. **Note: janq validates easing curves on startup; invalid configurations will prevent the daemon from launching.**
 
 > [!TIP]
 > **Custom Bezier Shortcuts**: You can also use `bezier(x1, y1, x2, y2)` or just `(x1, y1, x2, y2)` for brevity.

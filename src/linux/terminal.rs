@@ -1,3 +1,25 @@
+//! Terminal/process lifecycle management for Linux.
+//!
+//! ## Responsibilities
+//!
+//! 1. **Window Discovery** - Finds windows matching a `window_class` pattern
+//! 2. **Process Spawning** - Starts applications via their `start_command`
+//! 3. **Spawn Idempotency** - Prevents duplicate spawns during rapid toggles
+//! 4. **PID Caching** - Tracks process IDs for fast liveness checks
+//!
+//! ## Window Discovery Flow
+//!
+//! 1. Check in-memory PID cache for known window
+//! 2. If cache miss or stale, trigger KWin script to enumerate all windows
+//! 3. KWin script reports back via D-Bus `ReportWindowMetadata` callback
+//! 4. Parse response and fuzzy-match against target `window_class`
+//!
+//! ## Spawn Idempotency
+//!
+//! Uses a static `HashSet` lock to prevent multiple concurrent spawns
+//! of the same app. The `SpawnGuard` RAII wrapper ensures cleanup on
+//! success, error, or panic.
+
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{
   fmt::Write,
@@ -18,6 +40,8 @@ use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 // D-Bus Connection Cache (shared for window discovery)
 // =============================================================================
 
+/// Cached D-Bus connection for window discovery operations.
+/// Reusing the connection avoids repeated handshake overhead.
 static DISCOVERY_CONN: OnceLock<Connection> = OnceLock::new();
 
 async fn get_discovery_conn() -> Option<Connection> {
@@ -35,6 +59,10 @@ async fn get_discovery_conn() -> Option<Connection> {
 // Batch Metadata Fetcher (D-Bus callback infrastructure)
 // =============================================================================
 
+/// Batch response from KWin window enumeration script.
+///
+/// The `raw` field contains semicolon-separated window entries in format:
+/// `id|class|pid|visible;id|class|pid|visible;...`
 pub struct WindowMetadataBatch {
   pub raw: String,
 }
@@ -73,6 +101,9 @@ fn get_spawning_apps() -> &'static Mutex<FxHashSet<String>> {
 // Terminal Management
 // =============================================================================
 
+/// Ensures the application's terminal/window is running.
+///
+/// Returns `true` if a new process was spawned, `false` if already running.
 pub async fn ensure_terminal_running(
   app_cfg: &AppConfig,
   config: &Config,

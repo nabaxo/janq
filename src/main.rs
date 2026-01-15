@@ -1,3 +1,17 @@
+//! janq - Quake-style dropdown terminal manager for Linux (KDE) and Windows.
+//!
+//! This binary provides both daemon mode (persistent background service) and
+//! single-shot mode (sends toggle command to running daemon via IPC).
+//!
+//! ## Platform Architecture
+//!
+//! Platform-specific code is selected at compile time via `cfg` attributes:
+//! - **Linux**: Uses async Tokio runtime, D-Bus for IPC, KWin scripts for window control
+//! - **Windows**: Uses synchronous Win32 message loop, named pipes for IPC, direct Win32 API
+//!
+//! The `daemon` and `terminal` modules are facade modules that re-export the
+//! platform-specific implementations from `linux/` or `windows/` subdirectories.
+
 #![windows_subsystem = "windows"]
 
 use std::process::exit;
@@ -12,7 +26,10 @@ mod daemon;
 mod hotkey;
 #[cfg(target_os = "linux")]
 mod linux;
+mod matching;
 mod terminal;
+mod traits;
+mod validation;
 #[cfg(target_os = "windows")]
 mod windows;
 

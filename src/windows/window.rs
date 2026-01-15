@@ -1,3 +1,25 @@
+//! Win32 window management, animation, and multi-monitor support.
+//!
+//! ## Core Responsibilities
+//!
+//! 1. **Window Discovery** - `EnumWindows` + `GetWindowThreadProcessId`
+//! 2. **Toggle Animation** - Smooth slide-in/out with easing curves
+//! 3. **Multi-Monitor** - Finds correct monitor for cursor position
+//! 4. **Force Focus** - `AllowSetForegroundWindow` + `SetForegroundWindow`
+//!
+//! ## Animation Engine
+//!
+//! Uses `DwmFlush` for vsync-aligned frame timing:
+//! 1. Calculate progress with easing function
+//! 2. Compute interpolated position/opacity
+//! 3. Apply position via `SetWindowPos`
+//! 4. Apply opacity via `SetLayeredWindowAttributes`
+//!
+//! ## State Tracking
+//!
+//! `HWND_CACHE` maps app names to their window handles for fast toggle
+//! and restoration on daemon exit.
+
 use rustc_hash::FxHashMap;
 use std::sync::{Mutex, OnceLock, RwLock};
 
@@ -15,24 +37,17 @@ use windows::Win32::{
     ProcessStatus::GetModuleBaseNameW,
     Threading::{AttachThreadInput, OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
   },
-  UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, BeginDeferWindowPos, BringWindowToTop, DeferWindowPos,
-    EndDeferWindowPos, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow,
-    GetLayeredWindowAttributes, GetWindow, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId,
-    IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow, SetLayeredWindowAttributes,
-    SetWindowLongW, SetWindowPos, ShowWindow, ASFW_ANY, GWL_EXSTYLE, GW_HWNDNEXT, HWND_NOTOPMOST,
-    HWND_TOPMOST, LWA_ALPHA, SWP_DEFERERASE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOCOPYBITS,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNA,
-    SW_SHOWNOACTIVATE, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
-  },
+  UI::WindowsAndMessaging::*,
 };
 
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 use crate::windows::easing::get_easing;
 
 // =============================================================================
-// HWND Wrapper (Send/Sync for threading)
+// Thread-Safe HWND Wrapper
 // =============================================================================
+
+/// Wrapper for `HWND` that is safe to send across threads.
 
 #[derive(Clone, Copy)]
 pub struct SendHwnd(pub HWND);

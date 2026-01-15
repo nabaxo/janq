@@ -1,3 +1,18 @@
+//! Terminal/process lifecycle management for Windows.
+//!
+//! ## Responsibilities
+//!
+//! 1. **Window Discovery** - Uses `EnumWindows` and process inspection
+//! 2. **Process Spawning** - Creates detached processes via `DETACHED_PROCESS` flag
+//! 3. **Spawn Idempotency** - Prevents duplicate spawns with static lock
+//! 4. **Visibility Polling** - Waits for window to appear and become visible
+//!
+//! ## Key Differences from Linux
+//!
+//! - Synchronous (no async/await)
+//! - Uses `IsWindow`/`IsWindowVisible` for liveness checks
+//! - `DETACHED_PROCESS` flag prevents console window inheritance
+
 use rustc_hash::FxHashSet;
 use std::{
   os::windows::process::CommandExt,
@@ -11,6 +26,8 @@ use windows::Win32::UI::WindowsAndMessaging::{IsWindow, IsWindowVisible};
 use crate::config::{AppConfig, Config, FoundWindow};
 use crate::windows::window::{find_window_by_process, get_hwnd_cache, park_window, SendHwnd};
 
+/// Static set tracking apps currently being spawned.
+/// Prevents duplicate spawn attempts during rapid toggles.
 static SPAWNING_APPS: OnceLock<Mutex<FxHashSet<String>>> = OnceLock::new();
 
 pub fn get_spawning_apps() -> &'static Mutex<FxHashSet<String>> {

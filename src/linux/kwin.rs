@@ -1,3 +1,29 @@
+//! KWin script injection and window manipulation for Linux/KDE.
+//!
+//! ## Architecture
+//!
+//! janq controls windows on KDE by dynamically loading JavaScript scripts
+//! into KWin via D-Bus. Scripts are:
+//! 1. Written to temp files
+//! 2. Loaded via `org.kde.kwin.Scripting.loadScript`
+//! 3. Executed via `org.kde.kwin.Script.run`
+//! 4. Unloaded after completion (or left resident for callbacks)
+//!
+//! ## Script Types
+//!
+//! - **Toggle Script** (`toggle_quake.js`) - Animates show/hide with easing
+//! - **Grab Script** (`ensure_grabbed.js`) - Initial window capture and positioning
+//! - **Restore Script** (`restore.js`) - Undoes quake positioning on exit
+//! - **Fetch Windows** (`fetch_windows.js`) - Enumerates all windows for discovery
+//! - **Get Active Window** (`get_active_window.js`) - Retrieves current focus for restoration
+//!
+//! ## State Management
+//!
+//! Global `KWinState` tracks:
+//! - `visible_app` - Currently visible janq window (None if all hidden)
+//! - `previous_window_id` - Window to restore focus to after hide
+//! - `max_refresh_rate` - Used for smooth animation timing
+
 use rustc_hash::FxHashMap;
 use std::{env::temp_dir, fs, path::Path, process::Command, sync::OnceLock};
 
@@ -17,8 +43,11 @@ use crate::linux::terminal::{
 // KWin Script Runner
 // =============================================================================
 
-/// Helper to run a KWin script with common boilerplate:
-/// unload old script, write to temp file, load, run, and optionally cleanup.
+/// Runs a KWin script with common boilerplate:
+/// 1. Unload any existing script with the same name
+/// 2. Write script content to temp file
+/// 3. Load and execute script
+/// 4. Optionally wait and unload (for one-shot scripts)
 async fn run_kwin_script(
   conn: &Connection,
   script_name: &str,
@@ -62,9 +91,14 @@ async fn run_kwin_script(
 // Global State
 // =============================================================================
 
+/// Internal state tracking for the toggle engine.
 struct KWinState {
+  /// Currently visible janq app name, or None if all hidden.
   visible_app: Option<String>,
-  previous_window_id: String, // Last window active before ANY quake window was shown
+  /// Window ID that had focus before janq showed a window.
+  /// Used to restore focus when hiding.
+  previous_window_id: String,
+  /// Maximum detected display refresh rate for smooth animation.
   max_refresh_rate: f64,
 }
 
