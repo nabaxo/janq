@@ -63,9 +63,11 @@ use windows::Win32::UI::{
 use crate::{
   config::{load_config, Config},
   hotkey::parse_hotkey,
+  shutdown::{print_shutdown_message, print_termination_complete},
+  spawn_guard::get_spawning_apps,
   windows::{
     show_error,
-    terminal::{ensure_terminal_running, get_spawning_apps},
+    terminal::ensure_terminal_running,
     window::{
       fetch_system_windows, get_hwnd_cache, reset_visible_app, restore_app_window,
       restore_window_visibility, toggle_window,
@@ -94,7 +96,7 @@ enum DaemonEvent {
   TrayPoll,
   ReloadHotkeys,
   RespawnCheck,
-  Exit,
+  Exit(Option<&'static str>),
 }
 
 pub fn run_daemon(
@@ -196,6 +198,15 @@ pub fn run_daemon(
   let (event_tx, event_rx) = channel::<DaemonEvent>();
   let event_tx_watcher = event_tx.clone();
 
+  // Signal handler for graceful shutdown (Ctrl+C, Ctrl+Break, Console Close)
+  let event_tx_signal = event_tx.clone();
+  let _ = ctrlc::set_handler(move || {
+    let _ = event_tx_signal.send(DaemonEvent::Exit(Some("SIGINT/Ctrl+C")));
+    unsafe {
+      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+    }
+  });
+
   Builder::new()
     .name("config-watcher".to_string())
     .stack_size(128 * 1024)
@@ -205,6 +216,7 @@ pub fn run_daemon(
 
       if let Some(path) = &path_to_watch {
         if let Ok(abs_path) = path.canonicalize() {
+          println!("Watcher: Monitoring config file: {:?}", abs_path);
           if let Some(parent) = abs_path.parent() {
             let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
           } else {
@@ -269,7 +281,7 @@ pub fn run_daemon(
                     restore_app_window(&app_cfg.window_class);
                   }
                   show_error(&e.to_string());
-                  let _ = event_tx_watcher.send(DaemonEvent::Exit);
+                  let _ = event_tx_watcher.send(DaemonEvent::Exit(Some("Config error")));
                   return;
                 }
               };
@@ -356,6 +368,7 @@ pub fn run_daemon(
 
   // Initial app spawning
   {
+    println!("janq: Yoinking apps...");
     let candidates = fetch_system_windows();
     let cfg = config.read().unwrap().clone();
     for (name, app_cfg) in &cfg.app {
@@ -424,8 +437,10 @@ pub fn run_daemon(
       // Process our internal events
       while let Ok(daemon_event) = event_rx.try_recv() {
         match daemon_event {
-          DaemonEvent::Exit => {
+          DaemonEvent::Exit(signal) => {
+            print_shutdown_message(signal.unwrap_or("Quit requested"));
             restore_window_visibility();
+            print_termination_complete();
             return Ok(());
           }
           DaemonEvent::ReloadHotkeys => {
@@ -458,6 +473,7 @@ pub fn run_daemon(
             if event.state == HotKeyState::Pressed {
               let map = hotkey_map.read().unwrap();
               if let Some(app_name) = map.get(&event.id) {
+                println!("Hotkey: Activating action '{}'", app_name);
                 let _ = AllowSetForegroundWindow(ASFW_ANY);
                 let cfg = config.read().unwrap().clone();
                 let app_name = app_name.clone();
@@ -494,7 +510,9 @@ pub fn run_daemon(
             }
             while let Ok(event) = menu_receiver.try_recv() {
               if event.id == quit_item_id {
+                print_shutdown_message("Quit via tray menu");
                 restore_window_visibility();
+                print_termination_complete();
                 return Ok(());
               } else if let Some(app_name) = app_menu_items.get(&event.id) {
                 let cfg = config.read().unwrap().clone();

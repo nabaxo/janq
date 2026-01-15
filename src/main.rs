@@ -21,12 +21,15 @@ use clap::Parser;
 use tokio::runtime::Builder;
 
 mod config;
+mod config_watcher;
 mod daemon;
 #[cfg(target_os = "windows")]
 mod hotkey;
 #[cfg(target_os = "linux")]
 mod linux;
 mod matching;
+mod shutdown;
+mod spawn_guard;
 mod terminal;
 mod traits;
 mod validation;

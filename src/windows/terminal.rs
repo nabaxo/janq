@@ -13,26 +13,17 @@
 //! - Uses `IsWindow`/`IsWindowVisible` for liveness checks
 //! - `DETACHED_PROCESS` flag prevents console window inheritance
 
-use rustc_hash::FxHashSet;
 use std::{
   os::windows::process::CommandExt,
   process::{Command, Stdio},
-  sync::{Mutex, OnceLock},
   time::Duration,
 };
 
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, IsWindowVisible};
 
 use crate::config::{AppConfig, Config, FoundWindow};
+use crate::spawn_guard::{get_spawning_apps, SpawnGuard};
 use crate::windows::window::{find_window_by_process, get_hwnd_cache, park_window, SendHwnd};
-
-/// Static set tracking apps currently being spawned.
-/// Prevents duplicate spawn attempts during rapid toggles.
-static SPAWNING_APPS: OnceLock<Mutex<FxHashSet<String>>> = OnceLock::new();
-
-pub fn get_spawning_apps() -> &'static Mutex<FxHashSet<String>> {
-  SPAWNING_APPS.get_or_init(|| Mutex::new(FxHashSet::default()))
-}
 
 pub fn ensure_terminal_running(
   app_name: &str,
@@ -87,15 +78,7 @@ pub fn ensure_terminal_running(
     std::thread::sleep(Duration::from_millis(100));
   }
 
-  // Ensure we remove the app from the spawning set even on error/panic
-  struct SpawnGuard(String);
-  impl Drop for SpawnGuard {
-    fn drop(&mut self) {
-      let mut spawning = get_spawning_apps().lock().unwrap();
-      spawning.remove(&self.0);
-    }
-  }
-  let _guard = SpawnGuard(app_name.to_string());
+  let _guard = SpawnGuard::new(app_name);
 
   // -- CRITICAL SECTION --
   // We own the spawn lock for this specific app.

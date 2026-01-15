@@ -20,7 +20,7 @@
 //! of the same app. The `SpawnGuard` RAII wrapper ensures cleanup on
 //! success, error, or panic.
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use std::{
   fmt::Write,
   fs,
@@ -35,6 +35,7 @@ use tokio::time::sleep;
 use zbus::Connection;
 
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
+use crate::spawn_guard::{get_spawning_apps, SpawnGuard};
 
 // =============================================================================
 // D-Bus Connection Cache (shared for window discovery)
@@ -88,14 +89,8 @@ pub async fn report_metadata(payload: String) {
 }
 
 // =============================================================================
-// Spawn Idempotency Lock
+// Terminal Management
 // =============================================================================
-
-static SPAWNING_APPS: OnceLock<Mutex<FxHashSet<String>>> = OnceLock::new();
-
-fn get_spawning_apps() -> &'static Mutex<FxHashSet<String>> {
-  SPAWNING_APPS.get_or_init(|| Mutex::new(FxHashSet::default()))
-}
 
 // =============================================================================
 // Terminal Management
@@ -150,15 +145,7 @@ pub async fn ensure_terminal_running_with_candidates(
     }
   }
 
-  // Ensure we remove the app from the spawning set even on error/panic
-  struct SpawnGuard(String);
-  impl Drop for SpawnGuard {
-    fn drop(&mut self) {
-      let mut spawning = get_spawning_apps().lock().unwrap();
-      spawning.remove(&self.0);
-    }
-  }
-  let _guard = SpawnGuard(window_class.to_string());
+  let _guard = SpawnGuard::new(window_class);
 
   // 3. Check if process is already running
   let process_running = check_process_running(window_class);

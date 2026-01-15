@@ -61,6 +61,7 @@ use crate::linux::show_error;
 use crate::linux::terminal::{
   ensure_terminal_running, ensure_terminal_running_with_candidates, fetch_system_windows_async,
 };
+use crate::shutdown::{print_shutdown_message, print_termination_complete};
 
 // =============================================================================
 // D-Bus Interfaces
@@ -186,8 +187,9 @@ impl StatusNotifierItem {
     let config = { self.config.read().unwrap().clone() };
     let conn = self.conn.clone();
     tokio::spawn(async move {
+      print_shutdown_message("Quit via systray");
       let _ = restore_quake(&config, &conn).await;
-      println!("\nQuitting via systray, shutting down...");
+      print_termination_complete();
       exit(0);
     });
   }
@@ -544,15 +546,15 @@ pub async fn run_daemon(
   let mut sigterm = signal(SignalKind::terminate())?;
 
   tokio::select! {
-      _ = sigint.recv() => println!("\nReceived SIGINT, shutting down..."),
-      _ = sigterm.recv() => println!("\nReceived SIGTERM, shutting down..."),
+      _ = sigint.recv() => print_shutdown_message("Received SIGINT"),
+      _ = sigterm.recv() => print_shutdown_message("Received SIGTERM"),
   }
 
   let cfg = config_for_signals.read().unwrap().clone();
   let _ = restore_quake(&cfg, &conn_for_signals).await;
   // Ensure scripts have time to finish before process exit
   tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-  println!("janq: Termination complete.");
+  print_termination_complete();
 
   Ok(())
 }
