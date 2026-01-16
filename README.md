@@ -205,7 +205,7 @@ The `offset` option controls where along the edge the window is positioned:
 
 | Value | Description |
 | :--- | :--- |
-| `center` | (**Default**) Centered on the edge. |
+| `center` or `0` | (**Default**) Centered on the edge. |
 | `50%` | 50% from left/top of edge. |
 | `-10%` | 10% from right/bottom of edge (negative = from opposite end). |
 | `100px` | 100 pixels from left/top of edge. |

@@ -128,7 +128,7 @@ impl<'de> serde::Deserialize<'de> for PositionOffset {
   {
     let s = String::deserialize(deserializer)?;
     let s = s.trim().to_lowercase();
-    if s == "center" {
+    if s == "center" || s == "0" {
       Ok(PositionOffset::Center)
     } else if let Some(rest) = s.strip_suffix('%') {
       let val = rest
