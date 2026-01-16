@@ -324,9 +324,8 @@ _(Sloperator note: Just use `full_cleanup.sh`.)_
 - **zbus**: Facilitating D-Bus communication.
 - **KWin Scripting API**: Direct integration for Wayland window management on Linux.
 
+## Advanced Weighted Fuzzy Matching ([src/matching.rs](cci:7://file:///home/nabaxo/repos/janq/src/matching.rs:0:0-0:0))
 ### (Sloperator: Features the AI is particularly proud about)
-
-### Advanced Weighted Fuzzy Matching ([src/matching.rs](cci:7://file:///home/nabaxo/repos/janq/src/matching.rs:0:0-0:0))
 janq doesn't just look for your window; it **interrogates** the system using a sophisticated **Weighted Fuzzy Subsequence** algorithm. It prioritizes the most logical candidate based on a multi-tier scoring system:
 - **The Gold Standard**: Exact case-insensitive matches receive a base score of `10,000` (e.g., `wezterm` → `WezTerm`).
 - **Context-Aware Bonuses**: The engine rewards matches that hit a **word boundary** (e.g., matching `wt` in `WindowsTerminal`) with a `+250` "Boundary Bonus".
