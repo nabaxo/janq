@@ -74,6 +74,83 @@ impl<'de> serde::Deserialize<'de> for Dimension {
   }
 }
 
+/// Direction from which the window slides in.
+///
+/// Parse formats: `"top"`, `"bottom"`, `"left"`, `"right"` (case-insensitive)
+#[derive(Clone, Debug, PartialEq, Default)]
+pub enum SlideDirection {
+  #[default]
+  Top,
+  Bottom,
+  Left,
+  Right,
+}
+
+impl<'de> serde::Deserialize<'de> for SlideDirection {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    let s = String::deserialize(deserializer)?;
+    match s.trim().to_lowercase().as_str() {
+      "top" => Ok(SlideDirection::Top),
+      "bottom" => Ok(SlideDirection::Bottom),
+      "left" => Ok(SlideDirection::Left),
+      "right" => Ok(SlideDirection::Right),
+      _ => Err(serde::de::Error::custom(format!(
+        "Invalid slide_from value: '{}'. Must be 'top', 'bottom', 'left', or 'right'.",
+        s
+      ))),
+    }
+  }
+}
+
+/// Position offset along the edge from which the window slides.
+///
+/// Parse formats:
+/// - `"center"` → centered on the edge (default)
+/// - `"50%"` → 50% from left/top of edge
+/// - `"-10%"` → 10% from right/bottom of edge
+/// - `"100px"` → 100 pixels from left/top of edge
+/// - `"-50px"` → 50 pixels from right/bottom of edge
+#[derive(Clone, Debug, PartialEq, Default)]
+pub enum PositionOffset {
+  #[default]
+  Center,
+  Pixels(i32),
+  Percent(f64),
+}
+
+impl<'de> serde::Deserialize<'de> for PositionOffset {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    let s = String::deserialize(deserializer)?;
+    let s = s.trim().to_lowercase();
+    if s == "center" {
+      Ok(PositionOffset::Center)
+    } else if let Some(rest) = s.strip_suffix('%') {
+      let val = rest
+        .trim()
+        .parse::<f64>()
+        .map_err(serde::de::Error::custom)?;
+      Ok(PositionOffset::Percent(val / 100.0))
+    } else if let Some(rest) = s.strip_suffix("px") {
+      let val = rest
+        .trim()
+        .parse::<i32>()
+        .map_err(serde::de::Error::custom)?;
+      Ok(PositionOffset::Pixels(val))
+    } else {
+      Err(serde::de::Error::custom(format!(
+        "Invalid position_offset format: '{}'. Must be 'center', end with '%', or end with 'px'.",
+        s
+      )))
+    }
+  }
+}
+
 // =============================================================================
 // Configuration Structs
 // =============================================================================
@@ -240,6 +317,10 @@ pub struct AppConfig {
   pub animate_opacity: Option<bool>,
   pub width: Option<Dimension>,
   pub height: Option<Dimension>,
+  pub slide_from: Option<SlideDirection>,
+  // Same alias here for individual app configs
+  #[serde(alias = "offset")]
+  pub position_offset: Option<PositionOffset>,
 }
 
 impl Default for AppConfig {
@@ -251,6 +332,8 @@ impl Default for AppConfig {
       animate_opacity: None,
       width: None,
       height: None,
+      slide_from: None,
+      position_offset: None,
     }
   }
 }
@@ -276,6 +359,16 @@ impl AppConfig {
     };
     (rw, rh)
   }
+
+  /// Resolves slide direction and position offset with fallback to global config.
+  pub fn resolve_slide_config(&self, global: &WindowConfig) -> (SlideDirection, PositionOffset) {
+    let direction = self.slide_from.clone().unwrap_or(global.slide_from.clone());
+    let offset = self
+      .position_offset
+      .clone()
+      .unwrap_or(global.position_offset.clone());
+    (direction, offset)
+  }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -288,6 +381,10 @@ pub struct WindowConfig {
   pub keep_above: bool,
   pub force_priority: bool,
   pub auto_show: bool,
+  pub slide_from: SlideDirection,
+  // This allows both "position_offset" and "offset" in TOML
+  #[serde(alias = "offset")]
+  pub position_offset: PositionOffset,
 }
 
 impl Default for WindowConfig {
@@ -300,6 +397,8 @@ impl Default for WindowConfig {
       keep_above: false,
       force_priority: false,
       auto_show: false,
+      slide_from: SlideDirection::default(),
+      position_offset: PositionOffset::default(),
     }
   }
 }

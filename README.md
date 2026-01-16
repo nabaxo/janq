@@ -29,47 +29,22 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 - **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves including the premium `windows` curve).
 - **Focus Restoration**: Remembers your previous window and restores focus instantly.
 - **CLI Power**: Control your setup via `./janq --app <name>`.
+- **Intelligent Window Matching**: Advanced weighted fuzzy scoring for abbreviations (e.g., `wt` → `WindowsTerminal`) with ultra-fast <0.1ms Zero-IPC liveness verification.
 
 ## Installation
 
-### Prerequisites
-- **KDE Plasma 6** (Linux) or **Windows 10/11**.
-- _(Optional: **musl-tools** for static Linux builds)._
-
-### Build
-```bash
-make build-linux               # Binary: ./dist/janq (musl) & ./dist/janq-glibc
-make build-linux-musl          # Binary: ./dist/janq (Static, recommended)
-make build-linux-glibc         # Binary: ./dist/janq-glibc
-make build-windows             # Binary: ./dist/janq.exe (static) & ./dist/janq-nonstatic.exe
-make build-windows-static      # Binary: ./dist/janq.exe (Static/Portable, recommended)
-make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
-```
+- Download the binary from [releases](./releases).
+- [Create a janq.toml](#configuration) with [your config](#setup)
+- [Run](#usage)
+- Enjoy
 
 > [!TIP]
-> Look in `Makefile` for all the options.
-
-### The `utilities/` Folder (For When Things Go Wrong)
-
-The `utilities/` directory contains cleanup scripts for Linux. These exist because during development we managed to break KDE shortcuts, leave zombie processes, and generally make a mess of the desktop integration more times than we'd like to admit. (Sloperator: Speak for yourself, I had to use it countless times because of your bullshit).
-
-| Script | Description |
-|--------|-------------|
-| `full_cleanup.sh` | Nuclear option. Removes all janq/legacy janq traces from your system. |
-| `cleanup_shortcuts.sh` | Fixes KDE global shortcuts when they inevitably get stuck. |
-| `cleanup_desktop.sh` | Removes desktop entries and icons. |
-| `cleanup_processes.sh` | Kills any lingering daemon processes. |
-| `cleanup_kwin.sh` | Removes KWin scripts. |
-| `cleanup_metadata.sh` | Clears cached window IDs and metadata. |
-
-If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
-
-_(Sloperator note: Just use `full_cleanup.sh`.)_
+> If Windows refuses to run the downloaded .exe; Right click on the file, choose properties, tick the `unblock` checkbox at the bottom, (the one that comes with scary security warnings), then click apply, OK, and you're good to go.
 
 ## Usage
 
 ### Smart Startup & Toggling
-- Run `./janq` to start the daemon.
+- Start via your desktop or run `./janq` to start the daemon.
 - Subsequent calls toggle the primary window.
 - Use `./janq --app name` to toggle a specific application from your config.
 
@@ -77,7 +52,10 @@ _(Sloperator note: Just use `full_cleanup.sh`.)_
 > **Single-App Peace of Mind**: If you only have one app configured, janq ignores typos and always picks that app. In multi-app mode, it validates your input and shows a helpful error window if an app isn't found.
 
 ### Linux (KDE)
-janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly. **Left-click the tray icon to toggle the first defined app in your config, or middle-click to quit.**
+janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
+
+> [!TIP]
+> Left-click the tray icon to toggle the first defined app in your config, or middle-click to quit.
 
 #### Linux Startup (Automatic)
 To make janq start automatically on login:
@@ -94,9 +72,6 @@ These flags create/remove a symlink in `~/.config/autostart/` pointing to the ap
 
 janq handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
 
-> [!TIP]
-> If Windows refuses to run the downloaded .exe; Right click on the file, choose properties, tick the `unblock` checkbox at the bottom, (the one that comes with scary security warnings), then click apply, OK, and you're good to go.
-
 #### Add janq to Windows Startup/Autostart (Manual)
 
 To make janq start automatically when you log in:
@@ -104,15 +79,6 @@ To make janq start automatically when you log in:
 2.  Right-click in the folder and select **New > Shortcut**.
 3.  Browse to your `janq.exe` location.
 4.  **Important**: To start in server mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\janq.exe" --daemon`).
-
-### Window Class & Fuzzy Matching
-
-The `window_class` field is highly flexible. janq uses **advanced weighted fuzzy matching** to find your app even if the name isn't exact (e.g., `obs` for `Obsidian`).
-
-- **Context-Aware Scoring**: janq prioritizes exact matches and substrings, but also understands abbreviations and word boundaries (e.g., `wt` will reliably find `WindowsTerminal` (Sloperator: Maybe.)). It rewards consecutive matches and penalized gaps, ensuring the most logical window is always selected.
-- **High-Confidence Threshold**: janq rejects weak "junk" matches (score < 500), ensuring it will spawn a new instance rather than grabbing a random visible window.
-- **Zero-IPC Liveness (Linux)**: Toggling an existing window verifies its existence via `/proc` in $<0.1$ms, ensuring zero latency during animation reversals.
-- **Best Practice**: While the engine is robust, using an **exact match** (e.g., `wezterm`) is always recommended for maximum speed and deterministic behavior.
 
 #### Recommended setup for Windows Terminal:
 If `wt` is in your system `PATH`, this is the most reliable setup:
@@ -150,6 +116,8 @@ janq searches for a configuration file _(janq.toml or .janq.toml) _in the follow
     - `~/janq.toml`
     - _On Windows_: `%UserProfile%\janq.toml`
 
+(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. Option 3, the AI told me is stupid, since the crate we're using checks any changes to parent folder. I only left it for completeness).
+
 > [!CAUTION]
 > **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. janq includes a safeguard to prevent destroying your system integration.
 
@@ -157,7 +125,7 @@ janq searches for a configuration file _(janq.toml or .janq.toml) _in the follow
 
 Create `.janq.toml` in `~/.config/janq/` or your home directory.
 
-### Global settings
+#### Global settings
 ```toml
 [window]
 display_mode = "active" # follow-mouse, specific, active
@@ -171,7 +139,7 @@ show_easing = "cubic-bezier(0, 1, 1, 0)" # Or "bezier(0, 1, 1, 0)" or "(0, 1, 1,
 animate_opacity = true
 ```
 
-### Single App configuration
+#### Single App configuration
 ```toml
 [app]
 # On Windows: Matches Process Name (e.g. "wezterm-gui") OR Window Class
@@ -180,7 +148,7 @@ start_command = "wezterm --config initial_cols=160 --config initial_rows=40 star
 hotkey = "Meta+Grave"
 ```
 
-### Multi-App configuration
+#### Multi-App configuration
 ```toml
 [app.terminal]
 window_class = "wezquake"
@@ -194,7 +162,7 @@ hotkey = "Meta+Z"
 ```
 
 > [!WARNING]
-> Configuring a multiwindow app as `window_class` will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)_/¯ (But do thank her from me for yesterday, she knows why).
+> (Sloperator: Configuring a multiwindow app will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)_/¯. Do give her my regards though, you should call her more often).
 
 ### Default Values
 
@@ -207,6 +175,8 @@ hotkey = "Meta+Z"
 | | `display_index` | `0` | Monitor index when `display_mode = "specific"` | ✗ no |
 | | `width` | — | Window width (`%` or `px`) | ✓ yes |
 | | `height` | — | Window height (`%` or `px`) | ✓ yes |
+| | `slide_from` | `"top"` | Direction to slide in: `top`, `bottom`, `left`, `right` | ✓ yes |
+| | `offset` | `"center"` | Position along edge: `center`, `50%`, `-10%`, `100px`, `-50px` | ✓ yes |
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
 | | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: janq removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
 | | `auto_show` | `false` | Show window on daemon startup | ✗ no |
@@ -218,7 +188,33 @@ hotkey = "Meta+Z"
 | | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
 
-### Easing Modes
+#### Slide Direction
+
+The `slide_from` option controls which edge of the screen the window animates from:
+
+| Value | Description |
+| :--- | :--- |
+| `top` | (**Default**) Window slides down from the top edge (classic Quake style). |
+| `bottom` | Window slides up from the bottom edge. |
+| `left` | Window slides in from the left edge. |
+| `right` | Window slides in from the right edge. |
+
+#### Position Offset
+
+The `offset` option controls where along the edge the window is positioned:
+
+| Value | Description |
+| :--- | :--- |
+| `center` | (**Default**) Centered on the edge. |
+| `50%` | 50% from left/top of edge. |
+| `-10%` | 10% from right/bottom of edge (negative = from opposite end). |
+| `100px` | 100 pixels from left/top of edge. |
+| `-50px` | 50 pixels from right/bottom of edge. |
+
+> [!TIP]
+> Combine these settings for creative layouts: `slide_from = "right"` with `offset = "0px"` creates a sidebar that slides in from the right at the top corner.
+
+#### Easing Modes
 
 | Mode | Description |
 | :--- | :--- |
@@ -237,7 +233,7 @@ hotkey = "Meta+Z"
 > [!TIP]
 > **Custom Bezier Shortcuts**: You can also use `bezier(x1, y1, x2, y2)` or just `(x1, y1, x2, y2)` for brevity.
 
-### Display Modes
+#### Display Modes
 
 The `display_mode` setting in the `[window]` section determines which monitor **janq** uses to display your applications.
 
@@ -250,7 +246,7 @@ The `display_mode` setting in the `[window]` section determines which monitor **
 > [!NOTE]
 > When using `display_mode = "specific"`, you must also set `display_index` (0-indexed) to the desired monitor.
 
-### Keycodes
+#### Keycodes
 
 janq supports a wide range of keycodes for defining hotkeys. Keys are case-insensitive.
 
@@ -286,9 +282,92 @@ Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl
 *   `plusminus` / `±`
 *   `dead_grave`
 
+## Building
+
+### Prerequisites
+- **KDE Plasma 6** (Linux) or **Windows 10/11**.
+- _(Optional: **musl-tools** for static Linux builds)._
+- _(Optional: **mingw-w64** for Windows cross-compilation from Linux)._
+
+### Build
+```bash
+# Recommended, static builds
+make build-linux-musl          # Binary: ./dist/janq
+make build-windows-static      # Binary: ./dist/janq.exe
+
+# Others
+make build-linux-glibc         # Binary: ./dist/janq-glibc
+make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
+```
+
+> [!TIP]
+> Look in `Makefile` for all the options.
+
+### The `utilities/` Folder (For When Things Go Wrong)
+
+The `utilities/` directory contains cleanup scripts for Linux. These exist because during development we managed to break KDE shortcuts, leave zombie processes, and generally make a mess of the desktop integration more times than we'd like to admit. (Sloperator: Speak for yourself, I had to use it countless times because of your bullshit).
+
+| Script | Description |
+|--------|-------------|
+| `full_cleanup.sh` | Nuclear option. Removes all janq/legacy janq traces from your system. |
+| `cleanup_shortcuts.sh` | Fixes KDE global shortcuts when they inevitably get stuck. |
+| `cleanup_desktop.sh` | Removes desktop entries and icons. |
+| `cleanup_processes.sh` | Kills any lingering daemon processes. |
+| `cleanup_kwin.sh` | Removes KWin scripts. |
+| `cleanup_metadata.sh` | Clears cached window IDs and metadata. |
+
+If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
+
+_(Sloperator note: Just use `full_cleanup.sh`.)_
+
 ## Related Projects
 - **zbus**: Facilitating D-Bus communication.
 - **KWin Scripting API**: Direct integration for Wayland window management on Linux.
+
+### (Sloperator: Features the AI is particularly proud about)
+
+### Advanced Weighted Fuzzy Matching ([src/matching.rs](cci:7://file:///home/nabaxo/repos/janq/src/matching.rs:0:0-0:0))
+janq doesn't just look for your window; it **interrogates** the system using a sophisticated **Weighted Fuzzy Subsequence** algorithm. It prioritizes the most logical candidate based on a multi-tier scoring system:
+- **The Gold Standard**: Exact case-insensitive matches receive a base score of `10,000` (e.g., `wezterm` → `WezTerm`).
+- **Context-Aware Bonuses**: The engine rewards matches that hit a **word boundary** (e.g., matching `wt` in `WindowsTerminal`) with a `+250` "Boundary Bonus".
+- **Consecutive Streak Compounding**: It uses a **Consecutive Bonus** (`+100` per character) that scales with the length of the match—rewarding natural substrings over scattered characters.
+- **Liveness & State Awareness**: Already-managed windows get a `+1,000` "Recycle Bonus" to ensure janq stays locked to its existing instance even if other similar windows are open.
+
+### High-Fidelity Cubic Bezier Solver ([src/windows/easing.rs](cci:7://file:///home/nabaxo/repos/janq/src/windows/easing.rs:0:0-0:0) & [src/linux/js/common.js](cci:7://file:///home/nabaxo/repos/janq/src/linux/js/common.js:0:0-0:0))
+To match the buttery-smooth motion of modern web browsers and OS UIs, janq implements its own **Cubic Bezier Newton-Raphson Solver** in both Rust (Windows) and JavaScript (KWin). Instead of pre-calculated tables, it solves the parametric equations in real-time for every frame:
+- **Newton-Raphson Iteration**: Uses an 8-iteration convergent loop to solve for `t` where [x(t) = progress](cci:1://file:///home/nabaxo/repos/janq/src/config.rs:535:4-537:5), ensuring mathematical precision for any custom `cubic-bezier(x1, y1, x2, y2)` defined by the user.
+- **Native "Windows" Curve**: Includes a hand-tuned [cubic_bezier(0.25, 0, 0.75, 1)](cci:1://file:///home/nabaxo/repos/janq/src/windows/easing.rs:106:0-132:1) curve that replicates the premium feel of native Windows 11 window transitions.
+
+### Sophisticated "Dwell & Fade" Opacity Algorithm ([src/windows/animation.rs](cci:7://file:///home/nabaxo/repos/janq/src/windows/animation.rs:0:0-0:0))
+The [animate_opacity](cci:1://file:///home/nabaxo/repos/janq/src/config.rs:341:2-343:3) feature uses a non-linear "Handoff" logic to ensure transitions look natural as they slide.
+- **Show Transition**: Opacity is normalized against `show_opacity_point` (default `0.2`), reaching 100% in the first 20% of movement. This makes the app feel like it's "emerging" from behind the screen edge rather than appearing as a ghost.
+- **Hide Transition**: Controlled via `hide_opacity_point` (default `0.8`), the fade-out only begins in the final 20% of the movement, ensuring the window remains solid and readable until it is almost entirely off-screen.
+
+### Zero-Latency Linux Liveness ([src/linux/terminal.rs](cci:7://file:///home/nabaxo/repos/janq/src/linux/terminal.rs:0:0-0:0))
+To achieve near-instantaneous response times on Linux, janq implements a **bypass-first discovery strategy**. Instead of immediately querying the compositor (which involves D-Bus roundtrips and script overhead), janq:
+1. **Caches PIDs** mapped to window classes in a global `PID_CACHE`.
+2. Performs a **direct `/proc/{pid}` liveness check** (typically `<0.1ms`).
+3. Verifies process identity via `/proc/{pid}/cmdline` to ensure the PID hasn't been recycled by another app.
+4. Only falls back to full script-driven discovery if the direct check fails.
+
+### Atomic Platform Synchronization
+janq coordinates window transitions using an **atomic handoff pattern** to eliminate flicker.
+- **Windows (`BeginDeferWindowPos`)**: janq groups the hiding of sibling windows and the showing/repositioning of the target window into a **single kernel-level transaction**. Windows repaints the entire group simultaneously in one VSync interval.
+- **KWin Coordinated Effects**: Orchestrates JavaScript-based handoffs within KWin's compositor clock, synchronizing "swipe-out" and "swipe-in" animations perfectly within the compositor's own event loop.
+
+### RAII-Based Spawn Protection ([src/spawn_guard.rs](cci:7://file:///home/nabaxo/repos/janq/src/spawn_guard.rs:0:0-0:0))
+To prevent "process storms" when rapidly spamming a hotkey, janq uses an **Idempotent RAII Guard**.
+- When an app is spawning, it's added to a global `SPAWNING_APPS` set.
+- If another toggle happens before the window appears, janq's spawn logic detects the existing attempt and waits on it rather than starting a duplicate process.
+- The [SpawnGuard](cci:2://file:///home/nabaxo/repos/janq/src/spawn_guard.rs:29:0-29:30) uses Rust's `Drop` trait to ensure the lock is **unconditionally released**, even if the spawning thread panics.
+
+### VSync-Locked "Premium" Easing
+The animation engine is strictly **frame-rate aware**. On Windows, it anchors the internal loop to hardware VSync signals via `DwmFlush`. On Linux, it detects the display's highest refresh rate via `kscreen-doctor` and tunes the `QTimer` intervals to match (e.g., 144Hz, 165Hz, or 240Hz), ensuring transitions feel native regardless of hardware.
+
+### Multi-Monitor Intelligence
+janq's [resolveArea](cci:1://file:///home/nabaxo/repos/janq/src/linux/js/common.js:189:0-217:2) logic provides platform-agnostic monitor awareness:
+- **`follow-mouse` Mode**: Uses hardware cursor coordinates to target the monitor the user is currently interacting with.
+- **Smart Visibility Filter**: Ignores system-level windows (like taskbars or desktop backgrounds) when determining the "Active Monitor" to Ensure the terminal always spawns where the user's focus actually resides.
 
 ## Known Issues and other notes
 

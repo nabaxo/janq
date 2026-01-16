@@ -2,27 +2,121 @@
   windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
   duration, easingType, shouldShow, keepAbove, animateOpacity,
   showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, janqClasses,
-  forcePriority, refreshRate
+  forcePriority, refreshRate,
+  slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter,
+  allSlideConfigs
 ) {
   /*{{COMMON_KWIN_JS}}*/
+
+  // Compute position along edge based on slide direction and offset
+  function computeSlidePosition(direction, offsetVal, isPercent, isNegative, isCenter, area, winW, winH) {
+    let shownX, shownY, hiddenX, hiddenY;
+
+    if (direction === "top" || direction === "bottom") {
+      // Horizontal positioning along top/bottom edge
+      if (isCenter) {
+        shownX = area.x + (area.width - winW) / 2;
+      } else if (isPercent) {
+        const pct = offsetVal / 100;
+        shownX = isNegative
+          ? area.x + area.width - winW - (area.width * pct)
+          : area.x + (area.width * pct);
+      } else {
+        shownX = isNegative
+          ? area.x + area.width - winW - offsetVal
+          : area.x + offsetVal;
+      }
+
+      if (direction === "top") {
+        shownY = area.y;
+        hiddenY = area.y - winH;
+      } else {
+        shownY = area.y + area.height - winH;
+        hiddenY = area.y + area.height;
+      }
+      hiddenX = shownX;
+    } else {
+      // Vertical positioning along left/right edge
+      if (isCenter) {
+        shownY = area.y + (area.height - winH) / 2;
+      } else if (isPercent) {
+        const pct = offsetVal / 100;
+        shownY = isNegative
+          ? area.y + area.height - winH - (area.height * pct)
+          : area.y + (area.height * pct);
+      } else {
+        shownY = isNegative
+          ? area.y + area.height - winH - offsetVal
+          : area.y + offsetVal;
+      }
+
+      if (direction === "left") {
+        shownX = area.x;
+        hiddenX = area.x - winW;
+      } else {
+        shownX = area.x + area.width - winW;
+        hiddenX = area.x + area.width;
+      }
+      hiddenY = shownY;
+    }
+
+    return { shownX, shownY, hiddenX, hiddenY };
+  }
+
+  // Look up a sibling's own slide config, fallback to current toggle's config
+  function getSiblingSlideConfig(sibClass) {
+    const key = (sibClass || "").toLowerCase();
+    if (allSlideConfigs && allSlideConfigs[key]) {
+      const cfg = allSlideConfigs[key];
+      return { dir: cfg.dir, val: cfg.val, pct: cfg.pct, neg: cfg.neg, ctr: cfg.ctr };
+    }
+    // Fallback to current app's config (shouldn't happen for managed apps)
+    return { dir: slideFrom, val: offsetValue, pct: offsetIsPercent, neg: offsetIsNegative, ctr: offsetIsCenter };
+  }
 
   const target = findTarget(windowClass, targetWindowId, targetPid);
   if (!target) return;
 
-  const currentArea = workspace.clientArea(KWin.PlacementArea, target);
-  const area = shouldShow ? resolveArea(target, displayMode, displayIndex, currentArea) : currentArea;
+  const currentArea = workspace.clientArea(KWin.FullScreenArea, target);
+  // Use a stable, screen-based area for calculations instead of switching between clientArea(target) and screen logic.
+  // This matches Windows rcWork behavior and prevents center positioning drift.
+  const area = resolveArea(target, displayMode, displayIndex, currentArea);
 
   let startX = target.frameGeometry.x;
   let startY = target.frameGeometry.y;
   let startOpacity = target.opacity;
-  const areaTop = area.y;
-  const offscreenY = areaTop - target.frameGeometry.height;
-
-  const onWrongMonitor = (startX < area.x - 10) || (startX > area.x + area.width + 10);
-  const needsReposition = onWrongMonitor || (startY < offscreenY - 50) || (startY > areaTop + 50);
 
   let finalWidth = target.frameGeometry.width;
   let finalHeight = target.frameGeometry.height;
+
+  // Determine if window needs repositioning based on slide direction
+  const isHorizontalSlide = (slideFrom === "left" || slideFrom === "right");
+  let offscreenPos, onScreenThreshold;
+  if (isHorizontalSlide) {
+    if (slideFrom === "left") {
+      offscreenPos = area.x - target.frameGeometry.width;
+      onScreenThreshold = area.x + 50;
+    } else {
+      offscreenPos = area.x + area.width;
+      onScreenThreshold = area.x + area.width - target.frameGeometry.width - 50;
+    }
+  } else {
+    if (slideFrom === "top") {
+      offscreenPos = area.y - target.frameGeometry.height;
+      onScreenThreshold = area.y + 50;
+    } else {
+      offscreenPos = area.y + area.height;
+      onScreenThreshold = area.y + area.height - target.frameGeometry.height - 50;
+    }
+  }
+
+  const onWrongMonitor = isHorizontalSlide
+    ? (startY < area.y - 10) || (startY > area.y + area.height + 10)
+    : (startX < area.x - 10) || (startX > area.x + area.width + 10);
+
+  const needsReposition = onWrongMonitor || (isHorizontalSlide
+    ? (slideFrom === "left" ? startX < offscreenPos - 50 || startX > onScreenThreshold : startX > offscreenPos + 50 || startX < onScreenThreshold)
+    : (slideFrom === "top" ? startY < offscreenPos - 50 || startY > onScreenThreshold : startY > offscreenPos + 50 || startY < onScreenThreshold));
 
   if (needsReposition) {
     const dims = resolveDimensions(width, isWidthPercent, height, isHeightPercent, area, target);
@@ -30,8 +124,11 @@
     finalHeight = dims.height;
   }
 
-  const finalX = area.x + (area.width - finalWidth) / 2;
-  const finalY = area.y;
+  const slidePos = computeSlidePosition(slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter, area, finalWidth, finalHeight);
+  const finalX = slidePos.shownX;
+  const finalY = slidePos.shownY;
+  const offscreenX = slidePos.hiddenX;
+  const offscreenY = slidePos.hiddenY;
 
   const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
   const rawClasses = (janqClasses || "").toLowerCase().split(",");
@@ -70,15 +167,20 @@
     const startAnimation = () => {
       if (duration > 0) {
         const startTime = Date.now();
-        const diff = finalY - startY;
+        const diffX = finalX - startX;
+        const diffY = finalY - startY;
         const siblingDatas = [];
         for (const sib of siblingsToHide) {
           const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
+          const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
+          const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibArea, sib.frameGeometry.width, sib.frameGeometry.height);
           siblingDatas.push({
             client: sib,
+            startX: sib.frameGeometry.x,
             startY: sib.frameGeometry.y,
             startOpacity: sib.opacity,
-            endY: sibArea.y - sib.frameGeometry.height
+            endX: sibOffscreen.hiddenX,
+            endY: sibOffscreen.hiddenY
           });
         }
 
@@ -98,18 +200,20 @@
             firstFrame = false;
           }
 
-          const currentY = startY + diff * ease;
+          const currentX = startX + diffX * ease;
+          const currentY = startY + diffY * ease;
           if (animateOpacity) {
             const opacityEase = Math.min(1.0, Math.max(0, ease / (showOpacityPoint <= 0 ? 0.0001 : showOpacityPoint)));
             target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * opacityEase);
           } else {
             target.opacity = 1.0;
           }
-          target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
+          target.frameGeometry = { x: currentX, y: currentY, width: finalWidth, height: finalHeight };
 
           for (const data of siblingDatas) {
+            const sibX = data.startX + (data.endX - data.startX) * ease;
             const sibY = data.startY + (data.endY - data.startY) * ease;
-            data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+            data.client.frameGeometry = { x: sibX, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
             if (animateOpacity) {
               const denom = 1.0 - hideOpacityPoint;
               const opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
@@ -125,8 +229,7 @@
             setForceBlur(target, false);
             for (const data of siblingDatas) {
               data.client.opacity = 0.0;
-              const sibArea = workspace.clientArea(KWin.PlacementArea, data.client);
-              data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibArea.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+              data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
             }
           }
         });
@@ -141,10 +244,9 @@
     if (needsReposition) {
       target.opacity = 0.0;
       target.fullScreen = false;
-      const jumpY = areaTop - finalHeight;
-      target.frameGeometry = { x: finalX, y: jumpY, width: finalWidth, height: finalHeight };
-      startX = finalX;
-      startY = jumpY;
+      target.frameGeometry = { x: offscreenX, y: offscreenY, width: finalWidth, height: finalHeight };
+      startX = offscreenX;
+      startY = offscreenY;
       startOpacity = animateOpacity ? 0.0 : 1.0;
       const delayTimer = new QTimer();
       delayTimer.interval = 200;
@@ -155,21 +257,27 @@
       startAnimation();
     }
   } else {
-    const endY = area.y - finalHeight;
+    const endX = offscreenX;
+    const endY = offscreenY;
     const wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
 
     if (duration > 0) {
       const startTime = Date.now();
-      const diff = endY - startY;
+      const diffX = endX - startX;
+      const diffY = endY - startY;
 
       const siblingDatas = [];
       for (const sib of siblingsToHide) {
         const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
+        const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
+        const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibArea, sib.frameGeometry.width, sib.frameGeometry.height);
         siblingDatas.push({
           client: sib,
+          startX: sib.frameGeometry.x,
           startY: sib.frameGeometry.y,
           startOpacity: sib.opacity,
-          endY: sibArea.y - sib.frameGeometry.height
+          endX: sibOffscreen.hiddenX,
+          endY: sibOffscreen.hiddenY
         });
       }
 
@@ -180,7 +288,8 @@
         const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1.0);
         const ease = getEasing(progress, easingType);
-        const currentY = startY + diff * ease;
+        const currentX = startX + diffX * ease;
+        const currentY = startY + diffY * ease;
 
         if (animateOpacity) {
           const denom = 1.0 - hideOpacityPoint;
@@ -188,11 +297,12 @@
           target.opacity = Math.min(target.opacity, startOpacity * (1.0 - opacityEase));
         }
 
-        target.frameGeometry = { x: finalX, y: currentY, width: finalWidth, height: finalHeight };
+        target.frameGeometry = { x: currentX, y: currentY, width: finalWidth, height: finalHeight };
 
         for (const data of siblingDatas) {
+          const sibX = data.startX + (data.endX - data.startX) * ease;
           const sibY = data.startY + (data.endY - data.startY) * ease;
-          data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+          data.client.frameGeometry = { x: sibX, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
           if (animateOpacity) {
             const denom = 1.0 - hideOpacityPoint;
             const opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
@@ -203,15 +313,14 @@
         if (progress >= 1.0) {
           timer.stop();
           target.opacity = 0.0;
-          target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
+          target.frameGeometry = { x: endX, y: endY, width: finalWidth, height: finalHeight };
           target.fullScreen = false;
           if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
           setForceBlur(target, false);
 
           for (const data of siblingDatas) {
             data.client.opacity = 0.0;
-            const sibArea = workspace.clientArea(KWin.PlacementArea, data.client);
-            data.client.frameGeometry = { x: data.client.frameGeometry.x, y: sibArea.y - data.client.frameGeometry.height, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+            data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
           }
 
           const stillActive = (workspace.activeWindow === target || workspace.activeClient === target);
@@ -254,13 +363,15 @@
       timer.start();
     } else {
       target.opacity = 0.0;
-      target.frameGeometry = { x: finalX, y: endY, width: finalWidth, height: finalHeight };
+      target.frameGeometry = { x: endX, y: endY, width: finalWidth, height: finalHeight };
       target.fullScreen = false;
       if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
       for (const sib of siblingsToHide) {
         sib.opacity = 0.0;
         const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
-        sib.frameGeometry = { x: sib.frameGeometry.x, y: sibArea.y - sib.frameGeometry.height, width: sib.frameGeometry.width, height: sib.frameGeometry.height };
+        const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
+        const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibArea, sib.frameGeometry.width, sib.frameGeometry.height);
+        sib.frameGeometry = { x: sibOffscreen.hiddenX, y: sibOffscreen.hiddenY, width: sib.frameGeometry.width, height: sib.frameGeometry.height };
       }
       if (KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
     }

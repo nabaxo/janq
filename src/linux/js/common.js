@@ -198,12 +198,12 @@ const resolveArea = (target, displayMode, displayIndex, currentArea) => {
 
   if (displayMode === "active") {
     if (activeWin && !isTargetActive) {
-      return workspace.clientArea(KWin.PlacementArea, activeWin);
+      return workspace.clientArea(KWin.FullScreenArea, activeWin);
     }
     if (currentArea && target.opacity > 0.05 && target.frameGeometry.y + target.frameGeometry.height > currentArea.y + 5) {
       return currentArea;
     }
-    return workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop);
+    return workspace.clientArea(KWin.FullScreenArea, workspace.activeScreen, workspace.currentDesktop);
   }
 
   const cursorPos = workspace.cursorPos;

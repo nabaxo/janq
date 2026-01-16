@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-01-16
+
+### Added
+- **New Feature**: `slide_from` option to control animation direction (`top`, `bottom`, `left`, `right`)
+- **New Feature**: `offset` option to control window positioning along the edge (`center`, `50%`, `-10%`, `100px`, `-50px`)
+- Both options available globally under `[window]` and per-app for individual overrides
+- Defaults preserve existing behavior (slide from top, centered horizontally)
+
+### Fixed
+- **Windows**: Sibling windows now correctly use their own `slide_from` and `offset` when hiding (previously used the active window's config)
+- **Windows**: Hot-reload now teleports window to new position before animating (matches Linux behavior)
+- **Linux**: Fixed ~10-20px Y-offset drift on left/right slides with `center` offset
+
+### Changed
+- **Windows**: Refactored `window.rs` (1,188 lines) into 4 focused modules for maintainability:
+  - `animation.rs` - Animation engine (~600 lines)
+  - `discovery.rs` - Window enumeration and fuzzy matching (~120 lines)
+  - `parking.rs` - Park/restore functions (~160 lines)
+  - `window.rs` - Core toggle logic and state management (~280 lines)
+
 ## [1.0.3] - 2026-01-15
 
 ### Added

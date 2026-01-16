@@ -33,7 +33,7 @@ use tokio::{
 };
 use zbus::{Connection, Proxy, Result};
 
-use crate::config::{AppConfig, Config};
+use crate::config::{AppConfig, Config, PositionOffset, SlideDirection};
 use crate::linux::terminal::{
   check_window_exists, check_window_exists_with_candidates, fetch_system_windows,
   get_pid_for_class, is_window_valid,
@@ -479,13 +479,68 @@ async fn run_toggle_script(
   let show_opacity_point = config.animation.show_opacity_point.clamp(0.0, 1.0);
   let hide_opacity_point = config.animation.hide_opacity_point.clamp(0.0, 1.0);
 
+  // Resolve slide direction and position offset for the target app
+  let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
+  let slide_from_str = match slide_from {
+    SlideDirection::Top => "top",
+    SlideDirection::Bottom => "bottom",
+    SlideDirection::Left => "left",
+    SlideDirection::Right => "right",
+  };
+  let (offset_value, offset_is_percent, offset_is_negative) = match position_offset {
+    PositionOffset::Center => (0.0, false, false),
+    PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
+    PositionOffset::Percent(pct) => ((pct.abs() * 100.0), true, pct < 0.0),
+  };
+  let offset_is_center = matches!(
+    app_cfg
+      .position_offset
+      .as_ref()
+      .unwrap_or(&config.window.position_offset),
+    PositionOffset::Center
+  );
+
+  // Build per-app slide configs for sibling hiding
+  let mut all_slide_configs = Vec::new();
+  for (_, other_app) in &config.app {
+    let (other_dir, other_offset) = other_app.resolve_slide_config(&config.window);
+    let other_dir_str = match other_dir {
+      SlideDirection::Top => "top",
+      SlideDirection::Bottom => "bottom",
+      SlideDirection::Left => "left",
+      SlideDirection::Right => "right",
+    };
+    let (other_val, other_is_pct, other_is_neg) = match other_offset {
+      PositionOffset::Center => (0.0, false, false),
+      PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
+      PositionOffset::Percent(pct) => ((pct.abs() * 100.0), true, pct < 0.0),
+    };
+    let other_is_center = matches!(
+      other_app
+        .position_offset
+        .as_ref()
+        .unwrap_or(&config.window.position_offset),
+      PositionOffset::Center
+    );
+    all_slide_configs.push(format!(
+      "'{}': {{ dir: '{}', val: {}, pct: {}, neg: {}, ctr: {} }}",
+      other_app.window_class.to_lowercase(),
+      other_dir_str,
+      other_val,
+      other_is_pct,
+      other_is_neg,
+      other_is_center
+    ));
+  }
+  let all_slide_configs_str = format!("{{ {} }}", all_slide_configs.join(", "));
+
   let script_body_raw = TOGGLE_SCRIPT_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
   let script_body_trimmed = script_body_raw.trim();
   let script_body = script_body_trimmed
     .strip_suffix(';')
     .unwrap_or(script_body_trimmed);
   let script_content = format!(
-    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}, {}\n);",
+    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}, {},\n  \"{}\", {}, {}, {}, {},\n  {}\n);",
     script_body,
     app_cfg.window_class,
     config.window.display_mode,
@@ -506,7 +561,15 @@ async fn run_toggle_script(
     params.target_pid,
     params.janq_classes,
     config.window.force_priority,
-    refresh_rate
+    refresh_rate,
+    // Slide parameters for target app
+    slide_from_str,
+    offset_value,
+    offset_is_percent,
+    offset_is_negative,
+    offset_is_center,
+    // Per-app slide configs for siblings
+    all_slide_configs_str
   );
 
   run_kwin_script(conn, "janq_toggle_engine", &script_content, None)
@@ -553,10 +616,27 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
     let ((width, is_width_percent), (height, is_height_percent)) =
       app_cfg.resolve_dimensions(&config.window);
     let is_visible = state.visible_app.as_deref() == Some(app_name);
+
+    // Resolve slide config for initial parking
+    let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
+    let slide_from_str = match slide_from {
+      SlideDirection::Top => "top",
+      SlideDirection::Bottom => "bottom",
+      SlideDirection::Left => "left",
+      SlideDirection::Right => "right",
+    };
+    let (offset_value, offset_is_percent, offset_is_negative) = match &position_offset {
+      PositionOffset::Center => (0.0, false, false),
+      PositionOffset::Pixels(px) => (px.abs() as f64, false, *px < 0),
+      PositionOffset::Percent(pct) => ((pct.abs() * 100.0), true, *pct < 0.0),
+    };
+    let offset_is_center = matches!(position_offset, PositionOffset::Center);
+
     apps_json.push(format!(
-            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {} }}",
+            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
             app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
-            config.window.keep_above, target_id, target_pid, is_visible, config.window.force_priority
+            config.window.keep_above, target_id, target_pid, is_visible, config.window.force_priority,
+            slide_from_str, offset_value, offset_is_percent, offset_is_negative, offset_is_center
         ));
   }
 
