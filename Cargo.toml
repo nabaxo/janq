@@ -15,7 +15,7 @@ indexmap = { version = "2.0", features = ["serde"] }
 rustc-hash = "2.1"
 
 [build-dependencies]
-winres = "0.1"
+embed-resource = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio = { version = "1.32", default-features = false, features = ["rt", "macros", "sync", "time", "signal", "process"] }

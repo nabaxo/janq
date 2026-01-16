@@ -1,48 +1,25 @@
-use std::env;
-use std::path::Path;
-use std::process::Command;
+//! Build script for janq.
+//!
+//! On Windows targets, this script embeds the application icon into the executable.
+//! The icon is defined in `janq.rc` (a Windows resource script) which references `icon.ico`.
+//! The `embed-resource` crate handles compiling the resource script and linking it into
+//! the final PE executable, ensuring the icon appears in Windows Explorer and the taskbar.
+//!
+//! This approach works with both MSVC and GNU (MinGW) toolchains, unlike the previous
+//! manual windres approach which had linking order issues with `cargo:rustc-link-arg`.
 
 fn main() {
-  let target = env::var("TARGET").unwrap();
-  if target.contains("windows") {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let icon_path = Path::new(&manifest_dir).join("icon.ico");
+  // Only run resource compilation when targeting Windows
+  if std::env::var("TARGET")
+    .map(|t| t.contains("windows"))
+    .unwrap_or(false)
+  {
+    // Rebuild if the icon or resource script changes
+    println!("cargo:rerun-if-changed=icon.ico");
+    println!("cargo:rerun-if-changed=janq.rc");
 
-    // Always tell cargo to rebuild if the icon changes
-    println!("cargo:rerun-if-changed={}", icon_path.display());
-
-    if target.contains("gnu") {
-      let out_dir = env::var("OUT_DIR").unwrap();
-      let rc_path = Path::new(&out_dir).join("janq_generated.rc");
-      let obj_path = Path::new(&out_dir).join("janq_icon.o");
-
-      // Generate .rc with absolute path to icon
-      let rc_content = format!(
-        "1 ICON \"{}\"",
-        icon_path.display().to_string().replace("\\", "/")
-      );
-      std::fs::write(&rc_path, rc_content).unwrap();
-
-      let windres_path = "/usr/bin/x86_64-w64-mingw32-windres";
-
-      if Path::new(windres_path).exists() {
-        let status = Command::new(windres_path)
-          .arg("-i")
-          .arg(&rc_path)
-          .arg("-o")
-          .arg(&obj_path)
-          .status()
-          .expect("Failed to start windres");
-
-        if status.success() {
-          println!("cargo:rustc-link-arg={}", obj_path.display());
-        }
-      }
-    } else {
-      let mut res = winres::WindowsResource::new();
-      res.set_icon(icon_path.to_str().unwrap());
-      res.set_resource_file("1"); // Use ID 1
-      let _ = res.compile();
-    }
+    // Compile janq.rc -> object file and link it into the executable.
+    // This embeds the icon at resource ID 1 (the default application icon).
+    let _ = embed_resource::compile("janq.rc", embed_resource::NONE);
   }
 }

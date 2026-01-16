@@ -11,7 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows**: Graceful signal handling for Ctrl+C, Ctrl+Break, and console close events
 - **Windows**: Logging parity with Linux (config watcher path, grabbing apps, hotkey activation)
 
+### Fixed
+- **Windows**: Icon now properly embeds in executable and scales correctly in Windows Explorer
+
 ### Changed
+- **Build**: Replaced manual `windres` invocation with `embed-resource` crate for reliable icon embedding on GNU/MinGW toolchain
 - **Code Quality**: Extracted `spawn_guard.rs` for shared spawn idempotency (SpawnGuard RAII, SPAWNING_APPS static)
 - **Code Quality**: Extracted `shutdown.rs` for consistent shutdown messaging across platforms
 - **Code Quality**: Extracted `config_watcher.rs` infrastructure for potential future consolidation
