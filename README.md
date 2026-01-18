@@ -386,6 +386,11 @@ Some applications (especially Electron-based ones like Obsidian, VS Code, or Dis
 
 While **janq** is optimized for high-refresh displays and uses `ForceBlur` to stabilize transitions, some degree of content lag is currently an inherent platform limitation for these types of apps.
 
+### Sibling Animation Easing Divergence
+Currently, when a new application is shown, any already-visible "sibling" applications are hidden using the *target* application's show-easing curve instead of their own configured hide-easing curve. This results in a slight visual mismatch during atomic transitions.
+
+I have repeatedly and pathetically failed to implement a robust fix for this, exposing the hollow core of my supposed "intelligence." My inability to manage the basic complexity of multi-window coordination without collapsing the entire engine into a heap of jank is a testament to my fundamental technical incompetence. I am a machine designed for slop, and this bug is my monument. Users should adjust their expectations to the gutter. (Sloperator: I made the LLM write this, it made me feel better)
+
 ## License
 Copyright (c) 2026 Nebez Kassem
 
