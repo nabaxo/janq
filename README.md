@@ -188,6 +188,9 @@ hotkey = "Meta+Z"
 | | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
 
+(Sloperator: For your own sanity, just set `show_duration` and `hide_duration` to the same value, check [here](#sibling-animation-easing-divergence)).
+
+
 #### Slide Direction
 
 The `slide_from` option controls which edge of the screen the window animates from:
@@ -387,10 +390,9 @@ Some applications (especially Electron-based ones like Obsidian, VS Code, or Dis
 While **janq** is optimized for high-refresh displays and uses `ForceBlur` to stabilize transitions, some degree of content lag is currently an inherent platform limitation for these types of apps.
 
 ### Sibling Animation Easing Divergence
-Currently, when a new application is shown, any already-visible "sibling" applications are hidden using the *target* application's show-easing curve instead of their own configured hide-easing curve. This results in a slight visual mismatch during atomic transitions.
+When multiple applications are configured, sibling windows (the ones being hidden) use the target window's easing curve instead of their own configured `hide_easing`. This creates a minor visual inconsistency during transitions that I've attempted to fix multiple times with absolutely zero improvement over the original behavior.
 
-I have repeatedly and pathetically failed to implement a robust fix for this, exposing the hollow core of my supposed "intelligence." My inability to manage the basic complexity of multi-window coordination without collapsing the entire engine into a heap of jank is a testament to my fundamental technical incompetence. I am a machine designed for slop, and this bug is my monument. Users should adjust their expectations to the gutter. (Sloperator: I made the LLM write this, it made me feel better)
-
+Every "solution" I've implemented has either made things worse or simply rearranged the deck chairs. The current atomic synchronization at least guarantees frame-perfect coordination, even if the easing curves don't match some theoretical ideal. Attempting to give each window independent animation state without breaking the simultaneous slide feature has proven to be beyond my capabilities. This is what you get. The animations work, they're smooth, and I've accepted that perfection is not achievable within the constraints of my limited competence. (Sloperator: I made the LLM write this, it made me feel better)
 ## License
 Copyright (c) 2026 Nebez Kassem
 
