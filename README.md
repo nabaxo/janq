@@ -393,6 +393,14 @@ While **janq** is optimized for high-refresh displays and uses `ForceBlur` to st
 When multiple applications are configured, sibling windows (the ones being hidden) use the target window's easing curve instead of their own configured `hide_easing`. This creates a minor visual inconsistency during transitions that I've attempted to fix multiple times with absolutely zero improvement over the original behavior.
 
 Every "solution" I've implemented has either made things worse or simply rearranged the deck chairs. The current atomic synchronization at least guarantees frame-perfect coordination, even if the easing curves don't match some theoretical ideal. Attempting to give each window independent animation state without breaking the simultaneous slide feature has proven to be beyond my capabilities. This is what you get. The animations work, they're smooth, and I've accepted that perfection is not achievable within the constraints of my limited competence. (Sloperator: I made the LLM write this, it made me feel better)
+
+### Overshoot Easing Curves on Linux
+Cubic-bezier easing curves with overshoot/undershoot (control points outside [0,1], e.g., `cubic-bezier(0.8, -1.0, 0.5, 1)`) do not reverse smoothly when interrupted mid-animation on **Linux/KDE**. The animation will jump when you toggle during the overshoot phase, and rapid toggle-spamming can cause the window to drift off-screen or vanish.
+
+**Windows** has smooth reversal for overshoot curves via animation state tracking. It will still look kind of janky if you toggle spam.
+
+**Workaround for Linux**: Use monotonic easing curves like `ease-out`, `cubic-out`, `sine-out`, or the built-in `back-*` curves which work correctly. Avoid custom cubic-bezier curves with control points _outside_ the [0,1] range.
+
 ## License
 Copyright (c) 2026 Nebez Kassem
 

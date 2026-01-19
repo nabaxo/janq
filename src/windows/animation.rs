@@ -23,8 +23,8 @@ use windows::Win32::{
 use crate::config::{Config, PositionOffset, SlideDirection};
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
-  force_focus, get_animation_cancel, get_hwnd_cache, get_previous_focus, get_visible_app,
-  monitor_enum_proc, MonitorEnumCtx, SendHwnd,
+  force_focus, get_animation_cancel, get_animation_state, get_hwnd_cache, get_previous_focus,
+  get_visible_app, monitor_enum_proc, AnimationState, MonitorEnumCtx, SendHwnd,
 };
 
 /// Runs the animation loop synchronously.
@@ -42,6 +42,7 @@ pub fn run_animation_task_sync(
   should_show: bool,
   siblings: Vec<SendHwnd>,
   restore_focus: bool,
+  initial_progress: Option<f64>,
 ) {
   let app_cfg = match config.app.get(app_name) {
     Some(c) => c,
@@ -465,8 +466,43 @@ pub fn run_animation_task_sync(
       }
     }
 
-    let start_time = Instant::now();
+    // Reuse logical positions from state if monitor unchanged
+    let t_on_correct_monitor =
+      MonitorFromWindow(target_hwnd.inner(), MONITOR_DEFAULTTONEAREST) == monitor;
+    let (hidden_x, hidden_y, shown_x, shown_y) = {
+      let state = get_animation_state().lock().unwrap();
+      if let Some(ref st) = *state {
+        if t_on_correct_monitor {
+          (st.hidden_x, st.hidden_y, st.shown_x, st.shown_y)
+        } else {
+          drop(state);
+          (hidden_x, hidden_y, shown_x, shown_y)
+        }
+      } else {
+        (hidden_x, hidden_y, shown_x, shown_y)
+      }
+    };
+
+    let start_time = if let Some(init_prog) = initial_progress {
+      Instant::now() - std::time::Duration::from_secs_f64(init_prog * dur_secs)
+    } else {
+      Instant::now()
+    };
     let mut first_frame = true;
+
+    // Store animation state
+    {
+      let mut state = get_animation_state().lock().unwrap();
+      *state = Some(AnimationState {
+        is_showing: should_show,
+        start_time,
+        duration_secs: dur_secs,
+        hidden_x,
+        hidden_y,
+        shown_x,
+        shown_y,
+      });
+    }
 
     if dur_secs > 0.0 {
       let mut last_x = t_start_x;

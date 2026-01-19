@@ -55,11 +55,23 @@ impl SendHwnd {
   }
 }
 
+#[derive(Clone)]
+pub struct AnimationState {
+  pub is_showing: bool,
+  pub start_time: std::time::Instant,
+  pub duration_secs: f64,
+  pub hidden_x: i32,
+  pub hidden_y: i32,
+  pub shown_x: i32,
+  pub shown_y: i32,
+}
+
 static ANIMATION_TASK_CANCEL: OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
   OnceLock::new();
 static VISIBLE_APP: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 static PREVIOUS_FOCUS: OnceLock<Mutex<Option<SendHwnd>>> = OnceLock::new();
 static HWND_CACHE: OnceLock<RwLock<FxHashMap<String, SendHwnd>>> = OnceLock::new();
+static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
 
 pub fn get_animation_cancel() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
   ANIMATION_TASK_CANCEL
@@ -77,6 +89,10 @@ pub fn get_previous_focus() -> &'static Mutex<Option<SendHwnd>> {
 
 pub fn get_hwnd_cache() -> &'static RwLock<FxHashMap<String, SendHwnd>> {
   HWND_CACHE.get_or_init(|| RwLock::new(FxHashMap::default()))
+}
+
+pub fn get_animation_state() -> &'static Mutex<Option<AnimationState>> {
+  ANIMATION_STATE.get_or_init(|| Mutex::new(None))
 }
 
 // Discovery logic moved to discovery.rs
@@ -215,6 +231,22 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
     siblings.push(found_hwnd);
   }
 
+  // Calculate reverse progress if interrupting
+  let initial_progress = {
+    let state = get_animation_state().lock().unwrap();
+    if let Some(ref st) = *state {
+      if st.is_showing != should_show {
+        let elapsed = st.start_time.elapsed().as_secs_f64();
+        let current_progress = (elapsed / st.duration_secs).min(1.0);
+        Some(1.0 - current_progress)
+      } else {
+        None
+      }
+    } else {
+      None
+    }
+  };
+
   // Abort current animation
   {
     get_animation_cancel().store(true, std::sync::atomic::Ordering::SeqCst);
@@ -270,6 +302,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       should_show,
       siblings,
       restore_focus,
+      initial_progress,
     );
   });
 
