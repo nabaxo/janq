@@ -403,8 +403,7 @@ impl Default for WindowConfig {
   }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(default)]
+#[derive(Clone, Debug)]
 pub struct AnimationConfig {
   pub show_duration: i32,
   pub hide_duration: i32,
@@ -413,6 +412,40 @@ pub struct AnimationConfig {
   pub animate_opacity: bool,
   pub show_opacity_point: f64,
   pub hide_opacity_point: f64,
+}
+
+impl<'de> Deserialize<'de> for AnimationConfig {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: Deserializer<'de>,
+  {
+    #[derive(Deserialize, Default)]
+    #[serde(default)]
+    struct Shadow {
+      duration: Option<i32>,
+      show_duration: Option<i32>,
+      hide_duration: Option<i32>,
+      easing: Option<String>,
+      show_easing: Option<String>,
+      hide_easing: Option<String>,
+      animate_opacity: bool,
+      show_opacity_point: f64,
+      hide_opacity_point: f64,
+    }
+
+    let s = Shadow::deserialize(deserializer)?;
+    let d = AnimationConfig::default();
+
+    Ok(AnimationConfig {
+      show_duration: s.show_duration.or(s.duration).unwrap_or(d.show_duration),
+      hide_duration: s.hide_duration.or(s.duration).unwrap_or(d.hide_duration),
+      show_easing: s.show_easing.or(s.easing.clone()).unwrap_or(d.show_easing),
+      hide_easing: s.hide_easing.or(s.easing).unwrap_or(d.hide_easing),
+      animate_opacity: s.animate_opacity,
+      show_opacity_point: s.show_opacity_point,
+      hide_opacity_point: s.hide_opacity_point,
+    })
+  }
 }
 
 impl Default for AnimationConfig {
@@ -634,6 +667,48 @@ mod tests {
       .unwrap_err()
       .to_string()
       .contains("Must end with '%' or 'px'"));
+  }
+
+  #[test]
+  fn test_animation_config_aliases() {
+    #[derive(Deserialize, Debug)]
+    struct TestConfig {
+      animation: AnimationConfig,
+    }
+
+    // Test duration and easing fallbacks
+    let toml_str = r#"
+[animation]
+duration = 500
+easing = "back-out"
+"#;
+    let config: TestConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.animation.show_duration, 500);
+    assert_eq!(config.animation.hide_duration, 500);
+    assert_eq!(config.animation.show_easing, "back-out");
+    assert_eq!(config.animation.hide_easing, "back-out");
+
+    // Test explicit override (show_duration overrides duration)
+    // Note: Serde's behavior for multiple aliases/fields depends on order in the source or field declaration.
+    // Usually, the last one seen wins if they map to the same field.
+    let toml_str2 = r#"
+[animation]
+duration = 500
+show_duration = 300
+"#;
+    let config2: TestConfig = toml::from_str(toml_str2).unwrap();
+    assert_eq!(config2.animation.show_duration, 300);
+    assert_eq!(config2.animation.hide_duration, 500);
+
+    let toml_str3 = r#"
+[animation]
+show_duration = 300
+duration = 500
+"#;
+    let config3: TestConfig = toml::from_str(toml_str3).unwrap();
+    // With the refined implementation, explicit fields override the fallback regardless of order.
+    assert_eq!(config3.animation.show_duration, 300);
+    assert_eq!(config3.animation.hide_duration, 500);
   }
 
   #[test]

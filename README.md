@@ -134,8 +134,8 @@ height = "600px"
 auto_show = false       # Show window on daemon startup
 
 [animation]
-show_duration = 350
-show_easing = "cubic-bezier(0, 1, 1, 0)" # Or "bezier(0, 1, 1, 0)" or "(0, 1, 1, 0)"
+duration = 350           # Sets both show and hide duration
+easing = "ease"         # Sets both show and hide easing
 animate_opacity = true
 ```
 
@@ -180,15 +180,17 @@ hotkey = "Meta+Z"
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
 | | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: janq removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
 | | `auto_show` | `false` | Show window on daemon startup | ✗ no |
-| `[animation]` | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
+| `[animation]` | `duration` | — | Set both show/hide duration at once | ✗ no |
+| | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
 | | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |
+| | `easing` | — | Set both show/hide easing at once | ✗ no |
 | | `show_easing` | `"ease"` | Easing curve for showing | ✗ no |
 | | `hide_easing` | `"ease"` | Easing curve for hiding | ✗ no |
 | | `animate_opacity` | `false` | Fade opacity during animations | ✓ yes |
 | | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
 
-(Sloperator: For your own sanity, just set `show_duration` and `hide_duration` to the same value, check [here](#sibling-animation-easing-divergence)).
+(Sloperator: For your own sanity, just use the simple `duration` and `easing` keys, check [here](#sibling-animation-easing-divergence)).
 
 
 #### Slide Direction
