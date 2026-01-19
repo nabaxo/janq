@@ -301,36 +301,36 @@ pub fn run_animation_task_sync(
             let sib_is_horizontal = matches!(sib_dir, SlideDirection::Top | SlideDirection::Bottom);
 
             let sib_along_pos = if sib_is_horizontal {
-              match sib_offset {
+              match *sib_offset {
                 PositionOffset::Center => s_work.left + (sib_screen_w - s_w) / 2,
                 PositionOffset::Pixels(px) => {
-                  if *px >= 0 {
-                    s_work.left + *px
+                  if px >= 0 {
+                    s_work.left + px
                   } else {
-                    s_work.right - s_w + *px
+                    s_work.right - s_w + px
                   }
                 }
                 PositionOffset::Percent(pct) => {
-                  if *pct >= 0.0 {
-                    s_work.left + (sib_screen_w as f64 * *pct) as i32
+                  if pct >= 0.0 {
+                    s_work.left + (sib_screen_w as f64 * pct) as i32
                   } else {
                     s_work.right - s_w - (sib_screen_w as f64 * pct.abs()) as i32
                   }
                 }
               }
             } else {
-              match sib_offset {
+              match *sib_offset {
                 PositionOffset::Center => s_work.top + (sib_screen_h - s_h) / 2,
                 PositionOffset::Pixels(px) => {
-                  if *px >= 0 {
-                    s_work.top + *px
+                  if px >= 0 {
+                    s_work.top + px
                   } else {
-                    s_work.bottom - s_h + *px
+                    s_work.bottom - s_h + px
                   }
                 }
                 PositionOffset::Percent(pct) => {
-                  if *pct >= 0.0 {
-                    s_work.top + (sib_screen_h as f64 * *pct) as i32
+                  if pct >= 0.0 {
+                    s_work.top + (sib_screen_h as f64 * pct) as i32
                   } else {
                     s_work.bottom - s_h - (sib_screen_h as f64 * pct.abs()) as i32
                   }

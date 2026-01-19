@@ -132,7 +132,7 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
     } else if config.app.is_empty() && existing.contains("Actions=") {
       // Safeguard: Don't overwrite a functional desktop file with one that has no apps
       // This happens if janq is run from a location with a junk/empty config.
-      eprintln!("Warning: Current config has no apps, but existing desktop file has actions. Skipping update to preserve shortcuts.");
+      crate::error::show_warning("Current config has no apps, but existing desktop file has actions. Skipping update to preserve shortcuts.");
       changed = false;
     }
   }
@@ -181,14 +181,14 @@ fn run_kbuildsycoca6() {
   {
     Ok(status) => {
       if !status.success() {
-        eprintln!("kbuildsycoca6 exited with status: {}", status);
+        crate::error::show_error(&format!("kbuildsycoca6 exited with status: {}", status));
       }
     }
     Err(e) => {
-      eprintln!(
+      crate::error::show_warning(&format!(
         "Failed to run kbuildsycoca6: {} (This is normal on non-KDE)",
         e
-      );
+      ));
     }
   }
 }

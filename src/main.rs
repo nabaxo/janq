@@ -16,6 +16,7 @@
 
 use std::process::exit;
 
+use crate::error::show_error;
 use clap::Parser;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
@@ -23,6 +24,7 @@ use tokio::runtime::Builder;
 mod config;
 mod config_watcher;
 mod daemon;
+mod error;
 #[cfg(target_os = "windows")]
 mod hotkey;
 #[cfg(target_os = "linux")]
@@ -88,11 +90,11 @@ fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Opt
         // Build error message only on failure path
         let mut available: Vec<&str> = app.keys().map(|s| s.as_str()).collect();
         available.sort_unstable();
-        Err(format!(
-          "External app '{}' not found in config.\nAvailable: {}",
+        Err(crate::error::format_error(&format!(
+          "App '{}' not found in config.\nAvailable: {}",
           name,
           available.join(", ")
-        ))
+        )))
       }
     }
     None => {
@@ -111,10 +113,7 @@ fn main() -> anyhow::Result<()> {
   let (config, config_path) = match config::load_config(None) {
     Ok(c) => c,
     Err(e) => {
-      #[cfg(target_os = "linux")]
-      linux::show_error(&e);
-      #[cfg(target_os = "windows")]
-      windows::show_error(&e);
+      show_error(&e);
       exit(1);
     }
   };
@@ -124,14 +123,14 @@ fn main() -> anyhow::Result<()> {
   {
     if args.enable_autostart {
       if let Err(e) = linux::desktop::enable_autostart(&config) {
-        linux::show_error(&e.to_string());
+        show_error(&e.to_string());
         exit(1);
       }
       return Ok(());
     }
     if args.disable_autostart {
       if let Err(e) = linux::desktop::disable_autostart() {
-        linux::show_error(&e.to_string());
+        show_error(&e.to_string());
         exit(1);
       }
       return Ok(());
@@ -145,7 +144,7 @@ fn main() -> anyhow::Result<()> {
       let target_app = match resolve_app(&config, args.app.clone()) {
         Ok(a) => a,
         Err(e) => {
-          linux::show_error(&e);
+          show_error(&e);
           exit(1);
         }
       };
@@ -153,7 +152,7 @@ fn main() -> anyhow::Result<()> {
       let target_app_owned = target_app.map(|s| s.to_string());
       if args.daemon {
         if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
-          linux::show_error(&e.to_string());
+          show_error(&e.to_string());
           exit(1);
         }
         return Ok(());
@@ -165,7 +164,7 @@ fn main() -> anyhow::Result<()> {
 
       println!("Daemon not running (or reachable). Starting new daemon instance...");
       if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
-        linux::show_error(&e.to_string());
+        show_error(&e.to_string());
         exit(1);
       }
       Ok(())
@@ -177,7 +176,7 @@ fn main() -> anyhow::Result<()> {
     let target_app = match resolve_app(&config, args.app.clone()) {
       Ok(a) => a,
       Err(e) => {
-        windows::show_error(&e);
+        show_error(&e);
         exit(1);
       }
     };
@@ -185,7 +184,7 @@ fn main() -> anyhow::Result<()> {
     let target_app_owned = target_app.map(|s| s.to_string());
     if args.daemon {
       if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned) {
-        windows::show_error(&e.to_string());
+        show_error(&e.to_string());
         exit(1);
       }
       return Ok(());

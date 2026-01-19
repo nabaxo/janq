@@ -267,7 +267,7 @@ pub fn run_daemon(
               pending = true;
             }
           }
-          Ok(Err(e)) => eprintln!("Watcher error: {:?}", e),
+          Ok(Err(e)) => show_error(&format!("Watcher error: {:?}", e)),
           Err(RecvTimeoutError::Timeout) => {
             if pending {
               pending = false;
@@ -500,9 +500,11 @@ pub fn run_daemon(
                   let cfg = config.read().unwrap().clone();
                   if let Some(app_name) = cfg.app.keys().next().cloned() {
                     let app_cfg = cfg.app.get(&app_name).unwrap().clone();
+                    let app_name_spawn = app_name.clone();
+                    let cfg_spawn = cfg.clone();
                     Builder::new().spawn(move || {
-                      ensure_terminal_running(&app_name, &app_cfg, &cfg, None);
-                      toggle_window(&app_name, &cfg);
+                      ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
+                      toggle_window(&app_name_spawn, &cfg_spawn);
                     })?;
                   }
                 }
@@ -518,9 +520,11 @@ pub fn run_daemon(
                 let cfg = config.read().unwrap().clone();
                 let app_name = app_name.clone();
                 let app_cfg = cfg.app.get(&app_name).unwrap().clone();
+                let app_name_spawn = app_name.clone();
+                let cfg_spawn = cfg.clone();
                 Builder::new().spawn(move || {
-                  ensure_terminal_running(&app_name, &app_cfg, &cfg, None);
-                  toggle_window(&app_name, &cfg);
+                  ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
+                  toggle_window(&app_name_spawn, &cfg_spawn);
                 })?;
               }
             }
@@ -686,11 +690,11 @@ pub fn sync_hotkeys(
                     new_map.insert(fallback_key2.id(), app_name.clone());
                     new_hks.push(fallback_key2);
                   } else {
-                    eprintln!("  ✗ Failed to register {}: {}", hk_str, e);
+                    show_error(&format!("  ✗ Failed to register {}: {}", hk_str, e));
                   }
                 }
               } else {
-                eprintln!("  ✗ Failed to register {}: {}", hk_str, e);
+                show_error(&format!("  ✗ Failed to register {}: {}", hk_str, e));
               }
             }
           }

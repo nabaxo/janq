@@ -48,7 +48,7 @@ where
       let mut watcher = match RecommendedWatcher::new(tx, NotifyConfig::default()) {
         Ok(w) => w,
         Err(e) => {
-          eprintln!("janq: Failed to create config watcher: {}", e);
+          crate::error::show_error(&format!("Failed to create config watcher: {}", e));
           return;
         }
       };
@@ -90,7 +90,7 @@ where
               pending = true;
             }
           }
-          Ok(Err(e)) => eprintln!("Watcher error: {:?}", e),
+          Ok(Err(e)) => crate::error::show_warning(&format!("Watcher error: {:?}", e)),
           Err(RecvTimeoutError::Timeout) => {
             if pending {
               pending = false;

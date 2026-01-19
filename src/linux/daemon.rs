@@ -51,13 +51,13 @@ use tokio::{
 use zbus::{interface, zvariant::OwnedValue, Connection, Proxy};
 
 use crate::config::{load_config, Config};
+use crate::error::show_error;
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
 use crate::linux::hotkey::sync_kde_shortcuts;
 use crate::linux::kwin::{
   clear_removed_apps_from_cache, grab_apps, init as init_kwin, reset_visibility, restore_app,
   restore_quake, toggle_quake,
 };
-use crate::linux::show_error;
 use crate::linux::terminal::{
   ensure_terminal_running, ensure_terminal_running_with_candidates, fetch_system_windows_async,
 };
@@ -279,16 +279,16 @@ pub async fn run_daemon(
       .await;
 
     if let Err(e) = r1 {
-      eprintln!(
+      show_error(&format!(
         "janq: Failed to register Application interface at {}: {}",
         path, e
-      );
+      ));
     }
     if let Err(e) = r2 {
-      eprintln!(
+      show_error(&format!(
         "janq: Failed to register Daemon interface at {}: {}",
         path, e
-      );
+      ));
     }
   }
 
@@ -435,7 +435,7 @@ pub async fn run_daemon(
                 Ok(c) => c,
                 Err(e) => {
                   let err_msg = format!("Config reload failed: {}", e);
-                  eprintln!("Watcher: {}", err_msg);
+                  show_error(&err_msg);
 
                   // Restore all apps before shutting down
                   let current_cfg = config_for_watcher.read().unwrap().clone();
@@ -526,7 +526,7 @@ pub async fn run_daemon(
                   );
                   if let Err(e) = sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await
                   {
-                    eprintln!("Watcher: Failed to sync shortcuts: {}", e);
+                    show_error(&format!("Watcher: Failed to sync shortcuts: {}", e));
                   }
                 } else {
                   println!("Config: No shortcut/desktop changes detected.");

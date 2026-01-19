@@ -109,7 +109,7 @@ pub fn ensure_terminal_running(
   match spawn_result {
     Ok(_) => {}
     Err(e) => {
-      println!("Failed to start managed app: {}", e);
+      crate::windows::show_error(&format!("Failed to start managed app: {}", e));
       return false;
     }
   }
@@ -156,10 +156,10 @@ pub fn ensure_terminal_running(
   }
 
   if !found {
-    println!(
+    crate::windows::show_error(&format!(
       "janq: Failed to detect window for '{}' after spawning.",
       app_name
-    );
+    ));
   }
   found
 }

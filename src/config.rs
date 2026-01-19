@@ -29,6 +29,7 @@ use serde::{
 pub use crate::matching::{fuzzy_match_window, FoundWindow};
 
 // Import validation functions used internally
+use crate::error::format_error_with_span;
 use crate::validation::{is_valid_easing, validate_hotkey};
 
 /// A dimension value that can be specified as percent, pixels, or unset.
@@ -171,6 +172,7 @@ impl<'de> serde::Deserialize<'de> for PositionOffset {
 /// window_class = "obsidian"
 /// ```
 #[derive(Clone, Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
   /// App definitions. Uses IndexMap to preserve TOML declaration order.
   #[serde(
@@ -189,23 +191,39 @@ pub struct Config {
 }
 
 impl Config {
-  pub fn validate(&self) -> Result<(), String> {
+  pub fn validate(&self, content: &str, path: &std::path::Path) -> Result<(), String> {
     let mut seen_hotkeys = FxHashMap::default();
     for (app_name, app_cfg) in &self.app {
       let hotkeys = app_cfg.hotkey.as_vec();
 
+      // Find the app section span for error reporting
+      let app_span = find_app_section_span(content, app_name);
+
       if hotkeys.len() > 4 {
-        return Err(format!(
-          "App '{}' has {} hotkeys defined, but janq only supports a maximum of 4 hotkeys per application.",
-          app_name,
-          hotkeys.len()
+        return Err(format_error_with_span(
+          content,
+          path,
+          app_span.clone(),
+          &format!(
+            "App '{}' has {} hotkeys defined, but janq only supports a maximum of 4 hotkeys per application.",
+            app_name,
+            hotkeys.len()
+          ),
         ));
       }
 
       for key in hotkeys {
         if !key.is_empty() {
-          validate_hotkey(&key)
-            .map_err(|e| format!("Invalid hotkey for app '{}': {}", app_name, e))?;
+          if let Err(e) = validate_hotkey(&key) {
+            // Point to the hotkey field, not the section header
+            let hotkey_span = find_field_in_app_section(content, app_name, "hotkey");
+            return Err(format_error_with_span(
+              content,
+              path,
+              hotkey_span,
+              &format!("App [{}]: {} in hotkey '{}'", app_name, e, key),
+            ));
+          }
 
           // Normalize for duplicate detection (sort modifiers, keep base key at the end)
           let mut mods = Vec::new();
@@ -226,9 +244,16 @@ impl Config {
           };
 
           if let Some(other_app) = seen_hotkeys.insert(normalized.clone(), app_name.clone()) {
-            return Err(format!(
-              "Duplicate hotkey '{}' (normalized: '{}') found in app '{}' and '{}'",
-              key, normalized, other_app, app_name
+            // Point to the hotkey field for duplicate errors too
+            let hotkey_span = find_field_in_app_section(content, app_name, "hotkey");
+            return Err(format_error_with_span(
+              content,
+              path,
+              hotkey_span,
+              &format!(
+                "Duplicate hotkey '{}' (normalized: '{}') found in app '{}' and '{}'",
+                key, normalized, other_app, app_name
+              ),
             ));
           }
         }
@@ -236,22 +261,39 @@ impl Config {
     }
 
     for (app_name, app_cfg) in &self.app {
+      let app_span = find_app_section_span(content, app_name);
+
       if app_cfg.window_class.is_empty() {
-        return Err(format!(
-          "App '{}' is missing required field 'window_class'.",
-          app_name
+        return Err(format_error_with_span(
+          content,
+          path,
+          app_span.clone(),
+          &format!(
+            "App '{}' is missing required field 'window_class'.",
+            app_name
+          ),
         ));
       }
       if app_cfg.window_class.len() < 3 {
-        return Err(format!(
-          "App '{}' has a window_class '{}' that is too short. It must be at least 3 characters long for reliable fuzzy matching.",
-          app_name, app_cfg.window_class
+        return Err(format_error_with_span(
+          content,
+          path,
+          app_span.clone(),
+          &format!(
+            "App '{}' has a window_class '{}' that is too short. It must be at least 3 characters long for reliable fuzzy matching.",
+            app_name, app_cfg.window_class
+          ),
         ));
       }
       if app_cfg.start_command.is_empty() {
-        return Err(format!(
-          "App '{}' is missing required field 'start_command'.",
-          app_name
+        return Err(format_error_with_span(
+          content,
+          path,
+          app_span,
+          &format!(
+            "App [{}]: missing required field 'start_command'.",
+            app_name
+          ),
         ));
       }
     }
@@ -262,22 +304,83 @@ impl Config {
       ("hide_easing", &self.animation.hide_easing),
     ] {
       if !is_valid_easing(easing) {
-        return Err(format!(
-          "Invalid damping/easing curve '{}' for {}. Use a keyword (like 'ease', 'windows', 'back-out') or a custom cubic-bezier (like 'cubic-bezier(0, 1, 1, 0)' or '(0, 1, 1, 0)').",
+        return Err(crate::error::format_error(&format!(
+          "Invalid easing curve '{}' for [animation].{}. Use a keyword (like 'ease', 'windows', 'back-out') or a custom cubic-bezier (like 'cubic-bezier(0, 1, 1, 0)').",
           easing, name
-        ));
+        )));
       }
     }
 
     if self.app.is_empty() {
-      return Err(
-        "No app configured. Add at least one [app] or [app.name] section to your config."
-          .to_string(),
-      );
+      return Err(crate::error::format_error(
+        "No app configured. Add at least one [app] or [app.name] section to your config.",
+      ));
     }
 
     Ok(())
   }
+}
+
+/// Finds the byte span of an [app.name] section header in the content.
+fn find_app_section_span(content: &str, app_name: &str) -> std::ops::Range<usize> {
+  // Look for [app.name] or [app] (for single-app mode where name == window_class)
+  let patterns = [format!("[app.{}]", app_name), "[app]".to_string()];
+
+  for pattern in &patterns {
+    if let Some(pos) = content.find(pattern) {
+      return pos..pos + pattern.len();
+    }
+  }
+
+  // Fallback to start of file
+  0..1
+}
+
+/// Finds the byte span of a specific field within an app section.
+/// Returns the span of the field name (e.g., "hotkey" in "hotkey = ...")
+fn find_field_in_app_section(
+  content: &str,
+  app_name: &str,
+  field_name: &str,
+) -> std::ops::Range<usize> {
+  // First find the app section
+  let section_patterns = [format!("[app.{}]", app_name), "[app]".to_string()];
+
+  let section_start = section_patterns
+    .iter()
+    .filter_map(|p| content.find(p))
+    .min()
+    .unwrap_or(0);
+
+  // Find the end of this section (next [...] or end of file)
+  let after_section = &content[section_start..];
+  let section_end = after_section
+    .find("\n[")
+    .map(|p| section_start + p)
+    .unwrap_or(content.len());
+
+  // Search for the field within this section
+  // Look for "\nfield_name" or field at very start of section content
+  let section_content = &content[section_start..section_end];
+
+  // Pattern: newline followed by optional whitespace and field name
+  let search_pattern = format!("\n{}", field_name);
+  if let Some(pos) = section_content.find(&search_pattern) {
+    let field_start = section_start + pos + 1; // +1 to skip the newline
+    return field_start..field_start + field_name.len();
+  }
+
+  // Also try with leading whitespace
+  for ws in ["\n ", "\n\t"] {
+    let search_pattern = format!("{}{}", ws, field_name);
+    if let Some(pos) = section_content.find(&search_pattern) {
+      let field_start = section_start + pos + ws.len();
+      return field_start..field_start + field_name.len();
+    }
+  }
+
+  // Fallback to section header
+  find_app_section_span(content, app_name)
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -309,7 +412,7 @@ impl HotkeyConfig {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(default)]
+#[serde(deny_unknown_fields, default)]
 pub struct AppConfig {
   pub window_class: String,
   pub start_command: String,
@@ -372,7 +475,7 @@ impl AppConfig {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(default)]
+#[serde(deny_unknown_fields, default)]
 pub struct WindowConfig {
   pub display_mode: String,
   pub display_index: i32,
@@ -420,7 +523,7 @@ impl<'de> Deserialize<'de> for AnimationConfig {
     D: Deserializer<'de>,
   {
     #[derive(Deserialize, Default)]
-    #[serde(default)]
+    #[serde(deny_unknown_fields, default)]
     struct Shadow {
       duration: Option<i32>,
       show_duration: Option<i32>,
@@ -481,19 +584,25 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
         Ok(content) => match toml::from_str::<Config>(&content) {
           Ok(c) => {
             println!("Loaded config from (cached): {:?}", path);
-            c.validate()?;
+            c.validate(&content, &path)?;
             return Ok((c, Some(path)));
           }
           Err(e) => {
-            return Err(format!("Malformed config file at {:?}: {}", path, e));
+            return Err(format_toml_error(&content, &path, e));
           }
         },
         Err(e) => {
-          return Err(format!("Could not read config file at {:?}: {}", path, e));
+          return Err(crate::error::format_error(&format!(
+            "Could not read config file at {:?}: {}",
+            path, e
+          )));
         }
       }
     } else {
-      return Err(format!("Config file no longer exists at: {:?}", path));
+      return Err(crate::error::format_error(&format!(
+        "Config file no longer exists at: {:?}",
+        path
+      )));
     }
   }
 
@@ -533,24 +642,122 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
         Ok(content) => match toml::from_str::<Config>(&content) {
           Ok(c) => {
             println!("Loaded config from: {:?}", path);
-            c.validate()?;
+            c.validate(&content, &path)?;
             return Ok((c, Some(path)));
           }
           Err(e) => {
-            return Err(format!("Malformed config file at {:?}: {}", path, e));
+            return Err(format_toml_error(&content, &path, e));
           }
         },
         Err(e) => {
-          return Err(format!("Could not read config file at {:?}: {}", path, e));
+          return Err(crate::error::format_error(&format!(
+            "Could not read config file at {:?}: {}",
+            path, e
+          )));
         }
       }
     }
   }
 
-  Err(
-    "No config file found. Create ./janq.toml or ~/.config/janq/janq.toml with at least one [app] section."
-      .to_string(),
-  )
+  Err(crate::error::format_error(
+    "No config file found. Create ./janq.toml or ~/.config/janq/janq.toml with at least one [app] section.",
+  ))
+}
+
+/// Formats a TOML error with line context and a visual pointer.
+fn format_toml_error(content: &str, path: &std::path::Path, err: toml::de::Error) -> String {
+  let message = err.message().to_string();
+
+  // Try to extract field name from error message to find actual line
+  let field_name = extract_field_from_error(&message);
+
+  // Get TOML's span as a hint for which section the error is in
+  let toml_span = err.span();
+
+  // If we found a field name and have a section hint, find the field near that section
+  if let (Some(ref field), Some(ref hint_span)) = (&field_name, &toml_span) {
+    if let Some(better_span) = find_field_near_span(content, field, hint_span.clone()) {
+      return format_error_with_span(content, path, better_span, &message);
+    }
+  }
+
+  // Fall back to TOML's span if available
+  let span = match toml_span {
+    Some(s) if s.start < content.len() => s,
+    _ => return crate::error::format_error(&format!("{} in {:?}", message, path)),
+  };
+
+  format_error_with_span(content, path, span, &message)
+}
+
+/// Extracts field name from common TOML error message patterns.
+/// Only extracts from semantic errors (missing/unknown field), not syntax errors.
+fn extract_field_from_error(message: &str) -> Option<String> {
+  // Only extract field names from semantic errors, not syntax errors like "expected newline"
+  // Pattern: "missing field `fieldname`" or "unknown field `fieldname`"
+  if message.contains("missing field") || message.contains("unknown field") {
+    if let Some(start) = message.find('`') {
+      if let Some(end) = message[start + 1..].find('`') {
+        return Some(message[start + 1..start + 1 + end].to_string());
+      }
+    }
+  }
+  // Pattern: 'invalid type: string "fieldname"' (bare key interpreted as string)
+  if message.contains("invalid type") {
+    if let Some(start) = message.find('"') {
+      if let Some(end) = message[start + 1..].find('"') {
+        return Some(message[start + 1..start + 1 + end].to_string());
+      }
+    }
+  }
+  None
+}
+
+/// Finds the span of a field, preferring the occurrence closest to hint_span.
+/// If only one occurrence exists, returns it regardless of hint.
+fn find_field_near_span(
+  content: &str,
+  field: &str,
+  hint_span: std::ops::Range<usize>,
+) -> Option<std::ops::Range<usize>> {
+  // Find ALL occurrences of the field
+  let mut occurrences = Vec::new();
+  let mut byte_offset = 0;
+
+  for line in content.lines() {
+    let trimmed = line.trim_start();
+    let leading_ws = line.len() - trimmed.len();
+
+    if trimmed.starts_with(field) {
+      let after_field = &trimmed[field.len()..];
+      if after_field.is_empty()
+        || after_field.starts_with(' ')
+        || after_field.starts_with('=')
+        || after_field.starts_with('\t')
+      {
+        let field_start = byte_offset + leading_ws;
+        occurrences.push(field_start..field_start + field.len());
+      }
+    }
+
+    byte_offset += line.len() + 1; // +1 for newline
+  }
+
+  if occurrences.is_empty() {
+    return None;
+  }
+
+  // If only one occurrence, return it directly (no need for hint)
+  if occurrences.len() == 1 {
+    return occurrences.into_iter().next();
+  }
+
+  // Pick the occurrence closest to hint_span.start
+  occurrences.into_iter().min_by_key(|span| {
+    let dist_to_start = (span.start as isize - hint_span.start as isize).abs();
+    let dist_to_end = (span.start as isize - hint_span.end as isize).abs();
+    dist_to_start.min(dist_to_end)
+  })
 }
 
 // =============================================================================
@@ -603,8 +810,8 @@ where
         }
         Ok(result)
       } else if has_flat_keys {
-        let config = AppConfig::deserialize(toml::Value::Table(raw_map.into_iter().collect()))
-          .map_err(de::Error::custom)?;
+        let table = toml::Value::Table(raw_map.into_iter().collect());
+        let config = AppConfig::deserialize(table).map_err(de::Error::custom)?;
         let mut result = IndexMap::new();
 
         // Require window_class for single-app mode
@@ -712,6 +919,70 @@ duration = 500
   }
 
   #[test]
+  fn test_strict_config() {
+    // Root level unknown key
+    let toml_str = r#"
+unknown_global_key = "value"
+[window]
+display_mode = "active"
+"#;
+    let err = toml::from_str::<Config>(toml_str);
+    assert!(err.is_err());
+    assert!(err.unwrap_err().to_string().contains("unknown field"));
+
+    // [window] level unknown key
+    let toml_str = r#"
+[window]
+unknown_window_key = "value"
+"#;
+    let err = toml::from_str::<Config>(toml_str);
+    assert!(err.is_err());
+    assert!(err.unwrap_err().to_string().contains("unknown field"));
+
+    // [app] level unknown key
+    let toml_str = r#"
+[app.terminal]
+window_class = "wezterm"
+start_command = "wezterm"
+unknown_app_key = "value"
+"#;
+    let err = toml::from_str::<Config>(toml_str);
+    assert!(err.is_err());
+    assert!(err.unwrap_err().to_string().contains("unknown field"));
+
+    // [animation] level unknown key
+    let toml_str = r#"
+[animation]
+unknown_animation_key = "value"
+"#;
+    let err = toml::from_str::<Config>(toml_str);
+    assert!(err.is_err());
+    assert!(err.unwrap_err().to_string().contains("unknown field"));
+  }
+
+  #[test]
+  fn test_error_formatting() {
+    let content = "foo = \"bar\"\nbaz = 123";
+    let path = std::path::Path::new("test.toml");
+
+    #[derive(Deserialize, Debug)]
+    #[serde(deny_unknown_fields)]
+    struct LocalConfig {
+      #[allow(dead_code)]
+      foo: String,
+    }
+
+    let err = toml::from_str::<LocalConfig>(content).unwrap_err();
+    let formatted = format_toml_error(content, path, err);
+
+    println!("{}", formatted);
+    assert!(formatted.contains("unknown field `baz`"));
+    assert!(formatted.contains("test.toml:2:1"));
+    assert!(formatted.contains("2 | baz = 123"));
+    assert!(formatted.contains("^~~~"));
+  }
+
+  #[test]
   fn test_app_config_resolve() {
     let global = WindowConfig {
       width: Some(Dimension::Percent(0.4)),
@@ -736,5 +1007,40 @@ duration = 500
     assert_eq!(w2, 0.0); // Unset means no resize (0.0)
     assert!(!w2_is_pct);
     assert_eq!(h2, 600.0); // Height still inherits from global
+  }
+
+  #[test]
+  fn test_semantic_error_helpfulness() {
+    let toml_str = r#"
+[app.terminal]
+window_class = "wezterm"
+start_command = "wezterm"
+hotkey = "Meta+Graveee" # Typo in key name
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let err = config
+      .validate(toml_str, std::path::Path::new("test.toml"))
+      .unwrap_err();
+
+    println!("Semantic Error: {}", err);
+    assert!(err.contains("App [terminal]"));
+    assert!(err.contains("Graveee"));
+    assert!(err.contains("hotkey 'Meta+Graveee'"));
+  }
+
+  #[test]
+  fn test_structural_error_helpfulness() {
+    let toml_str = r#"
+[window]
+displa_mode = "active" # Typo: displa -> display
+"#;
+    let err = toml::from_str::<Config>(toml_str).unwrap_err();
+    let formatted = format_toml_error(toml_str, std::path::Path::new("janq.toml"), err);
+
+    println!("Structural Error:\n{}", formatted);
+    assert!(formatted.contains("unknown field `displa_mode`"));
+    assert!(formatted.contains("janq.toml:3:1"));
+    assert!(formatted.contains("3 | displa_mode = \"active\""));
+    assert!(formatted.contains("^~~~"));
   }
 }

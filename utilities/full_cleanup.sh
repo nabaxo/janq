@@ -48,5 +48,13 @@ else
     echo "Warning: cleanup_desktop.sh not found in $DIR, skipping desktop cleanup."
 fi
 
+# 5. Clean Error Files
+if [ -f "$DIR/cleanup_errors.sh" ]; then
+    echo "--- Running error file cleanup ---"
+    bash "$DIR/cleanup_errors.sh"
+else
+    echo "Warning: cleanup_errors.sh not found in $DIR, skipping error cleanup."
+fi
+
 echo "=== FULL RESET COMPLETE ==="
 echo "You can now rebuild and restart the daemon."

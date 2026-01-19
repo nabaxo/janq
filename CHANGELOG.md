@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-01-19
+
+### Added
+- **Error Display**: Colorized error messages with Rust-style formatting (red errors, blue arrows, cyan values, yellow app names)
+- **Error Display**: Visual line pointer showing exact location of config errors
+- **Error Display**: GUI error popup when running without terminal (hotkey/service) - spawns terminal on Linux, MessageBox on Windows
+- **Utilities**: Added `cleanup_errors.sh` to full cleanup script
+
+### Fixed
+- **Error Display**: Fixed regression where TOML syntax errors (e.g., "expected newline") pointed to wrong line numbers
+- **Error Display**: Fixed "unknown field" errors pointing to incorrect lines when field name appeared elsewhere in config
+- **Error Display**: GUI error popup now only appears when running without a terminal, avoiding double-display when running from terminal
+- **Error Display**: Consistent error behavior on Windows and Linux
+
 ## [1.1.3] - 2026-01-19
 
 ### Added

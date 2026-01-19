@@ -35,6 +35,7 @@ use tokio::time::sleep;
 use zbus::Connection;
 
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
+use crate::error::show_error;
 use crate::spawn_guard::{get_spawning_apps, SpawnGuard};
 
 // =============================================================================
@@ -151,10 +152,10 @@ pub async fn ensure_terminal_running_with_candidates(
   let process_running = check_process_running(window_class);
 
   if start_command.is_empty() {
-    eprintln!(
+    show_error(&format!(
       "janq: No start_command for app with class '{}'",
       window_class
-    );
+    ));
     return false;
   }
 
@@ -193,7 +194,7 @@ pub async fn ensure_terminal_running_with_candidates(
       });
     }
     Err(e) => {
-      println!("Failed to start managed app: {}", e);
+      show_error(&format!("Failed to start managed app: {}", e));
       return false;
     }
   }
@@ -225,10 +226,10 @@ pub async fn ensure_terminal_running_with_candidates(
     return false; // Return false so the next toggle can try to find/spawn it again properly
   }
 
-  println!(
+  show_error(&format!(
     "janq: Failed to detect process or window for '{}' after spawning.",
     window_class
-  );
+  ));
   false
 }
 
@@ -307,7 +308,10 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
   };
 
   if let Err(e) = crate::linux::kwin::trigger_fetch_windows(&conn, request_id).await {
-    eprintln!("janq: Failed to trigger window fetch script: {}", e);
+    show_error(&format!(
+      "janq: Failed to trigger window fetch script: {}",
+      e
+    ));
     let mut waiters = get_metadata_waiters().lock().unwrap();
     waiters.remove(&request_id);
     return windows;
@@ -316,10 +320,10 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
   let batch = match tokio::time::timeout(Duration::from_millis(2000), rx).await {
     Ok(Ok(b)) => b,
     _ => {
-      eprintln!(
+      show_error(&format!(
         "janq: Timeout waiting for window metadata ID {} from KWin.",
         request_id
-      );
+      ));
       let mut waiters = get_metadata_waiters().lock().unwrap();
       waiters.remove(&request_id);
       return windows;
