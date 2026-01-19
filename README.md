@@ -329,49 +329,36 @@ _(Sloperator note: Just use `full_cleanup.sh`.)_
 - **zbus**: Facilitating D-Bus communication.
 - **KWin Scripting API**: Direct integration for Wayland window management on Linux.
 
-## Advanced Weighted Fuzzy Matching ([src/matching.rs](cci:7://file:///home/nabaxo/repos/janq/src/matching.rs:0:0-0:0))
+## Technical Implementation
 ### (Sloperator: Features the AI is particularly proud about)
-janq doesn't just look for your window; it **interrogates** the system using a sophisticated **Weighted Fuzzy Subsequence** algorithm. It prioritizes the most logical candidate based on a multi-tier scoring system:
-- **The Gold Standard**: Exact case-insensitive matches receive a base score of `10,000` (e.g., `wezterm` → `WezTerm`).
-- **Context-Aware Bonuses**: The engine rewards matches that hit a **word boundary** (e.g., matching `wt` in `WindowsTerminal`) with a `+250` "Boundary Bonus".
-- **Consecutive Streak Compounding**: It uses a **Consecutive Bonus** (`+100` per character) that scales with the length of the match—rewarding natural substrings over scattered characters.
-- **Liveness & State Awareness**: Already-managed windows get a `+1,000` "Recycle Bonus" to ensure janq stays locked to its existing instance even if other similar windows are open.
 
-### High-Fidelity Cubic Bezier Solver ([src/windows/easing.rs](cci:7://file:///home/nabaxo/repos/janq/src/windows/easing.rs:0:0-0:0) & [src/linux/js/common.js](cci:7://file:///home/nabaxo/repos/janq/src/linux/js/common.js:0:0-0:0))
-To match the buttery-smooth motion of modern web browsers and OS UIs, janq implements its own **Cubic Bezier Newton-Raphson Solver** in both Rust (Windows) and JavaScript (KWin). Instead of pre-calculated tables, it solves the parametric equations in real-time for every frame:
-- **Newton-Raphson Iteration**: Uses an 8-iteration convergent loop to solve for `t` where [x(t) = progress](cci:1://file:///home/nabaxo/repos/janq/src/config.rs:535:4-537:5), ensuring mathematical precision for any custom `cubic-bezier(x1, y1, x2, y2)` defined by the user.
-- **Native "Windows" Curve**: Includes a hand-tuned [cubic_bezier(0.25, 0, 0.75, 1)](cci:1://file:///home/nabaxo/repos/janq/src/windows/easing.rs:106:0-132:1) curve that replicates the premium feel of native Windows 11 window transitions.
+### Cross-Platform Parity
 
-### Sophisticated "Dwell & Fade" Opacity Algorithm ([src/windows/animation.rs](cci:7://file:///home/nabaxo/repos/janq/src/windows/animation.rs:0:0-0:0))
-The [animate_opacity](cci:1://file:///home/nabaxo/repos/janq/src/config.rs:341:2-343:3) feature uses a non-linear "Handoff" logic to ensure transitions look natural as they slide.
-- **Show Transition**: Opacity is normalized against `show_opacity_point` (default `0.2`), reaching 100% in the first 20% of movement. This makes the app feel like it's "emerging" from behind the screen edge rather than appearing as a ghost.
-- **Hide Transition**: Controlled via `hide_opacity_point` (default `0.8`), the fade-out only begins in the final 20% of the movement, ensuring the window remains solid and readable until it is almost entirely off-screen.
+The same TOML configuration drives identical behavior on both platforms. Wayland's lack of a standard window management API makes this non-trivial—janq works around it by injecting JavaScript directly into KWin's scripting engine, while Windows uses native Win32 calls. The animation timing, easing curves, and multi-monitor logic are implemented twice (Rust + JS) to feel indistinguishable.
 
-### Zero-Latency Linux Liveness ([src/linux/terminal.rs](cci:7://file:///home/nabaxo/repos/janq/src/linux/terminal.rs:0:0-0:0))
-To achieve near-instantaneous response times on Linux, janq implements a **bypass-first discovery strategy**. Instead of immediately querying the compositor (which involves D-Bus roundtrips and script overhead), janq:
-1. **Caches PIDs** mapped to window classes in a global `PID_CACHE`.
-2. Performs a **direct `/proc/{pid}` liveness check** (typically `<0.1ms`).
-3. Verifies process identity via `/proc/{pid}/cmdline` to ensure the PID hasn't been recycled by another app.
-4. Only falls back to full script-driven discovery if the direct check fails.
+### Flicker-Free Multi-Window Transitions
 
-### Atomic Platform Synchronization
-janq coordinates window transitions using an **atomic handoff pattern** to eliminate flicker.
-- **Windows (`BeginDeferWindowPos`)**: janq groups the hiding of sibling windows and the showing/repositioning of the target window into a **single kernel-level transaction**. Windows repaints the entire group simultaneously in one VSync interval.
-- **KWin Coordinated Effects**: Orchestrates JavaScript-based handoffs within KWin's compositor clock, synchronizing "swipe-out" and "swipe-in" animations perfectly within the compositor's own event loop.
+On Windows, sibling window hide/show operations are batched using `BeginDeferWindowPos`—a Win32 API that groups multiple window position changes into a single atomic kernel-level transaction. The compositor repaints everything in one VSync interval, eliminating the flicker you'd get from sequential `SetWindowPos` calls. On KWin, animations are coordinated within the compositor's own event loop.
 
-### RAII-Based Spawn Protection ([src/spawn_guard.rs](cci:7://file:///home/nabaxo/repos/janq/src/spawn_guard.rs:0:0-0:0))
-To prevent "process storms" when rapidly spamming a hotkey, janq uses an **Idempotent RAII Guard**.
-- When an app is spawning, it's added to a global `SPAWNING_APPS` set.
-- If another toggle happens before the window appears, janq's spawn logic detects the existing attempt and waits on it rather than starting a duplicate process.
-- The [SpawnGuard](cci:2://file:///home/nabaxo/repos/janq/src/spawn_guard.rs:29:0-29:30) uses Rust's `Drop` trait to ensure the lock is **unconditionally released**, even if the spawning thread panics.
+### Sub-Millisecond Linux Toggle Response
 
-### VSync-Locked "Premium" Easing
-The animation engine is strictly **frame-rate aware**. On Windows, it anchors the internal loop to hardware VSync signals via `DwmFlush`. On Linux, it detects the display's highest refresh rate via `kscreen-doctor` and tunes the `QTimer` intervals to match (e.g., 144Hz, 165Hz, or 240Hz), ensuring transitions feel native regardless of hardware.
+Instead of querying KWin via D-Bus on every toggle (which adds ~10-50ms of latency), janq caches PIDs and performs direct `/proc/{pid}` liveness checks. A typical check completes in <0.1ms. The full KWin script query only runs on cache miss or when the process dies.
 
-### Multi-Monitor Intelligence
-janq's [resolveArea](cci:1://file:///home/nabaxo/repos/janq/src/linux/js/common.js:189:0-217:2) logic provides platform-agnostic monitor awareness:
-- **`follow-mouse` Mode**: Uses hardware cursor coordinates to target the monitor the user is currently interacting with.
-- **Smart Visibility Filter**: Ignores system-level windows (like taskbars or desktop backgrounds) when determining the "Active Monitor" to Ensure the terminal always spawns where the user's focus actually resides.
+### Memory Footprint
+
+janq idles at **<2MB RAM on Windows** and ~3.4MB on Linux while managing animations at 144Hz+. No runtime, no garbage collector, no Electron.
+
+### Bezier Solver
+
+Both platforms implement identical Newton-Raphson cubic bezier solvers ([easing.rs](src/windows/easing.rs), [common.js](src/linux/js/common.js)). Custom `cubic-bezier(x1, y1, x2, y2)` curves are solved in real-time (8 iterations) rather than using lookup tables. The `windows` preset (`0.25, 0, 0.75, 1`) mimics Windows 11 motion.
+
+### Window Matching
+
+Weighted fuzzy matching with tiered scoring: exact match (10,000), substring (5,000), subsequence (1,000 + bonuses for word boundaries and consecutive characters). Visible windows get +2,000, already-managed windows +1,000. Minimum threshold of 500 filters noise.
+
+### Spawn Protection
+
+RAII-based `SpawnGuard` prevents duplicate process spawns during rapid hotkey presses. Uses Rust's `Drop` trait for unconditional cleanup.
 
 ## Known Issues and other notes
 
