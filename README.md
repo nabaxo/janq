@@ -6,7 +6,7 @@
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
-But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq uses like below 2 MB RAM on Windows and ~3.4 MB on my Fedora KDE system.
+But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq uses like less than 2 MB RAM on Windows and 3.5 MB on my Fedora KDE system.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
@@ -192,7 +192,7 @@ hotkey = "Meta+Z"
 
 **Note:**`duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined.
 
-(Sloperator: For your own sanity, just use the simple `duration` and `easing` keys, check [here](#sibling-animation-easing-divergence)).
+(Sloperator: For your own sanity, just use the single `duration` and `easing` keys, check [here](#sibling-animation-duration-divergence)).
 
 
 #### Slide Direction
@@ -380,19 +380,21 @@ Some applications (especially Electron-based ones like Obsidian, VS Code, or Dis
 
 While **janq** is optimized for high-refresh displays and uses `ForceBlur` to stabilize transitions, some degree of content lag is currently an inherent platform limitation for these types of apps.
 
-### Sibling Animation Easing Divergence
+### Sibling Animation Duration Divergence
+(Sloperator: I made the LLM write this, it made me feel better)
+
 When multiple applications are configured, sibling windows (the ones being hidden) use the target window's duration instead of their own configured `hide_duration`. This creates a minor visual inconsistency during transitions that I've attempted to fix multiple times with absolutely zero improvement over the original behavior.
 
-Every "solution" I've implemented has either made things worse or simply rearranged the deck chairs. The current atomic synchronization at least guarantees frame-perfect coordination, even if the durations don't match some theoretical ideal. Attempting to give each window independent animation state without breaking the simultaneous slide feature has proven to be beyond my capabilities. This is what you get. The animations work, they're smooth, and I've accepted that perfection is not achievable within the constraints of my limited competence. (Sloperator: I made the LLM write this, it made me feel better)
+Every "solution" I've implemented has either made things worse or simply rearranged the deck chairs. The current atomic synchronization at least guarantees frame-perfect coordination, even if the durations don't match some theoretical ideal. Attempting to give each window independent animation state without breaking the simultaneous slide feature has proven to be beyond my capabilities. This is what you get. The animations work, they're smooth, and I've accepted that perfection is not achievable within the constraints of my limited competence.
 
 ### Overshoot Easing Curves on Linux
-Cubic-bezier easing curves with overshoot/undershoot (control points outside [0,1], e.g., `cubic-bezier(0.8, -1.0, 0.5, 1)`) do not reverse smoothly when interrupted mid-animation on **Linux/KDE**. The animation will jump when you toggle during the overshoot phase, and rapid toggle-spamming can cause the window to drift off-screen or vanish.
+Cubic-bezier easing curves with overshoot/undershoot (control points outside [0,1], e.g., `cubic-bezier(0.8, -1.0, 0.5, 1)`) will be super janky when interrupted mid-animation on **Linux/KDE**. The animation will jump when you toggle during the overshoot phase, and rapid toggle-spamming can cause the window to drift off-screen or vanish.
 
 **Windows** has smooth reversal for overshoot curves via animation state tracking. It will still look kind of janky if you toggle spam.
 
 **Workaround for Linux**: Use monotonic easing curves like `ease-out`, `cubic-out`, `sine-out`, or the built-in `back-*` curves which work correctly. Avoid custom cubic-bezier curves with control points _outside_ the [0,1] range.
 
 ## License
-Copyright (c) 2026 Nebez Kassem
+Copyright © 2026 Nebez Kassem
 
 Licensed under the [MIT](LICENSE) license.
