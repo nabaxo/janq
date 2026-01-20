@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.5] - 2026-01-20
 
 ### Changed
+- **Icons**: Simplified and optimized `icon.svg` and `icon.ico` for efficiency.
+- **Documentation**: Updated README with responsive icon sizing and refreshed descriptive text.
 - **Code Quality**: Extracted shared ANSI stripping and position calculation logic to reduce duplication.
 - **Code Quality**: Unified config watcher logic across platform daemons.
 - **Code Quality**: Improved error handling and reduced aggressive GUI popups for non-critical issues.

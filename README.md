@@ -2,7 +2,7 @@
 
 ## janq is 100%, unadulterated vibe coded slop. User discretion is advised.
 
-<img src="icon.svg" width="36" height="36" align="left">
+<img src="icon.svg" width="44" height="44" align="left">
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
