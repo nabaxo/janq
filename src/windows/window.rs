@@ -186,10 +186,10 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
         wrapper
       }
       None => {
-        crate::windows::show_error(&format!(
-          "Window not found for app: {} (class: {})",
+        eprintln!(
+          "janq: Window not found for app: {} (class: {})",
           app_name, app_cfg.window_class
-        ));
+        );
         return false;
       }
     }

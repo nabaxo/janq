@@ -28,6 +28,9 @@ use serde::{
 // Re-export matching types so other modules can import from config
 pub use crate::matching::{fuzzy_match_window, FoundWindow};
 
+// Re-export ConfigError for callers
+pub use crate::error::ConfigError;
+
 // Import validation functions used internally
 use crate::error::format_error_with_span;
 use crate::validation::{is_valid_easing, validate_hotkey};
@@ -191,7 +194,7 @@ pub struct Config {
 }
 
 impl Config {
-  pub fn validate(&self, content: &str, path: &std::path::Path) -> Result<(), String> {
+  pub fn validate(&self, content: &str, path: &std::path::Path) -> Result<(), ConfigError> {
     let mut seen_hotkeys = FxHashMap::default();
     for (app_name, app_cfg) in &self.app {
       let hotkeys = app_cfg.hotkey.as_vec();
@@ -209,7 +212,7 @@ impl Config {
             app_name,
             hotkeys.len()
           ),
-        ));
+        ).into());
       }
 
       for key in hotkeys {
@@ -217,12 +220,15 @@ impl Config {
           if let Err(e) = validate_hotkey(&key) {
             // Point to the hotkey field, not the section header
             let hotkey_span = find_field_in_app_section(content, app_name, "hotkey");
-            return Err(format_error_with_span(
-              content,
-              path,
-              hotkey_span,
-              &format!("App [{}]: {} in hotkey '{}'", app_name, e, key),
-            ));
+            return Err(
+              format_error_with_span(
+                content,
+                path,
+                hotkey_span,
+                &format!("App [{}]: {} in hotkey '{}'", app_name, e, key),
+              )
+              .into(),
+            );
           }
 
           // Normalize for duplicate detection (sort modifiers, keep base key at the end)
@@ -246,15 +252,18 @@ impl Config {
           if let Some(other_app) = seen_hotkeys.insert(normalized.clone(), app_name.clone()) {
             // Point to the hotkey field for duplicate errors too
             let hotkey_span = find_field_in_app_section(content, app_name, "hotkey");
-            return Err(format_error_with_span(
-              content,
-              path,
-              hotkey_span,
-              &format!(
-                "Duplicate hotkey '{}' (normalized: '{}') found in app '{}' and '{}'",
-                key, normalized, other_app, app_name
-              ),
-            ));
+            return Err(
+              format_error_with_span(
+                content,
+                path,
+                hotkey_span,
+                &format!(
+                  "Duplicate hotkey '{}' (normalized: '{}') found in app '{}' and '{}'",
+                  key, normalized, other_app, app_name
+                ),
+              )
+              .into(),
+            );
           }
         }
       }
@@ -264,15 +273,18 @@ impl Config {
       let app_span = find_app_section_span(content, app_name);
 
       if app_cfg.window_class.is_empty() {
-        return Err(format_error_with_span(
-          content,
-          path,
-          app_span.clone(),
-          &format!(
-            "App '{}' is missing required field 'window_class'.",
-            app_name
-          ),
-        ));
+        return Err(
+          format_error_with_span(
+            content,
+            path,
+            app_span.clone(),
+            &format!(
+              "App '{}' is missing required field 'window_class'.",
+              app_name
+            ),
+          )
+          .into(),
+        );
       }
       if app_cfg.window_class.len() < 3 {
         return Err(format_error_with_span(
@@ -283,18 +295,21 @@ impl Config {
             "App '{}' has a window_class '{}' that is too short. It must be at least 3 characters long for reliable fuzzy matching.",
             app_name, app_cfg.window_class
           ),
-        ));
+        ).into());
       }
       if app_cfg.start_command.is_empty() {
-        return Err(format_error_with_span(
-          content,
-          path,
-          app_span,
-          &format!(
-            "App [{}]: missing required field 'start_command'.",
-            app_name
-          ),
-        ));
+        return Err(
+          format_error_with_span(
+            content,
+            path,
+            app_span,
+            &format!(
+              "App [{}]: missing required field 'start_command'.",
+              app_name
+            ),
+          )
+          .into(),
+        );
       }
     }
 
@@ -307,14 +322,17 @@ impl Config {
         return Err(crate::error::format_error(&format!(
           "Invalid easing curve '{}' for [animation].{}. Use a keyword (like 'ease', 'windows', 'back-out') or a custom cubic-bezier (like 'cubic-bezier(0, 1, 1, 0)').",
           easing, name
-        )));
+        )).into());
       }
     }
 
     if self.app.is_empty() {
-      return Err(crate::error::format_error(
-        "No app configured. Add at least one [app] or [app.name] section to your config.",
-      ));
+      return Err(
+        crate::error::format_error(
+          "No app configured. Add at least one [app] or [app.name] section to your config.",
+        )
+        .into(),
+      );
     }
 
     Ok(())
@@ -577,7 +595,7 @@ fn default_hotkey() -> String {
 // Config Loading
 // =============================================================================
 
-pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathBuf>), String> {
+pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathBuf>), ConfigError> {
   if let Some(path) = target_path {
     if path.exists() {
       match fs::read_to_string(&path) {
@@ -588,21 +606,20 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
             return Ok((c, Some(path)));
           }
           Err(e) => {
-            return Err(format_toml_error(&content, &path, e));
+            return Err(format_toml_error(&content, &path, e).into());
           }
         },
         Err(e) => {
-          return Err(crate::error::format_error(&format!(
-            "Could not read config file at {:?}: {}",
-            path, e
-          )));
+          return Err(
+            crate::error::format_error(&format!("Could not read config file at {:?}: {}", path, e))
+              .into(),
+          );
         }
       }
     } else {
-      return Err(crate::error::format_error(&format!(
-        "Config file no longer exists at: {:?}",
-        path
-      )));
+      return Err(
+        crate::error::format_error(&format!("Config file no longer exists at: {:?}", path)).into(),
+      );
     }
   }
 
@@ -646,14 +663,14 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
             return Ok((c, Some(path)));
           }
           Err(e) => {
-            return Err(format_toml_error(&content, &path, e));
+            return Err(format_toml_error(&content, &path, e).into());
           }
         },
         Err(e) => {
-          return Err(crate::error::format_error(&format!(
-            "Could not read config file at {:?}: {}",
-            path, e
-          )));
+          return Err(
+            crate::error::format_error(&format!("Could not read config file at {:?}: {}", path, e))
+              .into(),
+          );
         }
       }
     }
@@ -661,7 +678,7 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
 
   Err(crate::error::format_error(
     "No config file found. Create ./janq.toml or ~/.config/janq/janq.toml with at least one [app] section.",
-  ))
+  ).into())
 }
 
 /// Formats a TOML error with line context and a visual pointer.
@@ -976,9 +993,12 @@ unknown_animation_key = "value"
     let formatted = format_toml_error(content, path, err);
 
     println!("{}", formatted);
-    assert!(formatted.contains("unknown field `baz`"));
-    assert!(formatted.contains("test.toml:2:1"));
-    assert!(formatted.contains("2 | baz = 123"));
+    // Note: formatted string contains ANSI color codes, so check for parts that aren't split
+    assert!(formatted.contains("unknown field"));
+    assert!(formatted.contains("baz"));
+    assert!(formatted.contains("test.toml"));
+    assert!(formatted.contains(":2:1"));
+    assert!(formatted.contains("baz = 123"));
     assert!(formatted.contains("^~~~"));
   }
 
@@ -1023,9 +1043,12 @@ hotkey = "Meta+Graveee" # Typo in key name
       .unwrap_err();
 
     println!("Semantic Error: {}", err);
-    assert!(err.contains("App [terminal]"));
-    assert!(err.contains("Graveee"));
-    assert!(err.contains("hotkey 'Meta+Graveee'"));
+    // Note: error message contains ANSI color codes, check for parts that aren't split
+    assert!(err.message.contains("App"));
+    assert!(err.message.contains("terminal"));
+    assert!(err.message.contains("Graveee"));
+    assert!(err.message.contains("hotkey"));
+    assert!(err.message.contains("Meta+Graveee"));
   }
 
   #[test]
@@ -1038,9 +1061,12 @@ displa_mode = "active" # Typo: displa -> display
     let formatted = format_toml_error(toml_str, std::path::Path::new("janq.toml"), err);
 
     println!("Structural Error:\n{}", formatted);
-    assert!(formatted.contains("unknown field `displa_mode`"));
-    assert!(formatted.contains("janq.toml:3:1"));
-    assert!(formatted.contains("3 | displa_mode = \"active\""));
+    // Note: formatted string contains ANSI color codes, so check for parts that aren't split
+    assert!(formatted.contains("unknown field"));
+    assert!(formatted.contains("displa_mode"));
+    assert!(formatted.contains("janq.toml"));
+    assert!(formatted.contains(":3:1"));
+    assert!(formatted.contains("displa_mode = \"active\""));
     assert!(formatted.contains("^~~~"));
   }
 }

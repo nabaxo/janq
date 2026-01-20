@@ -279,16 +279,16 @@ pub async fn run_daemon(
       .await;
 
     if let Err(e) = r1 {
-      show_error(&format!(
+      eprintln!(
         "janq: Failed to register Application interface at {}: {}",
         path, e
-      ));
+      );
     }
     if let Err(e) = r2 {
-      show_error(&format!(
+      eprintln!(
         "janq: Failed to register Daemon interface at {}: {}",
         path, e
-      ));
+      );
     }
   }
 

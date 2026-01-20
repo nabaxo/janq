@@ -11,7 +11,7 @@ use crate::config::Config;
 
 pub fn get_desktop_path() -> PathBuf {
   data_local_dir()
-    .expect("No data dir")
+    .expect("No XDG data directory found - is $HOME set?")
     .join("applications/dev.nabaxo.janq.desktop")
 }
 
@@ -22,7 +22,9 @@ pub fn enable_autostart(config: &Config) -> Result<()> {
     generate_desktop_file_headless(config)?;
   }
 
-  let autostart = config_dir().expect("No config dir").join("autostart");
+  let autostart = config_dir()
+    .expect("No XDG config directory found - is $HOME set?")
+    .join("autostart");
   let link = autostart.join("dev.nabaxo.janq.desktop");
 
   fs::create_dir_all(&autostart)?;
@@ -35,7 +37,7 @@ pub fn enable_autostart(config: &Config) -> Result<()> {
 
 pub fn disable_autostart() -> Result<()> {
   let link = config_dir()
-    .expect("No config dir")
+    .expect("No XDG config directory found - is $HOME set?")
     .join("autostart/dev.nabaxo.janq.desktop");
 
   if link.exists() || link.is_symlink() {
@@ -143,7 +145,7 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
 
   // 3. Service File (for DBusActivatable auto-start)
   let service_dir = data_local_dir()
-    .expect("No data dir")
+    .expect("No XDG data directory found - is $HOME set?")
     .join("dbus-1/services");
   fs::create_dir_all(&service_dir)?;
 
@@ -196,7 +198,7 @@ fn run_kbuildsycoca6() {
 fn install_icon() -> Result<()> {
   let icon_data = include_bytes!("../../icon.svg");
   let icon_dir = data_local_dir()
-    .expect("No data dir")
+    .expect("No XDG data directory found - is $HOME set?")
     .join("icons/hicolor/scalable/apps");
 
   fs::create_dir_all(&icon_dir)?;

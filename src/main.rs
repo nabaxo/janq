@@ -113,7 +113,7 @@ fn main() -> anyhow::Result<()> {
   let (config, config_path) = match config::load_config(None) {
     Ok(c) => c,
     Err(e) => {
-      show_error(&e);
+      show_error(&e.to_string());
       exit(1);
     }
   };

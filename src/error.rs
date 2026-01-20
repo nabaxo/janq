@@ -1,6 +1,49 @@
+use std::fmt;
 use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::process::Command;
+
+// =============================================================================
+// ConfigError - Wrapper for rich config error messages
+// =============================================================================
+
+/// A configuration error that preserves rich formatting while implementing std::error::Error.
+///
+/// This allows config errors to be used with `?` propagation while still providing
+/// the detailed, colorized error messages users expect.
+#[derive(Debug, Clone)]
+pub struct ConfigError {
+  /// The pre-formatted error message (may contain ANSI codes).
+  pub message: String,
+}
+
+impl ConfigError {
+  pub fn new(message: impl Into<String>) -> Self {
+    Self {
+      message: message.into(),
+    }
+  }
+}
+
+impl fmt::Display for ConfigError {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.message)
+  }
+}
+
+impl std::error::Error for ConfigError {}
+
+impl From<String> for ConfigError {
+  fn from(s: String) -> Self {
+    Self::new(s)
+  }
+}
+
+impl From<&str> for ConfigError {
+  fn from(s: &str) -> Self {
+    Self::new(s)
+  }
+}
 
 /// Formats an error with line context and a visual pointer.
 ///

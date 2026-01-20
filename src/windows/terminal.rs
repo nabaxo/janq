@@ -156,10 +156,10 @@ pub fn ensure_terminal_running(
   }
 
   if !found {
-    crate::windows::show_error(&format!(
+    eprintln!(
       "janq: Failed to detect window for '{}' after spawning.",
       app_name
-    ));
+    );
   }
   found
 }

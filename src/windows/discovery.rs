@@ -107,16 +107,18 @@ pub fn find_window_by_process(name: &str, candidates: Option<&[FoundWindow]>) ->
 
   if let Some(list) = candidates {
     if let Some(best) = fuzzy_match_window(name, list, &managed_ids) {
-      let handle = best.id.parse::<usize>().unwrap();
-      return Some(HWND(handle as *mut _));
+      if let Ok(handle) = best.id.parse::<usize>() {
+        return Some(HWND(handle as *mut _));
+      }
     }
     return None;
   }
 
   let found_data = fetch_system_windows();
   if let Some(best) = fuzzy_match_window(name, &found_data, &managed_ids) {
-    let handle = best.id.parse::<usize>().unwrap();
-    return Some(HWND(handle as *mut _));
+    if let Ok(handle) = best.id.parse::<usize>() {
+      return Some(HWND(handle as *mut _));
+    }
   }
 
   None
