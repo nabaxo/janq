@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] - 2026-01-20
+
+### Changed
+- **Code Quality**: Extracted shared ANSI stripping and position calculation logic to reduce duplication.
+- **Code Quality**: Unified config watcher logic across platform daemons.
+- **Code Quality**: Improved error handling and reduced aggressive GUI popups for non-critical issues.
+
 ## [1.1.4] - 2026-01-19
 
 ### Added
