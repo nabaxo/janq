@@ -9,7 +9,7 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::config::{AppConfig, Config, PositionOffset, SlideDirection};
+use crate::config::{AppConfig, Config};
 use crate::windows::discovery::find_window_by_process;
 use crate::windows::window::{get_animation_cancel, get_hwnd_cache, get_visible_app, SendHwnd};
 
@@ -58,54 +58,24 @@ pub fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConfig) {
         cur_h
       };
 
-      // Compute hidden position based on slide direction and offset
+      // Resolve slide config
       let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
-      let is_horizontal = matches!(slide_from, SlideDirection::Top | SlideDirection::Bottom);
 
-      let along_pos = if is_horizontal {
-        match &position_offset {
-          PositionOffset::Center => work_area.left + (screen_w - tw) / 2,
-          PositionOffset::Pixels(px) => {
-            if *px >= 0 {
-              work_area.left + *px
-            } else {
-              work_area.right - tw + *px
-            }
-          }
-          PositionOffset::Percent(pct) => {
-            if *pct >= 0.0 {
-              work_area.left + (screen_w as f64 * *pct) as i32
-            } else {
-              work_area.right - tw - (screen_w as f64 * pct.abs()) as i32
-            }
-          }
-        }
-      } else {
-        match &position_offset {
-          PositionOffset::Center => work_area.top + (screen_h - th) / 2,
-          PositionOffset::Pixels(px) => {
-            if *px >= 0 {
-              work_area.top + *px
-            } else {
-              work_area.bottom - th + *px
-            }
-          }
-          PositionOffset::Percent(pct) => {
-            if *pct >= 0.0 {
-              work_area.top + (screen_h as f64 * *pct) as i32
-            } else {
-              work_area.bottom - th - (screen_h as f64 * pct.abs()) as i32
-            }
-          }
-        }
+      // Compute hidden position using shared logic
+      let work_area_rect = crate::config::WorkArea {
+        left: work_area.left,
+        top: work_area.top,
+        right: work_area.right,
+        bottom: work_area.bottom,
       };
-
-      let (tx, ty) = match slide_from {
-        SlideDirection::Top => (along_pos, work_area.top - th - 10),
-        SlideDirection::Bottom => (along_pos, work_area.bottom + 10),
-        SlideDirection::Left => (work_area.left - tw - 10, along_pos),
-        SlideDirection::Right => (work_area.right + 10, along_pos),
-      };
+      let positions = crate::config::compute_slide_positions(
+        &slide_from,
+        &position_offset,
+        work_area_rect,
+        tw,
+        th,
+      );
+      let (tx, ty) = (positions.hidden_x, positions.hidden_y);
 
       let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, tx, ty, tw, th, SWP_NOACTIVATE);
     }

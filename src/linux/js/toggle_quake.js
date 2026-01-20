@@ -68,10 +68,10 @@
     const key = (sibClass || "").toLowerCase();
     if (allSlideConfigs && allSlideConfigs[key]) {
       const cfg = allSlideConfigs[key];
-      return { dir: cfg.dir, val: cfg.val, pct: cfg.pct, neg: cfg.neg, ctr: cfg.ctr };
+      return { dir: cfg.dir, val: cfg.val, pct: cfg.pct, neg: cfg.neg, ctr: cfg.ctr, easing: cfg.easing };
     }
     // Fallback to current app's config (shouldn't happen for managed apps)
-    return { dir: slideFrom, val: offsetValue, pct: offsetIsPercent, neg: offsetIsNegative, ctr: offsetIsCenter };
+    return { dir: slideFrom, val: offsetValue, pct: offsetIsPercent, neg: offsetIsNegative, ctr: offsetIsCenter, easing: easingType };
   }
 
   const target = findTarget(windowClass, targetWindowId, targetPid);
@@ -80,7 +80,7 @@
   const currentArea = workspace.clientArea(KWin.FullScreenArea, target);
   // Use a stable, screen-based area for calculations instead of switching between clientArea(target) and screen logic.
   // This matches Windows rcWork behavior and prevents center positioning drift.
-  const area = resolveArea(target, displayMode, displayIndex, currentArea);
+  const area = shouldShow ? resolveArea(target, displayMode, displayIndex, currentArea) : currentArea;
 
   let startX = target.frameGeometry.x;
   let startY = target.frameGeometry.y;
@@ -154,7 +154,21 @@
 
     if (isManaged) {
       const cArea = workspace.clientArea(KWin.PlacementArea, c);
-      if (c.opacity > 0.01 && c.frameGeometry.y + c.frameGeometry.height > cArea.y + 1) {
+      const sibCfg = getSiblingSlideConfig(c.resourceClass || c.resourceName);
+      let isActuallyVisible = false;
+
+      // Direction-aware visibility detection
+      if (sibCfg.dir === "top") {
+        isActuallyVisible = (c.frameGeometry.y + c.frameGeometry.height > cArea.y + 1);
+      } else if (sibCfg.dir === "bottom") {
+        isActuallyVisible = (c.frameGeometry.y < cArea.y + cArea.height - 1);
+      } else if (sibCfg.dir === "left") {
+        isActuallyVisible = (c.frameGeometry.x + c.frameGeometry.width > cArea.x + 1);
+      } else if (sibCfg.dir === "right") {
+        isActuallyVisible = (c.frameGeometry.x < cArea.x + cArea.width - 1);
+      }
+
+      if (c.opacity > 0.01 && isActuallyVisible) {
         siblingsToHide.push(c);
       }
     }
@@ -180,7 +194,8 @@
             startY: sib.frameGeometry.y,
             startOpacity: sib.opacity,
             endX: sibOffscreen.hiddenX,
-            endY: sibOffscreen.hiddenY
+            endY: sibOffscreen.hiddenY,
+            easing: sibCfg.easing
           });
         }
 
@@ -211,12 +226,13 @@
           target.frameGeometry = { x: currentX, y: currentY, width: finalWidth, height: finalHeight };
 
           for (const data of siblingDatas) {
-            const sibX = data.startX + (data.endX - data.startX) * ease;
-            const sibY = data.startY + (data.endY - data.startY) * ease;
+            const sibEase = getEasing(progress, data.easing);
+            const sibX = data.startX + (data.endX - data.startX) * sibEase;
+            const sibY = data.startY + (data.endY - data.startY) * sibEase;
             data.client.frameGeometry = { x: sibX, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
             if (animateOpacity) {
               const denom = 1.0 - hideOpacityPoint;
-              const opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+              const opacityEase = Math.min(1.0, Math.max(0, (sibEase - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
               data.client.opacity = Math.min(data.client.opacity, data.startOpacity * (1.0 - opacityEase));
             }
           }
@@ -277,7 +293,8 @@
           startY: sib.frameGeometry.y,
           startOpacity: sib.opacity,
           endX: sibOffscreen.hiddenX,
-          endY: sibOffscreen.hiddenY
+          endY: sibOffscreen.hiddenY,
+          easing: sibCfg.easing
         });
       }
 
@@ -300,12 +317,13 @@
         target.frameGeometry = { x: currentX, y: currentY, width: finalWidth, height: finalHeight };
 
         for (const data of siblingDatas) {
-          const sibX = data.startX + (data.endX - data.startX) * ease;
-          const sibY = data.startY + (data.endY - data.startY) * ease;
+          const sibEase = getEasing(progress, data.easing);
+          const sibX = data.startX + (data.endX - data.startX) * sibEase;
+          const sibY = data.startY + (data.endY - data.startY) * sibEase;
           data.client.frameGeometry = { x: sibX, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
           if (animateOpacity) {
             const denom = 1.0 - hideOpacityPoint;
-            const opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+            const opacityEase = Math.min(1.0, Math.max(0, (sibEase - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
             data.client.opacity = Math.min(data.client.opacity, data.startOpacity * (1.0 - opacityEase));
           }
         }

@@ -61,7 +61,8 @@
       console.log(`janq_grab: Grabbing window for ${app.windowClass} (id: ${target.internalId}, pid: ${target.pid})`);
       setQuakeProperties(target, app.keepAbove, app.isVisible, app.forcePriority);
 
-      const area = resolveArea(target, app.displayMode, app.displayIndex, null);
+      const currentArea = workspace.clientArea(KWin.PlacementArea, target);
+      const area = resolveArea(target, app.displayMode, app.displayIndex, currentArea);
       const dims = resolveDimensions(app.width, app.isWidthPercent, app.height, app.isHeightPercent, area, target);
       const slidePos = computeSlidePosition(
         app.slideFrom || "top",

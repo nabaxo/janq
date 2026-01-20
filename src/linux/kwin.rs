@@ -523,13 +523,14 @@ async fn run_toggle_script(
       PositionOffset::Center
     );
     all_slide_configs.push(format!(
-      "'{}': {{ dir: '{}', val: {}, pct: {}, neg: {}, ctr: {} }}",
+      "'{}': {{ dir: '{}', val: {}, pct: {}, neg: {}, ctr: {}, easing: '{}' }}",
       other_app.window_class.to_lowercase(),
       other_dir_str,
       other_val,
       other_is_pct,
       other_is_neg,
-      other_is_center
+      other_is_center,
+      config.animation.hide_easing
     ));
   }
   let all_slide_configs_str = format!("{{ {} }}", all_slide_configs.join(", "));

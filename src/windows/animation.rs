@@ -258,20 +258,26 @@ pub fn run_animation_task_sync(
             let sib_positions =
               compute_slide_positions(sib_dir, sib_offset, sib_work_area, s_w, s_h);
 
-            // Siblings slide out with a small offset past the edge
-            let (sib_end_x, sib_end_y) = match sib_dir {
-              SlideDirection::Top => (sib_positions.hidden_x, sib_positions.hidden_y - 10),
-              SlideDirection::Bottom => (sib_positions.hidden_x, sib_positions.hidden_y + 10),
-              SlideDirection::Left => (sib_positions.hidden_x - 10, sib_positions.hidden_y),
-              SlideDirection::Right => (sib_positions.hidden_x + 10, sib_positions.hidden_y),
-            };
+            let (sib_easing_cfg, _) = (
+              &config.animation.hide_easing,
+              &config.animation.hide_duration,
+            );
+
+            // Siblings slide out using their hidden positions from compute_slide_positions
+            let (sib_end_x, sib_end_y) = (sib_positions.hidden_x, sib_positions.hidden_y);
 
             let mut sa: u8 = 255;
             let _ = GetLayeredWindowAttributes(ohwnd.inner(), None, Some(&mut sa), None);
             siblings_data.push((
-              ohwnd, r.left, // start_x
+              ohwnd,
+              r.left, // start_x
               r.top,  // start_y
-              s_w, s_h, sib_end_x, sib_end_y, sa,
+              s_w,
+              s_h,
+              sib_end_x,
+              sib_end_y,
+              sa,
+              sib_easing_cfg.clone(),
             ));
           }
         }
@@ -348,7 +354,7 @@ pub fn run_animation_task_sync(
       &TRUE as *const _ as *const _,
       4,
     );
-    for (h, _, _, _, _, _, _, _) in &siblings_data {
+    for (h, _, _, _, _, _, _, _, _) in &siblings_data {
       let _ = DwmSetWindowAttribute(
         h.inner(),
         DWMWA_TRANSITIONS_FORCEDISABLED,
@@ -380,7 +386,7 @@ pub fn run_animation_task_sync(
     } else {
       prep_layer(target_hwnd.inner());
     }
-    for (h, _, _, _, _, _, _, _) in &siblings_data {
+    for (h, _, _, _, _, _, _, _, _) in &siblings_data {
       let ex = GetWindowLongW(h.inner(), GWL_EXSTYLE);
       if (ex & WS_EX_LAYERED.0 as i32) == 0 {
         prep_layer(h.inner());
@@ -431,15 +437,15 @@ pub fn run_animation_task_sync(
       let mut last_alpha = t_curr_alpha;
       let mut last_sibling_xs: Vec<i32> = siblings_data
         .iter()
-        .map(|(_, sx, _, _, _, _, _, _)| *sx)
+        .map(|(_, sx, _, _, _, _, _, _, _)| *sx)
         .collect();
       let mut last_sibling_ys: Vec<i32> = siblings_data
         .iter()
-        .map(|(_, _, sy, _, _, _, _, _)| *sy)
+        .map(|(_, _, sy, _, _, _, _, _, _)| *sy)
         .collect();
       let mut last_sibling_alphas: Vec<u8> = siblings_data
         .iter()
-        .map(|(_, _, _, _, _, _, _, sa)| *sa)
+        .map(|(_, _, _, _, _, _, _, sa, _)| *sa)
         .collect();
 
       loop {
@@ -485,7 +491,7 @@ pub fn run_animation_task_sync(
             last_alpha = t_alpha;
           }
 
-          for (i, (h, _, _, _, _, _, _, sa)) in siblings_data.iter().enumerate() {
+          for (i, (h, _, _, _, _, _, _, sa, _)) in siblings_data.iter().enumerate() {
             let s_denom = 1.0 - config.animation.hide_opacity_point;
             let s_opacity_ease = ((ease_val - config.animation.hide_opacity_point)
               / if s_denom <= 0.0 { 0.0001 } else { s_denom })
@@ -513,9 +519,10 @@ pub fn run_animation_task_sync(
         if next_x != last_x || next_y != last_y || first_frame {
           needs_pos_update = true;
         } else {
-          for (i, (_, sx, sy, _, _, ex, ey, _)) in siblings_data.iter().enumerate() {
-            let on_x = sx + ((*ex - *sx) as f64 * ease_val) as i32;
-            let on_y = sy + ((*ey - *sy) as f64 * ease_val) as i32;
+          for (i, (_, sx, sy, _, _, ex, ey, _, sib_easing)) in siblings_data.iter().enumerate() {
+            let sib_ease_val = get_easing(progress, sib_easing);
+            let on_x = sx + ((*ex - *sx) as f64 * sib_ease_val) as i32;
+            let on_y = sy + ((*ey - *sy) as f64 * sib_ease_val) as i32;
             if on_x != last_sibling_xs[i] || on_y != last_sibling_ys[i] {
               needs_pos_update = true;
               break;
@@ -557,9 +564,11 @@ pub fn run_animation_task_sync(
               _ => {}
             }
 
-            for (i, (h, sx, sy, sw, sh, ex, ey, _)) in siblings_data.iter().enumerate() {
-              let on_x = sx + ((*ex - *sx) as f64 * ease_val) as i32;
-              let on_y = sy + ((*ey - *sy) as f64 * ease_val) as i32;
+            for (i, (h, sx, sy, sw, sh, ex, ey, _, sib_easing)) in siblings_data.iter().enumerate()
+            {
+              let sib_ease_val = get_easing(progress, sib_easing);
+              let on_x = sx + ((*ex - *sx) as f64 * sib_ease_val) as i32;
+              let on_y = sy + ((*ey - *sy) as f64 * sib_ease_val) as i32;
               match DeferWindowPos(
                 hdwp,
                 h.inner(),
@@ -653,15 +662,15 @@ pub fn run_animation_task_sync(
           next = GetWindow(valid_next, GW_HWNDNEXT);
         }
 
-        let prev = get_previous_focus().lock().unwrap();
-        if let Some(h) = *prev {
+        let prev_lock = get_previous_focus().lock().unwrap();
+        if let Some(h) = *prev_lock {
           if IsWindowVisible(h.0).as_bool() {
-            let _ = SetForegroundWindow(h.0);
+            force_focus(h.0);
           }
         }
       }
     }
-    for (h, _, _, _, _, _, _, _) in siblings_data {
+    for (h, _, _, _, _, _, _, _, _) in siblings_data {
       let _ = ShowWindow(h.inner(), SW_HIDE);
     }
   }

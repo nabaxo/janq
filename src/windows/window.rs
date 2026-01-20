@@ -195,40 +195,20 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
     }
   };
 
-  // 2. Discover siblings
+  // 2. Discover siblings via HWND_CACHE (Performance optimized)
   let mut siblings = Vec::new();
-  for (name, cfg) in &config.app {
-    if name == app_name {
-      continue;
-    }
-    let mut cached_h = None;
-    {
-      let cache = get_hwnd_cache().read().unwrap();
-      if let Some(h) = cache.get(name) {
-        unsafe {
-          if IsWindow(h.inner()).as_bool() {
-            cached_h = Some(*h);
-          }
+  {
+    let cache = get_hwnd_cache().read().unwrap();
+    for (name, sh) in cache.iter() {
+      if name == app_name {
+        continue;
+      }
+      unsafe {
+        if IsWindow(sh.inner()).as_bool() && IsWindowVisible(sh.inner()).as_bool() {
+          siblings.push(*sh);
         }
       }
     }
-    let found_hwnd = if let Some(h) = cached_h {
-      h
-    } else {
-      match find_window_by_process(&cfg.window_class, None) {
-        Some(h) => {
-          let mut cache = get_hwnd_cache().write().unwrap();
-          let wrapper = SendHwnd(h);
-          cache.insert(name.clone(), wrapper);
-          wrapper
-        }
-        None => continue,
-      }
-    };
-    if found_hwnd.0 == target_hwnd.0 {
-      continue;
-    }
-    siblings.push(found_hwnd);
   }
 
   // Calculate reverse progress if interrupting

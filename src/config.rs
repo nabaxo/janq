@@ -248,29 +248,30 @@ pub fn compute_slide_positions(
   };
 
   // Calculate shown/hidden positions based on slide direction
+  // Fixed: Added 10px buffer to hidden positions to ensure shadows are fully hidden (aligned with parking.rs)
   let (shown_x, shown_y, hidden_x, hidden_y) = match slide_from {
     SlideDirection::Top => (
       along_pos,
       work_area.top,
       along_pos,
-      work_area.top - window_h,
+      work_area.top - window_h - 10,
     ),
     SlideDirection::Bottom => (
       along_pos,
       work_area.bottom - window_h,
       along_pos,
-      work_area.bottom,
+      work_area.bottom + 10,
     ),
     SlideDirection::Left => (
       work_area.left,
       along_pos,
-      work_area.left - window_w,
+      work_area.left - window_w - 10,
       along_pos,
     ),
     SlideDirection::Right => (
       work_area.right - window_w,
       along_pos,
-      work_area.right,
+      work_area.right + 10,
       along_pos,
     ),
   };
