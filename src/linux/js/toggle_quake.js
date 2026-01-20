@@ -8,56 +8,58 @@
 ) {
   /*{{COMMON_KWIN_JS}}*/
 
-  // Compute position along edge based on slide direction and offset
-  function computeSlidePosition(direction, offsetVal, isPercent, isNegative, isCenter, area, winW, winH) {
+  // Compute position along edge based on slide direction and offset.
+  // Uses workArea (workspace) for shown position and fixed axis alignment,
+  // and fullArea (absolute screen) for the hidden position on the sliding axis.
+  function computeSlidePosition(direction, offsetVal, isPercent, isNegative, isCenter, workArea, fullArea, winW, winH) {
     let shownX, shownY, hiddenX, hiddenY;
 
     if (direction === "top" || direction === "bottom") {
-      // Horizontal positioning along top/bottom edge
+      // Fixed axis: X (Lock to workArea center/offset)
       if (isCenter) {
-        shownX = area.x + (area.width - winW) / 2;
+        shownX = workArea.x + (workArea.width - winW) / 2;
       } else if (isPercent) {
         const pct = offsetVal / 100;
         shownX = isNegative
-          ? area.x + area.width - winW - (area.width * pct)
-          : area.x + (area.width * pct);
+          ? workArea.x + workArea.width - winW - (workArea.width * pct)
+          : workArea.x + (workArea.width * pct);
       } else {
         shownX = isNegative
-          ? area.x + area.width - winW - offsetVal
-          : area.x + offsetVal;
+          ? workArea.x + workArea.width - winW - offsetVal
+          : workArea.x + offsetVal;
       }
+      hiddenX = shownX; // Lock fixed axis
 
       if (direction === "top") {
-        shownY = area.y;
-        hiddenY = area.y - winH;
+        shownY = workArea.y;
+        hiddenY = fullArea.y - winH;
       } else {
-        shownY = area.y + area.height - winH;
-        hiddenY = area.y + area.height;
+        shownY = workArea.y + workArea.height - winH;
+        hiddenY = fullArea.y + fullArea.height;
       }
-      hiddenX = shownX;
     } else {
-      // Vertical positioning along left/right edge
+      // Fixed axis: Y (Lock to workArea center/offset)
       if (isCenter) {
-        shownY = area.y + (area.height - winH) / 2;
+        shownY = workArea.y + (workArea.height - winH) / 2;
       } else if (isPercent) {
         const pct = offsetVal / 100;
         shownY = isNegative
-          ? area.y + area.height - winH - (area.height * pct)
-          : area.y + (area.height * pct);
+          ? workArea.y + workArea.height - winH - (workArea.height * pct)
+          : workArea.y + (workArea.height * pct);
       } else {
         shownY = isNegative
-          ? area.y + area.height - winH - offsetVal
-          : area.y + offsetVal;
+          ? workArea.y + workArea.height - winH - offsetVal
+          : workArea.y + offsetVal;
       }
+      hiddenY = shownY; // Lock fixed axis
 
       if (direction === "left") {
-        shownX = area.x;
-        hiddenX = area.x - winW;
+        shownX = workArea.x;
+        hiddenX = fullArea.x - winW;
       } else {
-        shownX = area.x + area.width - winW;
-        hiddenX = area.x + area.width;
+        shownX = workArea.x + workArea.width - winW;
+        hiddenX = fullArea.x + fullArea.width;
       }
-      hiddenY = shownY;
     }
 
     return { shownX, shownY, hiddenX, hiddenY };
@@ -77,10 +79,11 @@
   const target = findTarget(windowClass, targetWindowId, targetPid);
   if (!target) return;
 
-  const currentArea = workspace.clientArea(KWin.FullScreenArea, target);
-  // Use a stable, screen-based area for calculations instead of switching between clientArea(target) and screen logic.
-  // This matches Windows rcWork behavior and prevents center positioning drift.
-  const area = shouldShow ? resolveArea(target, displayMode, displayIndex, currentArea) : currentArea;
+  // Resolve the monitor and areas together for perfect stability.
+  // The internal 'sticky' logic in resolveAreaContext handles hide-locking automatically.
+  const context = resolveAreaContext(target, displayMode, displayIndex);
+  const workArea = context.work;
+  const fullArea = context.full;
 
   let startX = target.frameGeometry.x;
   let startY = target.frameGeometry.y;
@@ -94,37 +97,37 @@
   let offscreenPos, onScreenThreshold;
   if (isHorizontalSlide) {
     if (slideFrom === "left") {
-      offscreenPos = area.x - target.frameGeometry.width;
-      onScreenThreshold = area.x + 50;
+      offscreenPos = fullArea.x - target.frameGeometry.width;
+      onScreenThreshold = workArea.x + 50;
     } else {
-      offscreenPos = area.x + area.width;
-      onScreenThreshold = area.x + area.width - target.frameGeometry.width - 50;
+      offscreenPos = fullArea.x + fullArea.width;
+      onScreenThreshold = workArea.x + workArea.width - target.frameGeometry.width - 50;
     }
   } else {
     if (slideFrom === "top") {
-      offscreenPos = area.y - target.frameGeometry.height;
-      onScreenThreshold = area.y + 50;
+      offscreenPos = fullArea.y - target.frameGeometry.height;
+      onScreenThreshold = workArea.y + 50;
     } else {
-      offscreenPos = area.y + area.height;
-      onScreenThreshold = area.y + area.height - target.frameGeometry.height - 50;
+      offscreenPos = fullArea.y + fullArea.height;
+      onScreenThreshold = workArea.y + workArea.height - target.frameGeometry.height - 50;
     }
   }
 
   const onWrongMonitor = isHorizontalSlide
-    ? (startY < area.y - 10) || (startY > area.y + area.height + 10)
-    : (startX < area.x - 10) || (startX > area.x + area.width + 10);
+    ? (startY < workArea.y - 10) || (startY > workArea.y + workArea.height + 10)
+    : (startX < workArea.x - 10) || (startX > workArea.x + workArea.width + 10);
 
   const needsReposition = onWrongMonitor || (isHorizontalSlide
     ? (slideFrom === "left" ? startX < offscreenPos - 50 || startX > onScreenThreshold : startX > offscreenPos + 50 || startX < onScreenThreshold)
     : (slideFrom === "top" ? startY < offscreenPos - 50 || startY > onScreenThreshold : startY > offscreenPos + 50 || startY < onScreenThreshold));
 
   if (needsReposition) {
-    const dims = resolveDimensions(width, isWidthPercent, height, isHeightPercent, area, target);
+    const dims = resolveDimensions(width, isWidthPercent, height, isHeightPercent, workArea, target);
     finalWidth = dims.width;
     finalHeight = dims.height;
   }
 
-  const slidePos = computeSlidePosition(slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter, area, finalWidth, finalHeight);
+  const slidePos = computeSlidePosition(slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter, workArea, fullArea, finalWidth, finalHeight);
   const finalX = slidePos.shownX;
   const finalY = slidePos.shownY;
   const offscreenX = slidePos.hiddenX;
@@ -185,9 +188,11 @@
         const diffY = finalY - startY;
         const siblingDatas = [];
         for (const sib of siblingsToHide) {
-          const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
+          const sibContext = resolveAreaContext(sib, "active", 0); // Active mode for siblings is effectively current monitor
+          const sibWorkArea = sibContext.work;
+          const sibFullArea = sibContext.full;
           const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
-          const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibArea, sib.frameGeometry.width, sib.frameGeometry.height);
+          const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibWorkArea, sibFullArea, sib.frameGeometry.width, sib.frameGeometry.height);
           siblingDatas.push({
             client: sib,
             startX: sib.frameGeometry.x,
@@ -284,9 +289,11 @@
 
       const siblingDatas = [];
       for (const sib of siblingsToHide) {
-        const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
+        const sibContext = resolveAreaContext(sib, "active", 0);
+        const sibWorkArea = sibContext.work;
+        const sibFullArea = sibContext.full;
         const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
-        const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibArea, sib.frameGeometry.width, sib.frameGeometry.height);
+        const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibWorkArea, sibFullArea, sib.frameGeometry.width, sib.frameGeometry.height);
         siblingDatas.push({
           client: sib,
           startX: sib.frameGeometry.x,

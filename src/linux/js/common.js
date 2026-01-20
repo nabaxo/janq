@@ -187,34 +187,55 @@ const focusKick = (target, restoreOriginal) => {
   }
 };
 
-const resolveArea = (target, displayMode, displayIndex, currentArea) => {
+const resolveAreaContext = (target, displayMode, displayIndex) => {
   const screens = workspace.screens || [];
+  let screen = workspace.activeScreen;
+
+  // 1. Specific monitor overrides everything
   if (displayMode === "specific" && displayIndex >= 0 && displayIndex < screens.length) {
-    return screens[displayIndex].geometry;
+    screen = screens[displayIndex];
+  } else {
+    // 2. Sticky Logic: If the window is already visible and on a valid monitor, stay there.
+    // This prevents diagonal jumps during hides/follows.
+    const targetArea = workspace.clientArea(KWin.PlacementArea, target);
+    const isVisible = (targetArea && target.opacity > 0.05 && target.frameGeometry.y + target.frameGeometry.height > targetArea.y + 5);
+
+    if (isVisible) {
+      screen = target;
+    } else if (displayMode === "active") {
+      // 3. Active Window Logic (only if Janq isn't already visible)
+      const activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
+      if (activeWin && (normalizeId(activeWin.internalId) !== normalizeId(target.internalId))) {
+        screen = activeWin;
+      }
+    } else {
+      // 4. Follow-Mouse Logic (fallback)
+      const cursorPos = workspace.cursorPos;
+      for (const s of screens) {
+        const geo = s.geometry;
+        if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
+          cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
+          screen = s;
+          break;
+        }
+      }
+    }
   }
 
-  const activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
-  const isTargetActive = (activeWin && activeWin.internalId && target.internalId && normalizeId(activeWin.internalId) === normalizeId(target.internalId));
-
-  if (displayMode === "active") {
-    if (activeWin && !isTargetActive) {
-      return workspace.clientArea(KWin.PlacementArea, activeWin);
-    }
-    if (currentArea && target.opacity > 0.05 && target.frameGeometry.y + target.frameGeometry.height > currentArea.y + 5) {
-      return currentArea;
-    }
-    return workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop);
+  // Handle clientArea's flexible argument types (Window vs Screen object)
+  if (screen.geometry !== undefined) {
+    // Screen object - needs currentDesktop
+    return {
+      work: workspace.clientArea(KWin.PlacementArea, screen, workspace.currentDesktop),
+      full: workspace.clientArea(KWin.FullScreenArea, screen, workspace.currentDesktop)
+    };
+  } else {
+    // Window object - KWin derives screen/desktop from it automatically
+    return {
+      work: workspace.clientArea(KWin.PlacementArea, screen),
+      full: workspace.clientArea(KWin.FullScreenArea, screen)
+    };
   }
-
-  const cursorPos = workspace.cursorPos;
-  for (const screen of screens) {
-    const geo = screen.geometry;
-    if (cursorPos.x >= geo.x && cursorPos.x < geo.x + geo.width &&
-      cursorPos.y >= geo.y && cursorPos.y < geo.y + geo.height) {
-      return geo;
-    }
-  }
-  return (workspace.activeScreen ? workspace.activeScreen.geometry : null);
 };
 
 const resolveDimensions = (width, isWidthPercent, height, isHeightPercent, area, target) => {

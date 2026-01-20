@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.6] - 2026-01-20
+
+### Fixed
+- **Linux**: Comprehensive taskbar respect for all slide directions. Implemented "Dual-Area" logic to anchor shown positions to the workspace while depth hiding to absolute monitor bounds.
+- **Linux**: Eliminated diagonal drift during horizontal slides by locking the fixed-axis coordinate to a stable monitor context throughout the animation.
+- **Linux**: Resolved "monitor jump" bug where `follow-mouse` mode would shift the coordinate system mid-animation if the cursor moved.
+- **Linux**: Fixed follow-mouse hide "jump" and initial parking teleportation.
+- **Windows**: Improved hide-animation focus restoration robustness using thread-input attachment.
+- **Windows**: Synchronized 10px shadow buffer offsets between animation and parking logic for visual consistency.
+
+### Added
+- **Linux**: Independent sibling easing. Sibling windows now use their own individual `hide_easing` curves during primary window toggles.
+- **Documentation**: Added priority hierarchy note for animation `duration` and `easing` configurations.
+
+### Changed
+- **Windows**: Optimized sibling discovery by utilizing `HWND_CACHE`, eliminating expensive system-wide process enumeration during animations.
+- **Linux**: Refactored KWin area resolution into a robust `resolveAreaContext` for bulletproof coordinate stability.
+
 ## [1.1.5] - 2026-01-20
 
 ### Changed
