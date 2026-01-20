@@ -32,18 +32,14 @@ use std::{
   env::temp_dir,
   fs::File,
   path::PathBuf,
-  sync::{
-    mpsc::{channel, RecvTimeoutError},
-    Arc, RwLock,
-  },
+  sync::{mpsc::channel, Arc, RwLock},
   thread::{sleep as thread_sleep, Builder},
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use anyhow::Result;
 use fs2::FileExt;
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
-use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
 use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
   MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
@@ -189,7 +185,6 @@ pub fn run_daemon(
   let hotkey_map = Arc::new(RwLock::new(FxHashMap::default()));
 
   // 5. Config Watcher
-  // (Watcher code remains mostly the same, but using std::thread and sync calls)
   let config_clone_watcher = config.clone();
   let path_to_watch = config_path.clone();
 
@@ -207,123 +202,54 @@ pub fn run_daemon(
     }
   });
 
-  Builder::new()
-    .name("config-watcher".to_string())
-    .stack_size(128 * 1024)
-    .spawn(move || {
-      let (tx, rx) = channel();
-      let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default()).unwrap();
-
-      if let Some(path) = &path_to_watch {
-        if let Ok(abs_path) = path.canonicalize() {
-          println!("Watcher: Monitoring config file: {:?}", abs_path);
-          if let Some(parent) = abs_path.parent() {
-            let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
-          } else {
-            let _ = watcher.watch(&abs_path, RecursiveMode::NonRecursive);
-          }
-        } else {
-          let _ = watcher.watch(path, RecursiveMode::NonRecursive);
+  crate::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
+    let (new_config, _) = match load_config(path_to_watch.clone()) {
+      Ok(c) => c,
+      Err(e) => {
+        // Restore all apps from current config before shutting down
+        let current_cfg = config_clone_watcher.read().unwrap().clone();
+        for app_cfg in current_cfg.app.values() {
+          restore_app_window(&app_cfg.window_class);
         }
-      } else if let Some(home) = dirs::home_dir() {
-        let _ = watcher.watch(&home, RecursiveMode::NonRecursive);
+        show_error(&e.to_string());
+        let _ = event_tx_watcher.send(DaemonEvent::Exit(Some("Config error")));
+        return;
       }
+    };
+    {
+      let mut w = config_clone_watcher.write().unwrap();
+      let old_config = (**w).clone();
+      *w = Arc::new(new_config.clone());
 
-      let debounce_duration = Duration::from_millis(500);
-      let mut last_event = Instant::now();
-      let mut pending = false;
-
-      loop {
-        let timeout = if pending {
-          debounce_duration.saturating_sub(last_event.elapsed())
-        } else {
-          Duration::from_secs(60)
-        };
-
-        match rx.recv_timeout(timeout) {
-          Ok(Ok(event)) => {
-            let mut is_config_file = false;
-            if let Some(target_path) = &path_to_watch {
-              let target_path_abs = target_path.canonicalize().unwrap_or(target_path.clone());
-              for p in &event.paths {
-                let p_abs = p.canonicalize().unwrap_or(p.clone());
-                if p_abs == target_path_abs {
-                  is_config_file = true;
-                  break;
-                }
-              }
-            } else if let Some(home) = dirs::home_dir() {
-              let target = home.join(".janq.toml");
-              for p in &event.paths {
-                if p == &target {
-                  is_config_file = true;
-                  break;
-                }
+      // Handle removed or changed apps
+      let mut to_restore = Vec::new();
+      {
+        let mut cache = get_hwnd_cache().write().unwrap();
+        for (name, old_app_cfg) in &old_config.app {
+          match new_config.app.get(name) {
+            Some(new_app_cfg) => {
+              // App still exists, but check if class changed
+              if new_app_cfg.window_class != old_app_cfg.window_class {
+                cache.remove(name);
               }
             }
-
-            if is_config_file {
-              last_event = Instant::now();
-              pending = true;
+            None => {
+              // App removed - restore window and clear cache
+              to_restore.push(old_app_cfg.window_class.clone());
+              cache.remove(name);
             }
           }
-          Ok(Err(e)) => show_error(&format!("Watcher error: {:?}", e)),
-          Err(RecvTimeoutError::Timeout) => {
-            if pending {
-              pending = false;
-              println!("Config change detected, reloading...");
-              let (new_config, _) = match load_config(path_to_watch.clone()) {
-                Ok(c) => c,
-                Err(e) => {
-                  // Restore all apps from current config before shutting down
-                  let current_cfg = config_clone_watcher.read().unwrap().clone();
-                  for app_cfg in current_cfg.app.values() {
-                    restore_app_window(&app_cfg.window_class);
-                  }
-                  show_error(&e.to_string());
-                  let _ = event_tx_watcher.send(DaemonEvent::Exit(Some("Config error")));
-                  return;
-                }
-              };
-              {
-                let mut w = config_clone_watcher.write().unwrap();
-                let old_config = (**w).clone();
-                *w = Arc::new(new_config.clone());
-
-                // 1. Handle removed or changed apps
-                let mut to_restore = Vec::new();
-                {
-                  let mut cache = get_hwnd_cache().write().unwrap();
-                  for (name, old_app_cfg) in &old_config.app {
-                    match new_config.app.get(name) {
-                      Some(new_app_cfg) => {
-                        // App still exists, but check if class changed
-                        if new_app_cfg.window_class != old_app_cfg.window_class {
-                          cache.remove(name);
-                        }
-                      }
-                      None => {
-                        // App removed - restore window and clear cache
-                        to_restore.push(old_app_cfg.window_class.clone());
-                        cache.remove(name);
-                      }
-                    }
-                  }
-                }
-                for class in to_restore {
-                  restore_app_window(&class);
-                }
-              }
-              let _ = event_tx_watcher.send(DaemonEvent::ReloadHotkeys);
-              unsafe {
-                let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
-              }
-            }
-          }
-          Err(RecvTimeoutError::Disconnected) => break,
         }
       }
-    })?;
+      for class in to_restore {
+        restore_app_window(&class);
+      }
+    }
+    let _ = event_tx_watcher.send(DaemonEvent::ReloadHotkeys);
+    unsafe {
+      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+    }
+  });
 
   // 6. Event Loop (Main Thread)
   let hotkey_receiver = GlobalHotKeyEvent::receiver();
