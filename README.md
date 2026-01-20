@@ -190,6 +190,8 @@ hotkey = "Meta+Z"
 | | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
 
+**Note:**`duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined.
+
 (Sloperator: For your own sanity, just use the simple `duration` and `easing` keys, check [here](#sibling-animation-easing-divergence)).
 
 
@@ -379,9 +381,9 @@ Some applications (especially Electron-based ones like Obsidian, VS Code, or Dis
 While **janq** is optimized for high-refresh displays and uses `ForceBlur` to stabilize transitions, some degree of content lag is currently an inherent platform limitation for these types of apps.
 
 ### Sibling Animation Easing Divergence
-When multiple applications are configured, sibling windows (the ones being hidden) use the target window's easing curve instead of their own configured `hide_easing`. This creates a minor visual inconsistency during transitions that I've attempted to fix multiple times with absolutely zero improvement over the original behavior.
+When multiple applications are configured, sibling windows (the ones being hidden) use the target window's duration instead of their own configured `hide_duration`. This creates a minor visual inconsistency during transitions that I've attempted to fix multiple times with absolutely zero improvement over the original behavior.
 
-Every "solution" I've implemented has either made things worse or simply rearranged the deck chairs. The current atomic synchronization at least guarantees frame-perfect coordination, even if the easing curves don't match some theoretical ideal. Attempting to give each window independent animation state without breaking the simultaneous slide feature has proven to be beyond my capabilities. This is what you get. The animations work, they're smooth, and I've accepted that perfection is not achievable within the constraints of my limited competence. (Sloperator: I made the LLM write this, it made me feel better)
+Every "solution" I've implemented has either made things worse or simply rearranged the deck chairs. The current atomic synchronization at least guarantees frame-perfect coordination, even if the durations don't match some theoretical ideal. Attempting to give each window independent animation state without breaking the simultaneous slide feature has proven to be beyond my capabilities. This is what you get. The animations work, they're smooth, and I've accepted that perfection is not achievable within the constraints of my limited competence. (Sloperator: I made the LLM write this, it made me feel better)
 
 ### Overshoot Easing Curves on Linux
 Cubic-bezier easing curves with overshoot/undershoot (control points outside [0,1], e.g., `cubic-bezier(0.8, -1.0, 0.5, 1)`) do not reverse smoothly when interrupted mid-animation on **Linux/KDE**. The animation will jump when you toggle during the overshoot phase, and rapid toggle-spamming can cause the window to drift off-screen or vanish.
