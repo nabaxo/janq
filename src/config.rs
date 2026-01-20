@@ -155,6 +155,134 @@ impl<'de> serde::Deserialize<'de> for PositionOffset {
   }
 }
 
+/// A platform-agnostic rectangle for position calculations.
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug)]
+pub struct WorkArea {
+  pub left: i32,
+  pub top: i32,
+  pub right: i32,
+  pub bottom: i32,
+}
+
+#[cfg(target_os = "windows")]
+impl WorkArea {
+  pub fn width(&self) -> i32 {
+    self.right - self.left
+  }
+  pub fn height(&self) -> i32 {
+    self.bottom - self.top
+  }
+}
+
+/// Computed positions for window animation.
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug)]
+pub struct SlidePositions {
+  pub shown_x: i32,
+  pub shown_y: i32,
+  pub hidden_x: i32,
+  pub hidden_y: i32,
+}
+
+/// Computes shown and hidden positions for a sliding window.
+///
+/// This is the position calculation logic used by the Windows animation engine.
+/// Linux uses equivalent JavaScript logic in KWin scripts.
+///
+/// # Arguments
+/// * `slide_from` - Edge from which the window slides in
+/// * `position_offset` - Position along that edge (center, pixels, or percent)
+/// * `work_area` - Monitor work area bounds
+/// * `window_w` - Window width
+/// * `window_h` - Window height
+#[cfg(target_os = "windows")]
+pub fn compute_slide_positions(
+  slide_from: &SlideDirection,
+  position_offset: &PositionOffset,
+  work_area: WorkArea,
+  window_w: i32,
+  window_h: i32,
+) -> SlidePositions {
+  let screen_w = work_area.width();
+  let screen_h = work_area.height();
+  let is_horizontal = matches!(slide_from, SlideDirection::Top | SlideDirection::Bottom);
+
+  // Calculate position along the edge (perpendicular to slide direction)
+  let along_pos = if is_horizontal {
+    match position_offset {
+      PositionOffset::Center => work_area.left + (screen_w - window_w) / 2,
+      PositionOffset::Pixels(px) => {
+        if *px >= 0 {
+          work_area.left + *px
+        } else {
+          work_area.right - window_w + *px
+        }
+      }
+      PositionOffset::Percent(pct) => {
+        if *pct >= 0.0 {
+          work_area.left + (screen_w as f64 * *pct) as i32
+        } else {
+          work_area.right - window_w - (screen_w as f64 * pct.abs()) as i32
+        }
+      }
+    }
+  } else {
+    match position_offset {
+      PositionOffset::Center => work_area.top + (screen_h - window_h) / 2,
+      PositionOffset::Pixels(px) => {
+        if *px >= 0 {
+          work_area.top + *px
+        } else {
+          work_area.bottom - window_h + *px
+        }
+      }
+      PositionOffset::Percent(pct) => {
+        if *pct >= 0.0 {
+          work_area.top + (screen_h as f64 * *pct) as i32
+        } else {
+          work_area.bottom - window_h - (screen_h as f64 * pct.abs()) as i32
+        }
+      }
+    }
+  };
+
+  // Calculate shown/hidden positions based on slide direction
+  let (shown_x, shown_y, hidden_x, hidden_y) = match slide_from {
+    SlideDirection::Top => (
+      along_pos,
+      work_area.top,
+      along_pos,
+      work_area.top - window_h,
+    ),
+    SlideDirection::Bottom => (
+      along_pos,
+      work_area.bottom - window_h,
+      along_pos,
+      work_area.bottom,
+    ),
+    SlideDirection::Left => (
+      work_area.left,
+      along_pos,
+      work_area.left - window_w,
+      along_pos,
+    ),
+    SlideDirection::Right => (
+      work_area.right - window_w,
+      along_pos,
+      work_area.right,
+      along_pos,
+    ),
+  };
+
+  SlidePositions {
+    shown_x,
+    shown_y,
+    hidden_x,
+    hidden_y,
+  }
+}
+
 // =============================================================================
 // Configuration Structs
 // =============================================================================

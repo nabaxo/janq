@@ -20,7 +20,7 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::config::{Config, PositionOffset, SlideDirection};
+use crate::config::{compute_slide_positions, Config, PositionOffset, SlideDirection, WorkArea};
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
   force_focus, get_animation_cancel, get_animation_state, get_hwnd_cache, get_previous_focus,
@@ -144,75 +144,26 @@ pub fn run_animation_task_sync(
     // Resolve slide direction and position offset
     let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
 
-    // Compute shown/hidden positions based on slide direction
-    let (shown_x, shown_y, hidden_x, hidden_y) = {
-      let is_horizontal = matches!(slide_from, SlideDirection::Top | SlideDirection::Bottom);
-
-      let along_pos = if is_horizontal {
-        match &position_offset {
-          PositionOffset::Center => work_area.left + (screen_w - target_w) / 2,
-          PositionOffset::Pixels(px) => {
-            if *px >= 0 {
-              work_area.left + *px
-            } else {
-              work_area.right - target_w + *px
-            }
-          }
-          PositionOffset::Percent(pct) => {
-            if *pct >= 0.0 {
-              work_area.left + (screen_w as f64 * *pct) as i32
-            } else {
-              work_area.right - target_w - (screen_w as f64 * pct.abs()) as i32
-            }
-          }
-        }
-      } else {
-        match &position_offset {
-          PositionOffset::Center => work_area.top + (screen_h - target_h) / 2,
-          PositionOffset::Pixels(px) => {
-            if *px >= 0 {
-              work_area.top + *px
-            } else {
-              work_area.bottom - target_h + *px
-            }
-          }
-          PositionOffset::Percent(pct) => {
-            if *pct >= 0.0 {
-              work_area.top + (screen_h as f64 * *pct) as i32
-            } else {
-              work_area.bottom - target_h - (screen_h as f64 * pct.abs()) as i32
-            }
-          }
-        }
-      };
-
-      match slide_from {
-        SlideDirection::Top => (
-          along_pos,
-          work_area.top,
-          along_pos,
-          work_area.top - target_h,
-        ),
-        SlideDirection::Bottom => (
-          along_pos,
-          work_area.bottom - target_h,
-          along_pos,
-          work_area.bottom,
-        ),
-        SlideDirection::Left => (
-          work_area.left,
-          along_pos,
-          work_area.left - target_w,
-          along_pos,
-        ),
-        SlideDirection::Right => (
-          work_area.right - target_w,
-          along_pos,
-          work_area.right,
-          along_pos,
-        ),
-      }
+    // Compute shown/hidden positions using shared logic
+    let work_area_rect = WorkArea {
+      left: work_area.left,
+      top: work_area.top,
+      right: work_area.right,
+      bottom: work_area.bottom,
     };
+    let positions = compute_slide_positions(
+      &slide_from,
+      &position_offset,
+      work_area_rect,
+      target_w,
+      target_h,
+    );
+    let (shown_x, shown_y, hidden_x, hidden_y) = (
+      positions.shown_x,
+      positions.shown_y,
+      positions.hidden_x,
+      positions.hidden_y,
+    );
 
     let (final_target_x, final_target_y) = if should_show {
       (shown_x, shown_y)
@@ -296,53 +247,23 @@ pub fn run_animation_task_sync(
 
             let sib_dir = &sib_slide.0;
             let sib_offset = &sib_slide.1;
-            let sib_screen_w = s_work.right - s_work.left;
-            let sib_screen_h = s_work.bottom - s_work.top;
-            let sib_is_horizontal = matches!(sib_dir, SlideDirection::Top | SlideDirection::Bottom);
 
-            let sib_along_pos = if sib_is_horizontal {
-              match *sib_offset {
-                PositionOffset::Center => s_work.left + (sib_screen_w - s_w) / 2,
-                PositionOffset::Pixels(px) => {
-                  if px >= 0 {
-                    s_work.left + px
-                  } else {
-                    s_work.right - s_w + px
-                  }
-                }
-                PositionOffset::Percent(pct) => {
-                  if pct >= 0.0 {
-                    s_work.left + (sib_screen_w as f64 * pct) as i32
-                  } else {
-                    s_work.right - s_w - (sib_screen_w as f64 * pct.abs()) as i32
-                  }
-                }
-              }
-            } else {
-              match *sib_offset {
-                PositionOffset::Center => s_work.top + (sib_screen_h - s_h) / 2,
-                PositionOffset::Pixels(px) => {
-                  if px >= 0 {
-                    s_work.top + px
-                  } else {
-                    s_work.bottom - s_h + px
-                  }
-                }
-                PositionOffset::Percent(pct) => {
-                  if pct >= 0.0 {
-                    s_work.top + (sib_screen_h as f64 * pct) as i32
-                  } else {
-                    s_work.bottom - s_h - (sib_screen_h as f64 * pct.abs()) as i32
-                  }
-                }
-              }
+            // Use shared position calculation for sibling
+            let sib_work_area = WorkArea {
+              left: s_work.left,
+              top: s_work.top,
+              right: s_work.right,
+              bottom: s_work.bottom,
             };
+            let sib_positions =
+              compute_slide_positions(sib_dir, sib_offset, sib_work_area, s_w, s_h);
 
+            // Siblings slide out with a small offset past the edge
             let (sib_end_x, sib_end_y) = match sib_dir {
-              SlideDirection::Top => (sib_along_pos, s_work.top - s_h - 10),
-              SlideDirection::Bottom => (sib_along_pos, s_work.bottom + 10),
-              SlideDirection::Left => (s_work.left - s_w - 10, sib_along_pos),
-              SlideDirection::Right => (s_work.right + 10, sib_along_pos),
+              SlideDirection::Top => (sib_positions.hidden_x, sib_positions.hidden_y - 10),
+              SlideDirection::Bottom => (sib_positions.hidden_x, sib_positions.hidden_y + 10),
+              SlideDirection::Left => (sib_positions.hidden_x - 10, sib_positions.hidden_y),
+              SlideDirection::Right => (sib_positions.hidden_x + 10, sib_positions.hidden_y),
             };
 
             let mut sa: u8 = 255;

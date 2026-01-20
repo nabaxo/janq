@@ -157,6 +157,24 @@ pub fn format_warning(message: &str) -> String {
   format!("\x1b[1;33mwarning\x1b[0m: {}", colorize_message(message))
 }
 
+/// Strips ANSI escape codes from a string for use in GUI dialogs.
+pub fn strip_ansi(s: &str) -> String {
+  let mut result = String::with_capacity(s.len());
+  let mut in_escape = false;
+  for c in s.chars() {
+    if c == '\x1b' {
+      in_escape = true;
+    } else if in_escape {
+      if c == 'm' {
+        in_escape = false;
+      }
+    } else {
+      result.push(c);
+    }
+  }
+  result
+}
+
 pub fn show_warning(message: &str) {
   let styled = if message.contains("\x1b[1;33mwarning\x1b[0m") {
     message.to_string()
@@ -193,20 +211,7 @@ fn show_error_linux(styled: &str) {
   use std::io::Write;
   use std::time::Duration;
 
-  // Strip ANSI escape codes for desktop alerts (GUI dialogs)
-  let mut clean_message = String::new();
-  let mut in_code = false;
-  for c in styled.chars() {
-    if c == '\x1b' {
-      in_code = true;
-    } else if in_code {
-      if c == 'm' {
-        in_code = false;
-      }
-    } else {
-      clean_message.push(c);
-    }
-  }
+  let clean_message = strip_ansi(styled);
 
   // Write message to temp file to preserve ANSI codes perfectly
   let temp_path = std::env::temp_dir().join("janq_error.txt");
@@ -293,20 +298,7 @@ fn show_error_windows(styled: &str) {
     MessageBoxW, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TOPMOST,
   };
 
-  // Strip ANSI escape codes for MessageBoxW
-  let mut clean_message = String::new();
-  let mut in_code = false;
-  for c in styled.chars() {
-    if c == '\x1b' {
-      in_code = true;
-    } else if in_code {
-      if c == 'm' {
-        in_code = false;
-      }
-    } else {
-      clean_message.push(c);
-    }
-  }
+  let clean_message = strip_ansi(styled);
 
   let title = HSTRING::from("janq Error");
   let msg = HSTRING::from(clean_message);
