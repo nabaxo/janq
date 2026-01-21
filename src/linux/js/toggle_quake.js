@@ -186,6 +186,17 @@
         const startTime = Date.now();
         const diffX = finalX - startX;
         const diffY = finalY - startY;
+
+        // Implementation of duration scaling (Velocity matching)
+        let scaledDuration = duration;
+        if (duration > 0) {
+          const totalDist = isHorizontalSlide ? finalWidth : finalHeight;
+          const currentDist = Math.sqrt(diffX * diffX + diffY * diffY);
+          if (totalDist > 0) {
+            scaledDuration = Math.min(duration, (duration * currentDist) / totalDist);
+          }
+        }
+
         const siblingDatas = [];
         for (const sib of siblingsToHide) {
           const sibContext = resolveAreaContext(sib, "active", 0); // Active mode for siblings is effectively current monitor
@@ -210,7 +221,7 @@
         timer.timeout.connect(() => {
           const now = Date.now();
           const elapsed = now - startTime;
-          const progress = Math.min(elapsed / duration, 1.0);
+          const progress = scaledDuration > 0 ? Math.min(elapsed / scaledDuration, 1.0) : 1.0;
           const ease = getEasing(progress, easingType);
 
           if (firstFrame) {
@@ -287,6 +298,16 @@
       const diffX = endX - startX;
       const diffY = endY - startY;
 
+      // Implementation of duration scaling (Velocity matching)
+      let scaledDuration = duration;
+      if (duration > 0) {
+        const totalDist = isHorizontalSlide ? finalWidth : finalHeight;
+        const currentDist = Math.sqrt(diffX * diffX + diffY * diffY);
+        if (totalDist > 0) {
+          scaledDuration = Math.min(duration, (duration * currentDist) / totalDist);
+        }
+      }
+
       const siblingDatas = [];
       for (const sib of siblingsToHide) {
         const sibContext = resolveAreaContext(sib, "active", 0);
@@ -310,7 +331,7 @@
       timer.timeout.connect(() => {
         const now = Date.now();
         const elapsed = now - startTime;
-        const progress = Math.min(elapsed / duration, 1.0);
+        const progress = scaledDuration > 0 ? Math.min(elapsed / scaledDuration, 1.0) : 1.0;
         const ease = getEasing(progress, easingType);
         const currentX = startX + diffX * ease;
         const currentY = startY + diffY * ease;

@@ -14,32 +14,33 @@
 //!
 //! Users can define custom curves: `cubic-bezier(x1, y1, x2, y2)`
 
+use crate::config::Easing;
 use std::f64::consts::PI;
 
-pub fn get_easing(progress: f64, type_: &str) -> f64 {
-  match type_ {
-    "sine" | "sine-in-out" | "in-out-sine" => -((PI * progress).cos() - 1.0) / 2.0,
-    "sine-in" | "in-sine" => 1.0 - (progress * PI / 2.0).cos(),
-    "sine-out" | "out-sine" => (progress * PI / 2.0).sin(),
-    "quart" | "quart-in-out" | "in-out-quart" => {
+pub fn get_easing(progress: f64, easing: &Easing) -> f64 {
+  match easing {
+    Easing::SineInOut => -((PI * progress).cos() - 1.0) / 2.0,
+    Easing::SineIn => 1.0 - (progress * PI / 2.0).cos(),
+    Easing::SineOut => (progress * PI / 2.0).sin(),
+    Easing::QuartInOut => {
       if progress < 0.5 {
         8.0 * progress.powi(4)
       } else {
         1.0 - (-2.0 * progress + 2.0).powi(4) / 2.0
       }
     }
-    "quart-in" | "in-quart" => progress.powi(4),
-    "quart-out" | "out-quart" => 1.0 - (1.0 - progress).powi(4),
-    "cubic" | "cubic-in-out" | "in-out-cubic" => {
+    Easing::QuartIn => progress.powi(4),
+    Easing::QuartOut => 1.0 - (1.0 - progress).powi(4),
+    Easing::CubicInOut => {
       if progress < 0.5 {
         4.0 * progress.powi(3)
       } else {
         1.0 - (-2.0 * progress + 2.0).powi(3) / 2.0
       }
     }
-    "cubic-in" | "in-cubic" => progress.powi(3),
-    "cubic-out" | "out-cubic" => 1.0 - (1.0 - progress).powi(3),
-    "back" | "back-in-out" | "in-out-back" => {
+    Easing::CubicIn => progress.powi(3),
+    Easing::CubicOut => 1.0 - (1.0 - progress).powi(3),
+    Easing::BackInOut => {
       let c1 = 1.70158;
       let c2 = c1 * 1.525;
       if progress < 0.5 {
@@ -48,27 +49,27 @@ pub fn get_easing(progress: f64, type_: &str) -> f64 {
         ((2.0 * progress - 2.0).powi(2) * ((c2 + 1.0) * (progress * 2.0 - 2.0) + c2) + 2.0) / 2.0
       }
     }
-    "back-in" | "in-back" => {
+    Easing::BackIn => {
       let c1 = 1.70158;
       let c3 = c1 + 1.0;
       c3 * progress.powi(3) - c1 * progress.powi(2)
     }
-    "back-out" | "out-back" => {
+    Easing::BackOut => {
       let c1 = 1.70158;
       let c3 = c1 + 1.0;
       1.0 + c3 * (progress - 1.0).powi(3) + c1 * (progress - 1.0).powi(2)
     }
-    "ease" | "ease-in-out" => {
+    Easing::Ease | Easing::EaseInOut => {
       if progress < 0.5 {
         2.0 * progress * progress
       } else {
         -1.0 + (4.0 - 2.0 * progress) * progress
       }
     }
-    "linear" => progress,
-    "ease-in" => progress * progress,
-    "ease-out" => progress * (2.0 - progress),
-    "expo" | "expo-in-out" | "in-out-expo" => {
+    Easing::Linear => progress,
+    Easing::EaseIn => progress * progress,
+    Easing::EaseOut => progress * (2.0 - progress),
+    Easing::ExpoInOut => {
       if progress == 0.0 {
         0.0
       } else if progress == 1.0 {
@@ -79,28 +80,22 @@ pub fn get_easing(progress: f64, type_: &str) -> f64 {
         (2.0 - 2.0f64.powf(-20.0 * progress + 10.0)) / 2.0
       }
     }
-    "expo-in" | "in-expo" => {
+    Easing::ExpoIn => {
       if progress == 0.0 {
         0.0
       } else {
         2.0f64.powf(10.0 * progress - 10.0)
       }
     }
-    "expo-out" | "out-expo" => {
+    Easing::ExpoOut => {
       if progress == 1.0 {
         1.0
       } else {
         1.0 - 2.0f64.powf(-10.0 * progress)
       }
     }
-    "windows" => cubic_bezier(progress, 0.25, 0.0, 0.0, 1.0),
-    other => {
-      if let Some((x1, y1, x2, y2)) = crate::validation::parse_bezier(other) {
-        cubic_bezier(progress, x1, y1, x2, y2)
-      } else {
-        progress * (2.0 - progress) // ease-out default
-      }
-    }
+    Easing::Impulse => cubic_bezier(progress, 0.25, 0.0, 0.0, 1.0),
+    Easing::Custom(x1, y1, x2, y2) => cubic_bezier(progress, *x1, *y1, *x2, *y2),
   }
 }
 
@@ -139,12 +134,12 @@ mod tests {
   #[test]
   fn test_get_easing_custom() {
     // Should use the parser and return a value (not crashing)
-    let val = get_easing(0.5, "(0, 1, 1, 0)");
+    let val = get_easing(0.5, &Easing::Custom(0.0, 1.0, 1.0, 0.0));
     assert!(val >= 0.0 && val <= 1.0);
 
-    // Check fallback
-    let fallback = get_easing(0.5, "invalid");
-    let ease_out = 0.5 * (2.0 - 0.5);
-    assert_eq!(fallback, ease_out);
+    // Check ease-out
+    let ease_out = get_easing(0.5, &Easing::EaseOut);
+    let expected = 0.5 * (2.0 - 0.5);
+    assert_eq!(ease_out, expected);
   }
 }

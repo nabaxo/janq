@@ -96,39 +96,6 @@ pub fn is_valid_base_key(s: &str) -> bool {
   }
 }
 
-// =============================================================================
-// Easing Validation
-// =============================================================================
-
-/// Checks if a string is a valid easing curve name or bezier specification.
-///
-/// # Valid Named Curves
-/// - Standard: `ease`, `ease-in`, `ease-out`, `ease-in-out`, `linear`
-/// - Sine: `sine`, `sine-in`, `sine-out`, `sine-in-out`
-/// - Cubic: `cubic`, `cubic-in`, `cubic-out`, `cubic-in-out`
-/// - Quart: `quart`, `quart-in`, `quart-out`, `quart-in-out`
-/// - Back: `back`, `back-in`, `back-out`, `back-in-out`
-/// - Expo: `expo`, `expo-in`, `expo-out`, `expo-in-out`
-/// - Special: `windows` (Windows native animation curve)
-///
-/// # Custom Bezier
-/// Also accepts custom cubic bezier curves:
-/// - `cubic-bezier(0.25, 0.1, 0.25, 1.0)`
-/// - `bezier(0.25, 0.1, 0.25, 1.0)`
-/// - `(0.25, 0.1, 0.25, 1.0)`
-pub fn is_valid_easing(s: &str) -> bool {
-  match s {
-    "sine" | "sine-in-out" | "in-out-sine" | "sine-in" | "in-sine" | "sine-out" | "out-sine"
-    | "quart" | "quart-in-out" | "in-out-quart" | "quart-in" | "in-quart" | "quart-out"
-    | "out-quart" | "cubic" | "cubic-in-out" | "in-out-cubic" | "cubic-in" | "in-cubic"
-    | "cubic-out" | "out-cubic" | "back" | "back-in-out" | "in-out-back" | "back-in"
-    | "in-back" | "back-out" | "out-back" | "expo" | "expo-in-out" | "in-out-expo" | "expo-in"
-    | "in-expo" | "expo-out" | "out-expo" | "ease" | "ease-in-out" | "linear" | "ease-in"
-    | "ease-out" | "windows" => true,
-    _ => parse_bezier(s).is_some(),
-  }
-}
-
 /// Parses a cubic-bezier easing curve specification.
 ///
 /// # Supported Formats
@@ -238,34 +205,6 @@ mod tests {
     assert!(!is_valid_base_key("unknownkey"));
     assert!(!is_valid_base_key("f13"));
     assert!(!is_valid_base_key(""));
-  }
-
-  // --- Easing validation tests ---
-
-  #[test]
-  fn test_valid_easing_names() {
-    assert!(is_valid_easing("ease"));
-    assert!(is_valid_easing("linear"));
-    assert!(is_valid_easing("ease-in"));
-    assert!(is_valid_easing("ease-out"));
-    assert!(is_valid_easing("sine-in-out"));
-    assert!(is_valid_easing("back-out"));
-    assert!(is_valid_easing("expo"));
-    assert!(is_valid_easing("windows"));
-  }
-
-  #[test]
-  fn test_valid_bezier() {
-    assert!(is_valid_easing("cubic-bezier(0, 1, 1, 0)"));
-    assert!(is_valid_easing("bezier(0, 1, 1, 0)"));
-    assert!(is_valid_easing("(0, 1, 1, 0)"));
-  }
-
-  #[test]
-  fn test_invalid_easing() {
-    assert!(!is_valid_easing("invalid"));
-    assert!(!is_valid_easing("cubic-bezier(1, 2)")); // Wrong number of params
-    assert!(!is_valid_easing("cubic-bezier(a, b, c, d)")); // Non-numeric
   }
 
   // --- Bezier parsing tests ---

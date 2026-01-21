@@ -57,6 +57,7 @@ impl SendHwnd {
 
 #[derive(Clone)]
 pub struct AnimationState {
+  pub app_name: String,
   pub is_showing: bool,
   pub start_time: std::time::Instant,
   pub duration_secs: f64,
@@ -215,7 +216,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   let initial_progress = {
     let state = get_animation_state().lock().unwrap();
     if let Some(ref st) = *state {
-      if st.is_showing != should_show {
+      if st.app_name == app_name && st.is_showing != should_show {
         let elapsed = st.start_time.elapsed().as_secs_f64();
         let current_progress = (elapsed / st.duration_secs).min(1.0);
         Some(1.0 - current_progress)

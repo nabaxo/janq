@@ -7,6 +7,7 @@
 //! - Multi-window coordination (siblings)
 //! - Monitor-aware positioning
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use windows::Win32::{
   Foundation::{COLORREF, HWND, LPARAM, RECT, TRUE},
@@ -20,7 +21,9 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::config::{compute_slide_positions, Config, PositionOffset, SlideDirection, WorkArea};
+use crate::config::{
+  compute_slide_positions, Config, DisplayMode, PositionOffset, SlideDirection, WorkArea,
+};
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
   force_focus, get_animation_cancel, get_animation_state, get_hwnd_cache, get_previous_focus,
@@ -35,6 +38,8 @@ use crate::windows::window::{
 /// - Sibling window coordination
 /// - Frame-by-frame interpolation with easing
 /// - Opacity animation (if enabled)
+static ANIMATION_GENERATION: AtomicU64 = AtomicU64::new(0);
+
 pub fn run_animation_task_sync(
   app_name: &str,
   config: &Config,
@@ -49,10 +54,12 @@ pub fn run_animation_task_sync(
     None => return,
   };
 
+  let my_gen = ANIMATION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+
   unsafe {
     let monitor = if should_show {
-      match config.window.display_mode.as_str() {
-        "specific" => {
+      match &config.window.display_mode {
+        DisplayMode::Specific(_) => {
           let mut ctx = MonitorEnumCtx {
             monitors: Vec::new(),
           };
@@ -70,7 +77,7 @@ pub fn run_animation_task_sync(
             MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
           }
         }
-        "active" => {
+        DisplayMode::Active => {
           let fg = GetForegroundWindow();
           let mut use_fallback = fg.is_invalid() || fg == target_hwnd.inner();
 
@@ -95,7 +102,7 @@ pub fn run_animation_task_sync(
             }
           }
         }
-        _ => {
+        DisplayMode::FollowMouse => {
           let mut cursor_pos = windows::Win32::Foundation::POINT { x: 0, y: 0 };
           let _ = GetCursorPos(&mut cursor_pos);
           MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST)
@@ -213,7 +220,7 @@ pub fn run_animation_task_sync(
       false
     };
 
-    // --- Sibling Data: (hwnd, start_x, start_y, width, height, end_x, end_y, alpha) ---
+    // --- Sibling Data: (hwnd, start_x, start_y, width, height, end_x, end_y, alpha, duration_secs, easing_cfg) ---
     let mut siblings_data = Vec::new();
     for ohwnd in siblings {
       if ohwnd.0 == target_hwnd.0 {
@@ -258,13 +265,40 @@ pub fn run_animation_task_sync(
             let sib_positions =
               compute_slide_positions(sib_dir, sib_offset, sib_work_area, s_w, s_h);
 
-            let (sib_easing_cfg, _) = (
+            let (sib_easing_cfg, sib_dur_ms) = (
               &config.animation.hide_easing,
-              &config.animation.hide_duration,
+              config.animation.hide_duration,
             );
+
+            // Sibling-specific overrides
+            let (target_dur_ms, target_easing) = sib_app_name
+              .as_ref()
+              .and_then(|name| config.app.get(name))
+              .map(|_a| {
+                (
+                  config.animation.hide_duration, // Use app-specific hide duration if we had it, but for now global hide
+                  &config.animation.hide_easing,
+                )
+              })
+              .unwrap_or((sib_dur_ms, sib_easing_cfg));
 
             // Siblings slide out using their hidden positions from compute_slide_positions
             let (sib_end_x, sib_end_y) = (sib_positions.hidden_x, sib_positions.hidden_y);
+
+            // Distance scaling for sibling hide
+            let s_dist_total = match sib_dir {
+              SlideDirection::Top | SlideDirection::Bottom => (sib_end_y - r.top).abs(),
+              SlideDirection::Left | SlideDirection::Right => (sib_end_x - r.left).abs(),
+            } as f64;
+            let s_max_dist = match sib_dir {
+              SlideDirection::Top | SlideDirection::Bottom => s_h,
+              SlideDirection::Left | SlideDirection::Right => s_w,
+            } as f64;
+            let s_dur_ms = if s_max_dist > 0.0 {
+              (target_dur_ms as f64 * (s_dist_total / s_max_dist)).min(target_dur_ms as f64)
+            } else {
+              target_dur_ms as f64
+            };
 
             let mut sa: u8 = 255;
             let _ = GetLayeredWindowAttributes(ohwnd.inner(), None, Some(&mut sa), None);
@@ -277,7 +311,8 @@ pub fn run_animation_task_sync(
               sib_end_x,
               sib_end_y,
               sa,
-              sib_easing_cfg.clone(),
+              s_dur_ms / 1000.0,
+              target_easing.clone(),
             ));
           }
         }
@@ -354,7 +389,7 @@ pub fn run_animation_task_sync(
       &TRUE as *const _ as *const _,
       4,
     );
-    for (h, _, _, _, _, _, _, _, _) in &siblings_data {
+    for (h, _, _, _, _, _, _, _, _, _) in &siblings_data {
       let _ = DwmSetWindowAttribute(
         h.inner(),
         DWMWA_TRANSITIONS_FORCEDISABLED,
@@ -386,7 +421,7 @@ pub fn run_animation_task_sync(
     } else {
       prep_layer(target_hwnd.inner());
     }
-    for (h, _, _, _, _, _, _, _, _) in &siblings_data {
+    for (h, _, _, _, _, _, _, _, _, _) in &siblings_data {
       let ex = GetWindowLongW(h.inner(), GWL_EXSTYLE);
       if (ex & WS_EX_LAYERED.0 as i32) == 0 {
         prep_layer(h.inner());
@@ -421,6 +456,7 @@ pub fn run_animation_task_sync(
     {
       let mut state = get_animation_state().lock().unwrap();
       *state = Some(AnimationState {
+        app_name: app_name.to_string(),
         is_showing: should_show,
         start_time,
         duration_secs: dur_secs,
@@ -431,23 +467,29 @@ pub fn run_animation_task_sync(
       });
     }
 
-    if dur_secs > 0.0 {
+    let max_dur_secs = siblings_data
+      .iter()
+      .map(|(_, _, _, _, _, _, _, _, ds, _)| *ds)
+      .fold(dur_secs, |a, b| a.max(b));
+
+    if max_dur_secs > 0.0 {
       let mut last_x = t_start_x;
       let mut last_y = t_start_y;
       let mut last_alpha = t_curr_alpha;
       let mut last_sibling_xs: Vec<i32> = siblings_data
         .iter()
-        .map(|(_, sx, _, _, _, _, _, _, _)| *sx)
+        .map(|(_, sx, _, _, _, _, _, _, _, _)| *sx)
         .collect();
       let mut last_sibling_ys: Vec<i32> = siblings_data
         .iter()
-        .map(|(_, _, sy, _, _, _, _, _, _)| *sy)
+        .map(|(_, _, sy, _, _, _, _, _, _, _)| *sy)
         .collect();
       let mut last_sibling_alphas: Vec<u8> = siblings_data
         .iter()
-        .map(|(_, _, _, _, _, _, _, sa, _)| *sa)
+        .map(|(_, _, _, _, _, _, _, sa, _, _)| *sa)
         .collect();
 
+      let loop_start_time = Instant::now();
       loop {
         // 1. Bail Check
         {
@@ -457,24 +499,32 @@ pub fn run_animation_task_sync(
           } else {
             v.as_deref() != Some(app_name)
           };
-          if !still_target || get_animation_cancel().load(std::sync::atomic::Ordering::SeqCst) {
+          if !still_target
+            || get_animation_cancel().load(Ordering::SeqCst)
+            || ANIMATION_GENERATION.load(Ordering::SeqCst) != my_gen
+          {
             return;
           }
         }
 
         let elapsed = start_time.elapsed().as_secs_f64();
-        let progress = (elapsed / dur_secs).min(1.0);
-        let ease_val = get_easing(progress, easing);
+        let target_progress = if dur_secs > 0.0 {
+          (elapsed / dur_secs).min(1.0)
+        } else {
+          1.0
+        };
+        let target_ease_val = get_easing(target_progress, easing);
 
         let mut needs_pos_update = false;
         if animate_opacity {
           let target_alpha_val = if should_show { 255.0 } else { 0.0 };
           let t_alpha = {
             let opacity_ease = if should_show {
-              (ease_val / op_point).clamp(0.0, 1.0)
+              (target_ease_val / op_point).clamp(0.0, 1.0)
             } else {
               let denom = 1.0 - op_point;
-              ((ease_val - op_point) / if denom <= 0.0 { 0.0001 } else { denom }).clamp(0.0, 1.0)
+              ((target_ease_val - op_point) / if denom <= 0.0 { 0.0001 } else { denom })
+                .clamp(0.0, 1.0)
             };
             let computed =
               (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * opacity_ease) as u8;
@@ -491,9 +541,12 @@ pub fn run_animation_task_sync(
             last_alpha = t_alpha;
           }
 
-          for (i, (h, _, _, _, _, _, _, sa, _)) in siblings_data.iter().enumerate() {
+          for (i, (h, _, _, _, _, _, _, sa, s_dur, _)) in siblings_data.iter().enumerate() {
+            let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
+            let s_progress = (elapsed_since_start / *s_dur).min(1.0);
+            let s_ease_val = get_easing(s_progress, &config.animation.hide_easing);
             let s_denom = 1.0 - config.animation.hide_opacity_point;
-            let s_opacity_ease = ((ease_val - config.animation.hide_opacity_point)
+            let s_opacity_ease = ((s_ease_val - config.animation.hide_opacity_point)
               / if s_denom <= 0.0 { 0.0001 } else { s_denom })
             .clamp(0.0, 1.0);
             let s_target_alpha = {
@@ -513,16 +566,19 @@ pub fn run_animation_task_sync(
         // --- Position Update ---
         let t_dist_x_anim = final_target_x - t_start_x;
         let t_dist_y_anim = final_target_y - t_start_y;
-        let next_x = t_start_x + (t_dist_x_anim as f64 * ease_val) as i32;
-        let next_y = t_start_y + (t_dist_y_anim as f64 * ease_val) as i32;
+        let next_x = t_start_x + (t_dist_x_anim as f64 * target_ease_val) as i32;
+        let next_y = t_start_y + (t_dist_y_anim as f64 * target_ease_val) as i32;
 
         if next_x != last_x || next_y != last_y || first_frame {
           needs_pos_update = true;
         } else {
-          for (i, (_, sx, sy, _, _, ex, ey, _, sib_easing)) in siblings_data.iter().enumerate() {
-            let sib_ease_val = get_easing(progress, sib_easing);
-            let on_x = sx + ((*ex - *sx) as f64 * sib_ease_val) as i32;
-            let on_y = sy + ((*ey - *sy) as f64 * sib_ease_val) as i32;
+          for (i, (_, sx, sy, _, _, ex, ey, _, s_dur, s_easing)) in siblings_data.iter().enumerate()
+          {
+            let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
+            let s_progress = (elapsed_since_start / *s_dur).min(1.0);
+            let s_ease_val = get_easing(s_progress, s_easing);
+            let on_x = sx + ((*ex - *sx) as f64 * s_ease_val) as i32;
+            let on_y = sy + ((*ey - *sy) as f64 * s_ease_val) as i32;
             if on_x != last_sibling_xs[i] || on_y != last_sibling_ys[i] {
               needs_pos_update = true;
               break;
@@ -564,11 +620,14 @@ pub fn run_animation_task_sync(
               _ => {}
             }
 
-            for (i, (h, sx, sy, sw, sh, ex, ey, _, sib_easing)) in siblings_data.iter().enumerate()
+            for (i, (h, sx, sy, sw, sh, ex, ey, _, s_dur, s_easing)) in
+              siblings_data.iter().enumerate()
             {
-              let sib_ease_val = get_easing(progress, sib_easing);
-              let on_x = sx + ((*ex - *sx) as f64 * sib_ease_val) as i32;
-              let on_y = sy + ((*ey - *sy) as f64 * sib_ease_val) as i32;
+              let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
+              let s_progress = (elapsed_since_start / *s_dur).min(1.0);
+              let s_ease_val = get_easing(s_progress, s_easing);
+              let on_x = sx + ((*ex - *sx) as f64 * s_ease_val) as i32;
+              let on_y = sy + ((*ey - *sy) as f64 * s_ease_val) as i32;
               match DeferWindowPos(
                 hdwp,
                 h.inner(),
@@ -622,7 +681,7 @@ pub fn run_animation_task_sync(
         // Sync with monitor refresh
         let _ = DwmFlush();
 
-        if progress >= 1.0 {
+        if elapsed >= max_dur_secs {
           break;
         }
       }
@@ -670,7 +729,7 @@ pub fn run_animation_task_sync(
         }
       }
     }
-    for (h, _, _, _, _, _, _, _, _) in siblings_data {
+    for (h, _, _, _, _, _, _, _, _, _) in siblings_data {
       let _ = ShowWindow(h.inner(), SW_HIDE);
     }
   }

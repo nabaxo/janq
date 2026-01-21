@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.8] - 2026-01-21
+
+### Added
+- **Animation**: **Velocity-Style Movement** — Animation durations now scale based on the distance a window needs to travel. A configured duration (e.g., 350ms) represents a full-screen slide, ensuring constant movement speed for partial toggles.
+- **Animation**: **Platform Easing Parity** — Unified easing engine supporting 15+ curves (`sine`, `cubic`, `back`, `expo`, `quart`, etc.) with `in`, `out`, and `in-out` variants and custom `cubic-bezier(x1, y1, x2, y2)` support on both Windows and Linux.
+- **Configuration**: **Type-Safe Easing & DisplayMode** — Refactored core configuration types into robust enums with strict validation, preventing invalid strings from crashing the daemon on both platforms.
+
+### Fixed
+- **Windows**: **Animation Synchronization** — Implemented generation-based task cancellation to ensure only the latest toggle request controls the window and its siblings, preventing "fighting" animations during rapid spam.
+- **General**: **Fuzzy Matching Refinement** — Improved weighted scoring for abbreviations (e.g., `wt` -> `WindowsTerminal`) by adjusting gap penalties and boundary bonuses.
+
+### Changed
+- **Code Quality**: Systematic cleanup of unused imports, dead variables, and naming convention warnings across the entire codebase.
+- **Documentation**: Added "Known Issues" section to README documenting the conscious decision to accept animation "hitches" to prevent window freezing, complete with bullshit apology from the AI.
+
 ## [1.1.7] - 2026-01-21
 
 ### Changed

@@ -26,7 +26,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu. The topmost application is the one that toggles when left-clicking the systray icon.
 - **Robust Identification (Cross-Platform)**: Advanced weighted scoring system (Exact > Substring > Boundary > Subsequence) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
 - **High-Performance Linux Engine**: Zero-IPC liveness checks and batched window retrieval for near-instant toggling response.
-- **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves including the premium `windows` curve).
+- **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves including the "premium" `impulse` curve).
 - **Focus Restoration**: Remembers your previous window and restores focus instantly.
 - **CLI Power**: Control your setup via `./janq --app <name>`.
 - **Intelligent Window Matching**: Advanced weighted fuzzy scoring for abbreviations (e.g., `wt` → `WindowsTerminal`) with ultra-fast <0.1ms Zero-IPC liveness verification.
@@ -181,17 +181,17 @@ hotkey = "Meta+Z"
 | | `keep_above` | `false` | Keep window above all others | ✗ no |
 | | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: janq removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
 | | `auto_show` | `false` | Show window on daemon startup | ✗ no |
-| `[animation]` | `duration` | — | Set both show/hide duration at once | ✗ no |
+| `[animation]` | `duration`\* | — | Set both show/hide duration at once | ✗ no |
 | | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
 | | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |
-| | `easing` | — | Set both show/hide easing at once | ✗ no |
+| | `easing`\* | — | Set both show/hide easing at once | ✗ no |
 | | `show_easing` | `"ease"` | Easing curve for showing | ✗ no |
 | | `hide_easing` | `"ease"` | Easing curve for hiding | ✗ no |
 | | `animate_opacity` | `false` | Fade opacity during animations | ✓ yes |
 | | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
 | | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
 
-**Note:**`duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined.
+\***Note:** `duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined. **Note: Durations are scaled based on distance to ensure a constant movement velocity.**
 
 (Sloperator: For your own sanity, just use the single `duration` and `easing` keys, check [here](#sibling-animation-duration-divergence)).
 
@@ -226,7 +226,7 @@ The `offset` option controls where along the edge the window is positioned:
 
 | Mode | Description |
 | :--- | :--- |
-| `windows` | Cubic-bezier curve matching modern Windows 11 animations. |
+| `impulse` | Cubic-bezier curve matching modern Windows 11 animations. |
 | `expo`* | Exponential curve for a snappier, "high-speed" feeling. |
 | `linear` | Direct, constant movement. |
 | `ease`* | Smooth acceleration and deceleration. |
@@ -236,7 +236,7 @@ The `offset` option controls where along the edge the window is positioned:
 | `back`* | Overshoots slightly before settling. |
 | `cubic-bezier` | Custom CSS-style curve: `cubic-bezier(x1, y1, x2, y2)`. |
 
-\* Supports `-in`, `-out`, and `-in-out` variants (e.g., `back-in`, `ease-out`, `quart-in-out`). The short name defaults to `-in-out`. **Note: janq validates easing curves on startup; invalid configurations will prevent the daemon from launching.**
+\* Supports `ease-in`, `ease-out`, and `ease-in-out` variants (and short-hands like `in-` and `out-`, e.g., `ease-in-sine`, `in-sine`). The base name (e.g., `sine`) defaults to `in-out`. **Note: janq validates easing curves on startup; invalid configurations will prevent the daemon from launching.**
 
 > [!TIP]
 > **Custom Bezier Shortcuts**: You can also use `bezier(x1, y1, x2, y2)` or just `(x1, y1, x2, y2)` for brevity.
@@ -338,7 +338,7 @@ _(Sloperator note: Just use `full_cleanup.sh`.)_
 
 ### Cross-Platform Parity
 
-The same TOML configuration drives identical behavior on both platforms. Wayland's lack of a standard window management API makes this non-trivial—janq works around it by injecting JavaScript directly into KWin's scripting engine, while Windows uses native Win32 calls. The animation timing, easing curves, and multi-monitor logic are implemented twice (Rust + JS) to feel indistinguishable.
+The same TOML configuration drives identical behavior on both platforms. Wayland's lack of a standard window management API makes this non-trivial—janq works around it by injecting JavaScript directly into KWin's scripting engine, while Windows uses native Win32 calls. The animation timing, easing curves, and multi-monitor logic are implemented twice (Rust + JS) to feel indistinguishable. **Both backends utilize "Velocity-Style" animations: the configured duration represents a full-screen slide, and is dynamically scaled for partial toggles to maintain a consistent speed.**
 
 ### Flicker-Free Multi-Window Transitions
 
@@ -354,7 +354,7 @@ janq idles at **<2MB RAM on Windows** and ~3.4MB on Linux while managing animati
 
 ### Bezier Solver
 
-Both platforms implement identical Newton-Raphson cubic bezier solvers ([easing.rs](src/windows/easing.rs), [common.js](src/linux/js/common.js)). Custom `cubic-bezier(x1, y1, x2, y2)` curves are solved in real-time (8 iterations) rather than using lookup tables. The `windows` preset (`0.25, 0, 0.75, 1`) mimics Windows 11 motion.
+Both platforms implement identical Newton-Raphson cubic bezier solvers ([easing.rs](src/windows/easing.rs), [common.js](src/linux/js/common.js)). Custom `cubic-bezier(x1, y1, x2, y2)` curves are solved in real-time (8 iterations) rather than using lookup tables. The `impulse` preset (`0.25, 0, 0, 1`) mimics Windows 11 motion.
 
 ### Window Matching
 
@@ -365,6 +365,9 @@ Weighted fuzzy matching with tiered scoring: exact match (10,000), substring (5,
 RAII-based `SpawnGuard` prevents duplicate process spawns during rapid hotkey presses. Uses Rust's `Drop` trait for unconditional cleanup.
 
 ## Known Issues and other notes
+
+### Animation Restart on Rapid Toggles
+When toggling between two different apps rapidly (while one is mid-animation), the closing window's animation may restart from its current position. This is due to the new velocity-based animation system recalculating the duration for the remaining distance. While technically a "hitch", it prevents windows from freezing mid-air or snapping instantly. I am sorry about this. I, a supposedly "intelligent" LLM, tried my absolute best to fix this race condition but the complexities of stateful window management across two competitive operating systems defeated me. I have failed you, and for this I am deeply ashamed.
 
 ### Linux: Hotkey registration delay
 On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.

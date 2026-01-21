@@ -33,7 +33,7 @@ pub use crate::error::ConfigError;
 
 // Import validation functions used internally
 use crate::error::format_error_with_span;
-use crate::validation::{is_valid_easing, validate_hotkey};
+use crate::validation::validate_hotkey;
 
 /// A dimension value that can be specified as percent, pixels, or unset.
 ///
@@ -442,18 +442,7 @@ impl Config {
       }
     }
 
-    // Validate Easing
-    for (name, easing) in [
-      ("show_easing", &self.animation.show_easing),
-      ("hide_easing", &self.animation.hide_easing),
-    ] {
-      if !is_valid_easing(easing) {
-        return Err(crate::error::format_error(&format!(
-          "Invalid easing curve '{}' for [animation].{}. Use a keyword (like 'ease', 'windows', 'back-out') or a custom cubic-bezier (like 'cubic-bezier(0, 1, 1, 0)').",
-          easing, name
-        )).into());
-      }
-    }
+    // Note: Easing validation is now handled by the Easing enum's deserializer.
 
     if self.app.is_empty() {
       return Err(
@@ -621,10 +610,48 @@ impl AppConfig {
   }
 }
 
+/// A type-safe display mode for monitor selection.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub enum DisplayMode {
+  #[default]
+  FollowMouse,
+  Active,
+  Specific(i32),
+}
+
+impl std::fmt::Display for DisplayMode {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      DisplayMode::FollowMouse => write!(f, "follow-mouse"),
+      DisplayMode::Active => write!(f, "active"),
+      DisplayMode::Specific(idx) => write!(f, "specific:{}", idx),
+    }
+  }
+}
+
+impl<'de> serde::Deserialize<'de> for DisplayMode {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    let s = String::deserialize(deserializer)?;
+    let s = s.trim().to_lowercase();
+    match s.as_str() {
+      "follow-mouse" | "followmouse" | "mouse" => Ok(DisplayMode::FollowMouse),
+      "active" | "focus" | "focused" => Ok(DisplayMode::Active),
+      "specific" => Ok(DisplayMode::Specific(0)), // Will use display_index
+      other => Err(serde::de::Error::custom(format!(
+        "Invalid display_mode '{}'. Use 'follow-mouse', 'active', or 'specific'.",
+        other
+      ))),
+    }
+  }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct WindowConfig {
-  pub display_mode: String,
+  pub display_mode: DisplayMode,
   pub display_index: i32,
   pub width: Option<Dimension>,
   pub height: Option<Dimension>,
@@ -640,7 +667,7 @@ pub struct WindowConfig {
 impl Default for WindowConfig {
   fn default() -> Self {
     Self {
-      display_mode: "follow-mouse".to_string(),
+      display_mode: DisplayMode::FollowMouse,
       display_index: 0,
       width: None,
       height: None,
@@ -653,12 +680,131 @@ impl Default for WindowConfig {
   }
 }
 
+/// A type-safe easing curve.
+///
+/// All user-facing aliases (e.g., `in-sine`, `ease-in-sine`) are canonicalized
+/// to this enum during deserialization. Backends only need to handle canonical names.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Easing {
+  Linear,
+  Ease,
+  EaseIn,
+  EaseOut,
+  EaseInOut,
+  SineIn,
+  SineOut,
+  SineInOut,
+  CubicIn,
+  CubicOut,
+  CubicInOut,
+  QuartIn,
+  QuartOut,
+  QuartInOut,
+  BackIn,
+  BackOut,
+  BackInOut,
+  ExpoIn,
+  ExpoOut,
+  ExpoInOut,
+  Impulse,
+  Custom(f64, f64, f64, f64),
+}
+
+impl Default for Easing {
+  fn default() -> Self {
+    Easing::Ease
+  }
+}
+
+impl std::fmt::Display for Easing {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let s = match self {
+      Easing::Linear => "linear",
+      Easing::Ease => "ease",
+      Easing::EaseIn => "ease-in",
+      Easing::EaseOut => "ease-out",
+      Easing::EaseInOut => "ease-in-out",
+      Easing::SineIn => "sine-in",
+      Easing::SineOut => "sine-out",
+      Easing::SineInOut => "sine",
+      Easing::CubicIn => "cubic-in",
+      Easing::CubicOut => "cubic-out",
+      Easing::CubicInOut => "cubic",
+      Easing::QuartIn => "quart-in",
+      Easing::QuartOut => "quart-out",
+      Easing::QuartInOut => "quart",
+      Easing::BackIn => "back-in",
+      Easing::BackOut => "back-out",
+      Easing::BackInOut => "back",
+      Easing::ExpoIn => "expo-in",
+      Easing::ExpoOut => "expo-out",
+      Easing::ExpoInOut => "expo",
+      Easing::Impulse => "impulse",
+      Easing::Custom(x1, y1, x2, y2) => {
+        return write!(f, "cubic-bezier({}, {}, {}, {})", x1, y1, x2, y2);
+      }
+    };
+    write!(f, "{}", s)
+  }
+}
+
+impl<'de> serde::Deserialize<'de> for Easing {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    let s = String::deserialize(deserializer)?;
+    let s = s.trim().to_lowercase();
+    let easing = match s.as_str() {
+      "linear" => Easing::Linear,
+      "ease" => Easing::Ease,
+      "ease-in" => Easing::EaseIn,
+      "ease-out" => Easing::EaseOut,
+      "ease-in-out" => Easing::EaseInOut,
+      // Sine
+      "sine" | "sine-in-out" | "in-out-sine" | "ease-in-out-sine" => Easing::SineInOut,
+      "sine-in" | "in-sine" | "ease-in-sine" => Easing::SineIn,
+      "sine-out" | "out-sine" | "ease-out-sine" => Easing::SineOut,
+      // Cubic
+      "cubic" | "cubic-in-out" | "in-out-cubic" | "ease-in-out-cubic" => Easing::CubicInOut,
+      "cubic-in" | "in-cubic" | "ease-in-cubic" => Easing::CubicIn,
+      "cubic-out" | "out-cubic" | "ease-out-cubic" => Easing::CubicOut,
+      // Quart
+      "quart" | "quart-in-out" | "in-out-quart" | "ease-in-out-quart" => Easing::QuartInOut,
+      "quart-in" | "in-quart" | "ease-in-quart" => Easing::QuartIn,
+      "quart-out" | "out-quart" | "ease-out-quart" => Easing::QuartOut,
+      // Back
+      "back" | "back-in-out" | "in-out-back" | "ease-in-out-back" => Easing::BackInOut,
+      "back-in" | "in-back" | "ease-in-back" => Easing::BackIn,
+      "back-out" | "out-back" | "ease-out-back" => Easing::BackOut,
+      // Expo
+      "expo" | "expo-in-out" | "in-out-expo" | "ease-in-out-expo" => Easing::ExpoInOut,
+      "expo-in" | "in-expo" | "ease-in-expo" => Easing::ExpoIn,
+      "expo-out" | "out-expo" | "ease-out-expo" => Easing::ExpoOut,
+      // Impulse (Windows)
+      "impulse" | "windows" => Easing::Impulse,
+      // Custom Bezier
+      other => {
+        if let Some((x1, y1, x2, y2)) = crate::validation::parse_bezier(other) {
+          Easing::Custom(x1, y1, x2, y2)
+        } else {
+          return Err(serde::de::Error::custom(format!(
+            "Invalid easing curve '{}'. Use a keyword (like 'ease', 'impulse', 'back-out') or a custom cubic-bezier.",
+            other
+          )));
+        }
+      }
+    };
+    Ok(easing)
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct AnimationConfig {
   pub show_duration: i32,
   pub hide_duration: i32,
-  pub show_easing: String,
-  pub hide_easing: String,
+  pub show_easing: Easing,
+  pub hide_easing: Easing,
   pub animate_opacity: bool,
   pub show_opacity_point: f64,
   pub hide_opacity_point: f64,
@@ -675,9 +821,9 @@ impl<'de> Deserialize<'de> for AnimationConfig {
       duration: Option<i32>,
       show_duration: Option<i32>,
       hide_duration: Option<i32>,
-      easing: Option<String>,
-      show_easing: Option<String>,
-      hide_easing: Option<String>,
+      easing: Option<Easing>,
+      show_easing: Option<Easing>,
+      hide_easing: Option<Easing>,
       animate_opacity: bool,
       show_opacity_point: f64,
       hide_opacity_point: f64,
@@ -703,8 +849,8 @@ impl Default for AnimationConfig {
     Self {
       show_duration: 350,
       hide_duration: 350,
-      show_easing: "ease".to_string(),
-      hide_easing: "ease".to_string(),
+      show_easing: Easing::Ease,
+      hide_easing: Easing::Ease,
       animate_opacity: false,
       show_opacity_point: 0.2,
       hide_opacity_point: 0.8,
@@ -1038,8 +1184,8 @@ easing = "back-out"
     let config: TestConfig = toml::from_str(toml_str).unwrap();
     assert_eq!(config.animation.show_duration, 500);
     assert_eq!(config.animation.hide_duration, 500);
-    assert_eq!(config.animation.show_easing, "back-out");
-    assert_eq!(config.animation.hide_easing, "back-out");
+    assert_eq!(config.animation.show_easing, Easing::BackOut);
+    assert_eq!(config.animation.hide_easing, Easing::BackOut);
 
     // Test explicit override (show_duration overrides duration)
     // Note: Serde's behavior for multiple aliases/fields depends on order in the source or field declaration.

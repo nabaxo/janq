@@ -437,6 +437,7 @@ pub async fn toggle_quake(
       .unwrap_or((String::new(), 0));
 
     let prev_id = state.previous_window_id.clone();
+
     run_toggle_script(
       app_cfg,
       config,

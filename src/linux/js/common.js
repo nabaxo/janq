@@ -90,8 +90,8 @@ const getEasing = (progress, type) => {
     }
   }
 
-  if (type === "windows") {
-    return solveBezier(progress, 0.25, 0, 0.75, 1);
+  if (type === "impulse" || type === "windows") {
+    return solveBezier(progress, 0.25, 0, 0, 1);
   }
 
   switch (type) {
@@ -101,49 +101,54 @@ const getEasing = (progress, type) => {
     case "ease":
     case "ease-in-out":
       return progress < 0.5 ? 2 * progress ** 2 : -1 + (4 - 2 * progress) * progress;
-    case "quart-in": case "ease-in-quart": return progress ** 4;
-    case "quart-out": case "ease-out-quart": return 1 - (1 - progress) ** 4;
+    case "quart-in": case "ease-in-quart": case "in-quart": return progress ** 4;
+    case "quart-out": case "ease-out-quart": case "out-quart": return 1 - (1 - progress) ** 4;
     case "quart":
     case "quart-in-out":
     case "ease-in-out-quart":
+    case "in-out-quart":
       return progress < 0.5 ? 8 * progress ** 4 : 1 - (-2 * progress + 2) ** 4 / 2;
     case "cubic-in":
     case "ease-in-cubic":
+    case "in-cubic":
       return progress ** 3;
-    case "cubic-out": case "ease-out-cubic": return 1 - (1 - progress) ** 3;
+    case "cubic-out": case "ease-out-cubic": case "out-cubic": return 1 - (1 - progress) ** 3;
     case "cubic":
     case "cubic-in-out":
     case "ease-in-out-cubic":
+    case "in-out-cubic":
       return progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
     case "sine-in":
     case "ease-in-sine":
+    case "in-sine":
       return 1 - Math.cos((progress * Math.PI) / 2);
-    case "sine-out": case "ease-out-sine": return Math.sin((progress * Math.PI) / 2);
+    case "sine-out": case "ease-out-sine": case "out-sine": return Math.sin((progress * Math.PI) / 2);
     case "sine":
     case "sine-in-out":
     case "ease-in-out-sine":
+    case "in-out-sine":
       return -(Math.cos(Math.PI * progress) - 1) / 2;
-    case "back-in": case "ease-in-back": {
+    case "back-in": case "ease-in-back": case "in-back": {
       const c1 = 1.70158; const c3 = c1 + 1;
       return c3 * progress ** 3 - c1 * progress ** 2;
     }
-    case "back-out": case "ease-out-back": {
+    case "back-out": case "ease-out-back": case "out-back": {
       const c1 = 1.70158; const c3 = c1 + 1;
       return 1 + c3 * (progress - 1) ** 3 + c1 * (progress - 1) ** 2;
     }
     case "back":
-    case "back-in-out": case "ease-in-out-back": {
+    case "back-in-out": case "ease-in-out-back": case "in-out-back": {
       const c1 = 1.70158; const c2 = c1 * 1.525;
       return progress < 0.5
         ? ((2 * progress) ** 2 * ((c2 + 1) * 2 * progress - c2)) / 2
         : ((2 * progress - 2) ** 2 * ((c2 + 1) * (progress * 2 - 2) + c2) + 2) / 2;
     }
-    case "expo-in": case "ease-in-expo":
+    case "expo-in": case "ease-in-expo": case "in-expo":
       return progress === 0 ? 0 : 2 ** (10 * progress - 10);
-    case "expo-out": case "ease-out-expo":
+    case "expo-out": case "ease-out-expo": case "out-expo":
       return progress === 1 ? 1 : 1 - 2 ** (-10 * progress);
     case "expo":
-    case "expo-in-out": case "ease-in-out-expo":
+    case "expo-in-out": case "ease-in-out-expo": case "in-out-expo":
       if (progress === 0) return 0;
       if (progress === 1) return 1;
       return progress < 0.5
