@@ -769,7 +769,7 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
     }
 
     // 3. Home Directory
-    config_paths.push(home.join(".janq.toml"));
+    config_paths.extend([home.join("janq.toml"), home.join(".janq.toml")]);
   }
 
   // De-duplicate while preserving order

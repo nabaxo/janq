@@ -47,6 +47,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 - Start via your desktop or run `./janq` to start the daemon.
 - Subsequent calls toggle the primary window.
 - Use `./janq --app name` to toggle a specific application from your config.
+- You can specify which app to show on startup via `./janq --daemon --app name` (if `auto_show = true` is set in your config).
 
 > [!TIP]
 > **Single-App Peace of Mind**: If you only have one app configured, janq ignores typos and always picks that app. In multi-app mode, it validates your input and shows a helpful error window if an app isn't found.
@@ -110,7 +111,7 @@ janq searches for a configuration file _(janq.toml or .janq.toml) _in the follow
 1.  **Binary Directory** (Portable Mode):
     - Same folder as the `janq` executable.
 2.  **XDG Config Directory**:
-    - `~/.config/janq/janq.toml`
+    - `~/.config/janq/janq.toml` or `~/.config/janq/.janq.toml`
     - _On Windows_: `%AppData%\Roaming\janq\janq.toml`
 3.  **User Configuration**:
     - `~/janq.toml`
@@ -322,6 +323,7 @@ The `utilities/` directory contains cleanup scripts for Linux. These exist becau
 | `cleanup_processes.sh` | Kills any lingering daemon processes. |
 | `cleanup_kwin.sh` | Removes KWin scripts. |
 | `cleanup_metadata.sh` | Clears cached window IDs and metadata. |
+| `cleanup_errors.sh` | Removes janq error temp files from /tmp. |
 
 If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
 
@@ -356,7 +358,7 @@ Both platforms implement identical Newton-Raphson cubic bezier solvers ([easing.
 
 ### Window Matching
 
-Weighted fuzzy matching with tiered scoring: exact match (10,000), substring (5,000), subsequence (1,000 + bonuses for word boundaries and consecutive characters). Visible windows get +2,000, already-managed windows +1,000. Minimum threshold of 500 filters noise.
+Weighted fuzzy matching with tiered scoring: exact match (10,000), substring (5,000), and subsequence (1,000 + bonuses for word boundaries and consecutive characters). The algorithm penalizes gaps between characters to ensure tight, reliable matches. Visible windows get +2,000, already-managed windows +1,000. Minimum threshold of 500 filters noise.
 
 ### Spawn Protection
 

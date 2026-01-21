@@ -124,9 +124,7 @@ impl QuakeDaemon {
   #[zbus(name = "Toggle")]
   async fn toggle(&self) {
     let config = { self.config.read().unwrap().clone() };
-    let mut apps: Vec<_> = config.app.keys().collect();
-    apps.sort_unstable();
-    if let Some(app_name) = apps.first() {
+    if let Some(app_name) = config.app.keys().next() {
       let _ = toggle_quake(app_name, &config, &self.conn).await;
     }
   }

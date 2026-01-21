@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.7] - 2026-01-21
+
+### Changed
+- **Configuration**: `janq` now searches for both `janq.toml` and `.janq.toml` in the Home directory, providing consistency across all search locations and platforms.
+- **Linux**: Resolved an app-ordering inconsistency where the CLI default toggle used alphabetical sorting while the tray icon followed the TOML order. `janq` now strictly respects the TOML configuration order for all platform interactions.
+
+### Fixed
+- **Linux**: Fixed a bug where `~/janq.toml` (non-hidden) was not being checked in the Home directory despite being documented.
+
+### Documentation
+- Updated `README.md` with detailed explanations of the fuzzy matching gap penalty, CLI flags for daemon auto-show, and configuration search priority.
+- Added `cleanup_errors.sh` to the utilities table in the README.
+
 ## [1.1.6] - 2026-01-20
 
 ### Fixed
