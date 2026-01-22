@@ -36,6 +36,7 @@ use zbus::Connection;
 
 use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
 use crate::error::show_error;
+use crate::linux::cache::{get_cache, get_cached_window, remove_from_cache, update_cache};
 use crate::spawn_guard::{get_spawning_apps, SpawnGuard};
 
 // =============================================================================
@@ -252,8 +253,7 @@ pub async fn check_window_exists_with_candidates(
 
   // 2. Hot path: Check cache and verify liveness via /proc (no expensive script call)
   {
-    let cache = get_pid_cache().lock().unwrap();
-    if let Some(cached) = cache.get(target_class) {
+    if let Some(cached) = get_cached_window(target_class) {
       if !cached.id.is_empty() && Path::new(&format!("/proc/{}", cached.pid)).exists() {
         // Process is alive, trust the cached window ID
         return Some(cached.id.clone());
@@ -265,18 +265,14 @@ pub async fn check_window_exists_with_candidates(
 
   // 3. Fallback: Full system fetch and fuzzy match
   let all_windows = fetch_system_windows_async().await;
-  let mut cache = get_pid_cache().lock().unwrap();
-  let managed_ids: Vec<String> = cache.values().map(|c| c.id.clone()).collect();
+  let managed_ids: Vec<String> = {
+    let cache = get_cache().lock().unwrap();
+    cache.values().map(|c| c.id.clone()).collect()
+  };
 
   if let Some(best) = fuzzy_match_window(target_class, &all_windows, &managed_ids) {
     // Update cache
-    cache.insert(
-      target_class.to_string(),
-      CachedWindow {
-        id: best.id.clone(),
-        pid: best.pid,
-      },
-    );
+    update_cache(target_class, best.id.clone(), best.pid);
     return Some(best.id);
   }
 
@@ -380,31 +376,13 @@ pub async fn is_window_valid(id: &str) -> bool {
   windows.iter().any(|w| w.id == id)
 }
 
-// =============================================================================
-// Process & Window Cache
-// =============================================================================
-
-struct CachedWindow {
-  id: String,
-  pid: u32,
-}
-
-static PID_CACHE: OnceLock<Mutex<FxHashMap<String, CachedWindow>>> = OnceLock::new();
-
-fn get_pid_cache() -> &'static Mutex<FxHashMap<String, CachedWindow>> {
-  PID_CACHE.get_or_init(|| Mutex::new(FxHashMap::default()))
-}
-
 pub fn get_pid_for_class(target_class: &str) -> Option<u32> {
-  let cache = get_pid_cache().lock().unwrap();
-  cache.get(target_class).map(|c| c.pid)
+  get_cached_window(target_class).map(|c| c.pid)
 }
 
 pub fn check_process_running(target_class: &str) -> bool {
-  let mut cache = get_pid_cache().lock().unwrap();
-
   // 1. Fast path: Check cached PID for this specific class
-  if let Some(cached) = cache.get(target_class) {
+  if let Some(cached) = get_cached_window(target_class) {
     // Fast liveness check: just check if the directory exists
     // This is much faster than reading cmdline every time.
     if Path::new(&format!("/proc/{}", cached.pid)).exists() {
@@ -412,7 +390,7 @@ pub fn check_process_running(target_class: &str) -> bool {
     }
   }
   // If we're here, cache was invalid or empty for this class
-  cache.remove(target_class);
+  remove_from_cache(target_class);
 
   // 2. Slow path: Iterate /proc
   let procs = match fs::read_dir("/proc") {
@@ -430,13 +408,7 @@ pub fn check_process_running(target_class: &str) -> bool {
         }
 
         if verify_pid_matches(pid, target_class) {
-          cache.insert(
-            target_class.to_string(),
-            CachedWindow {
-              id: String::new(),
-              pid,
-            },
-          );
+          update_cache(target_class, String::new(), pid);
           return true;
         }
       }

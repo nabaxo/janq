@@ -34,6 +34,7 @@ use tokio::{
 use zbus::{Connection, Proxy, Result};
 
 use crate::config::{AppConfig, Config, PositionOffset, SlideDirection};
+use crate::linux::cache::{get_cached_window, remove_from_cache, update_cache};
 use crate::linux::terminal::{
   check_window_exists, check_window_exists_with_candidates, fetch_system_windows,
   get_pid_for_class, is_window_valid,
@@ -144,11 +145,7 @@ pub async fn init() {
   state.max_refresh_rate = hz;
 }
 
-static WINDOW_CACHE: OnceLock<Mutex<FxHashMap<String, (String, u32)>>> = OnceLock::new();
-
-fn get_window_cache() -> &'static Mutex<FxHashMap<String, (String, u32)>> {
-  WINDOW_CACHE.get_or_init(|| Mutex::new(FxHashMap::default()))
-}
+// Window cache is now managed in src/linux/cache.rs
 
 /// Parameters for toggle script execution
 struct ToggleParams<'a> {
@@ -349,14 +346,10 @@ async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn
 
 async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
   // 1. Check Cache
-  {
-    if let Ok(cache) = get_window_cache().try_lock() {
-      if let Some((id, pid)) = cache.get(app_name) {
-        // Verify PID liveness via /proc
-        if Path::new(&format!("/proc/{}", pid)).exists() {
-          return Some((id.clone(), *pid));
-        }
-      }
+  if let Some(cached) = get_cached_window(app_name) {
+    // Verify PID liveness via /proc
+    if Path::new(&format!("/proc/{}", cached.pid)).exists() {
+      return Some((cached.id.clone(), cached.pid));
     }
   }
 
@@ -364,9 +357,7 @@ async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u
   if let Some(id) = check_window_exists(class).await {
     let pid = get_pid_for_class(class).unwrap_or(0);
     // 3. Update Cache
-    if let Ok(mut cache) = get_window_cache().try_lock() {
-      cache.insert(app_name.to_string(), (id.clone(), pid));
-    }
+    update_cache(app_name, id.clone(), pid);
     return Some((id, pid));
   }
   None
@@ -606,9 +597,7 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
     {
       let pid = get_pid_for_class(&app_cfg.window_class).unwrap_or(0);
       if !app_name.is_empty() {
-        if let Ok(mut cache) = get_window_cache().try_lock() {
-          cache.insert(app_name.to_string(), (id.clone(), pid));
-        }
+        update_cache(app_name, id.clone(), pid);
       }
       (id, pid)
     } else {
@@ -706,10 +695,8 @@ pub fn clear_removed_apps_from_cache(old_config: &Config, new_config: &Config) {
     .collect();
 
   if !removed_apps.is_empty() {
-    if let Ok(mut cache) = get_window_cache().try_lock() {
-      for name in removed_apps {
-        cache.remove(&name);
-      }
+    for name in removed_apps {
+      remove_from_cache(&name);
     }
   }
 }

@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod daemon;
 pub mod desktop;
 pub mod hotkey;

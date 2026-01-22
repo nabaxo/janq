@@ -33,7 +33,6 @@ mod matching;
 mod shutdown;
 mod spawn_guard;
 mod terminal;
-mod traits;
 mod validation;
 #[cfg(target_os = "windows")]
 mod windows;
