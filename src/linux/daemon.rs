@@ -375,19 +375,12 @@ pub async fn run_daemon(
     let (new_config, _) = match load_config(path_to_watch.clone()) {
       Ok(c) => c,
       Err(e) => {
-        let err_msg = format!("Config reload failed: {}", e);
+        let err_msg = format!(
+          "Config reload failed: {}\nStaying with the last known good configuration.",
+          e
+        );
         show_error(&err_msg);
-
-        // Restore all apps before shutting down
-        let current_cfg = config_for_watcher.read().unwrap().clone();
-        let conn_shutdown = conn_for_watcher.clone();
-        rt_handle.block_on(async move {
-          println!("Watcher: Restoring all apps before shutdown...");
-          let _ = restore_quake(&current_cfg, &conn_shutdown).await;
-        });
-
-        show_error(&err_msg);
-        exit(1);
+        return;
       }
     };
 

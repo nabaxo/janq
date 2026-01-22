@@ -206,13 +206,11 @@ pub fn run_daemon(
     let (new_config, _) = match load_config(path_to_watch.clone()) {
       Ok(c) => c,
       Err(e) => {
-        // Restore all apps from current config before shutting down
-        let current_cfg = config_clone_watcher.read().unwrap().clone();
-        for app_cfg in current_cfg.app.values() {
-          restore_app_window(&app_cfg.window_class);
-        }
-        show_error(&e.to_string());
-        let _ = event_tx_watcher.send(DaemonEvent::Exit(Some("Config error")));
+        let err_msg = format!(
+          "Config reload failed: {}\nStaying with the last known good configuration.",
+          e
+        );
+        show_error(&err_msg);
         return;
       }
     };
