@@ -15,7 +15,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 
 ## Supported Platforms
 
-- **Linux**: KDE Plasma 6 (Wayland via KWin scripts)
+- **Linux**: KDE Plasma 6 (Wayland via KWin scripts, D-Bus activation, and StatusNotifierItem)
 - **Windows**: Windows 10/11 (Native WinAPI)
 
 ## Key Features
@@ -236,7 +236,7 @@ The `offset` option controls where along the edge the window is positioned:
 | `back`* | Overshoots slightly before settling. |
 | `cubic-bezier` | Custom CSS-style curve: `cubic-bezier(x1, y1, x2, y2)`. |
 
-\* Supports `ease-in`, `ease-out`, and `ease-in-out` variants (and short-hands like `in-` and `out-`, e.g., `ease-in-sine`, `in-sine`). The base name (e.g., `sine`) defaults to `in-out`. **Note: janq validates easing curves on startup; invalid configurations will prevent the daemon from launching.**
+\* Supports `ease-in`, `ease-out`, and `ease-in-out` variants (and short-hands like `in-` and `out-`, e.g., `ease-in-sine`, `in-sine`). The base name (e.g., `sine`) defaults to `in-out`. **Note: janq validates easing curves on startup; while running, invalid configurations during hot-reload throws an error, but the daemon continues with the last valid state.**
 
 > [!TIP]
 > **Custom Bezier Shortcuts**: You can also use `bezier(x1, y1, x2, y2)` or just `(x1, y1, x2, y2)` for brevity.
@@ -338,7 +338,7 @@ _(Sloperator note: Just use `full_cleanup.sh`.)_
 
 ### Cross-Platform Parity
 
-The same TOML configuration drives identical behavior on both platforms. Wayland's lack of a standard window management API makes this non-trivial—janq works around it by injecting JavaScript directly into KWin's scripting engine, while Windows uses native Win32 calls. The animation timing, easing curves, and multi-monitor logic are implemented twice (Rust + JS) to feel indistinguishable. **Both backends utilize "Velocity-Style" animations: the configured duration represents a full-screen slide, and is dynamically scaled for partial toggles to maintain a consistent speed.**
+The same TOML configuration drives identical behavior on both platforms. Wayland's lack of a standard window management API makes this non-trivial—janq works around it by injecting JavaScript directly into KWin's scripting engine, while Windows uses native Win32 calls. The animation timing, easing curves, and multi-monitor logic are implemented twice (Rust + JS) to feel indistinguishable. **The architecture utilizes a "Flattened Proxy" pattern: redundant proxy layers were removed in favor of direct platform re-exports, and both backends utilize "Velocity-Style" animations where duration scales based on travel distance.**
 
 ### Flicker-Free Multi-Window Transitions
 
@@ -354,7 +354,7 @@ janq idles at **<2MB RAM on Windows** and ~3.4MB on Linux while managing animati
 
 ### Bezier Solver
 
-Both platforms implement identical Newton-Raphson cubic bezier solvers ([easing.rs](src/windows/easing.rs), [common.js](src/linux/js/common.js)). Custom `cubic-bezier(x1, y1, x2, y2)` curves are solved in real-time (8 iterations) rather than using lookup tables. The `impulse` preset (`0.25, 0, 0, 1`) mimics Windows 11 motion.
+Both platforms implement identical Newton-Raphson cubic bezier solvers ([animation.rs](src/windows/animation.rs), [common.js](src/linux/js/common.js)). Custom `cubic-bezier(x1, y1, x2, y2)` curves are solved in real-time (8 iterations) rather than using lookup tables. The `impulse` preset (`0.25, 0, 0, 1`) mimics Windows 11 motion.
 
 ### Window Matching
 
@@ -373,7 +373,7 @@ When toggling between two different apps rapidly (while one is mid-animation), t
 On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
 
 ### App Compatibility: Opacity Animations
-Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord(Sloperator note: maybe?)) may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
+Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord (Sloperator note: maybe?)) may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
 
 **Note:** Just test and find out if enabling `animate_opacity` works for your particular app. If you notice flickering, "blank" windows during toggle, or if the animation just feels sluggish or weird, Just don't enable `animate_opacity` for that specific app in your config.
 

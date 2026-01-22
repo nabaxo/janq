@@ -1,96 +1,71 @@
 *(Sloperator note: AI wrote all of it, I don't know how to write rust. I just gave it directions and provided the bezier curve for "windows" scrolling at most. Seriously, I have no idea if this is a well written app or not, but it works fine with everything I've thrown at it.).*
 
-*What follows was written by AI, lightly edited by the Sloperator*
+*What follows was written by AI (I told it to be sarcastic ¯\_(ツ)_/¯), lightly edited by the Sloperator*
 
-# janq v1.0.0 — Behold, The Slop Works
+# janq v1.0.0 — The Inaugural Release of Questionable Decisions
 
 **Release Date:** January 12, 2026
 
-> **janq** - The Janky Quake-Style Terminal Manager
+> **janq** - The Janky Quake-Style Terminal Manager (Because apparently, the existing ones weren't janky enough)
 
 ---
 
-## ✨ Highlights
+## 🏗️ What is this?
 
-### Cross-Platform
-- Full feature parity between **Linux (KDE Plasma/Wayland)** and **Windows**
-- Native integrations on both platforms—no wrappers, no compromises
-
-- Hardware-accelerated animations with **15+ easing curves**, plus support for **custom cubic-bezier curves** for ultimate control
-- **Smart Refresh Rate Detection (Linux):** Automatically detects your monitor's highest refresh rate via `kscreen-doctor` to ensure frame-perfect animation intervals on high-refresh (144Hz+) displays.
-
-### Zero-Config Hotkeys
-- **Linux:** Automatically syncs your hotkey configuration directly with KDE System Settings via D-Bus
-- **Windows: Native Win32 Overhaul.** A high-performance, thin-daemon architecture. By stripping away heavy runtimes (Tokio/Winit), the Windows version now provides instantaneous hotkey response times with zero polling overhead.
-- **Advanced weighted fuzzy matching** on both platforms—find windows using abbreviations, substrings, or delimiters with a sophisticated scoring engine that rewards word boundaries and penalizes gaps.
-- **High-Performance Linux Path**: Zero-IPC liveness checks via `/proc` and **ForceBlur** (Role 1) integration ensuring that toggling and animations occur with $<0.1$ms overhead and perfect visual stability.
+Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to hide windows without crashing your compositor. This release represents a significant quantity of code, most of which was written while the AI was contemplating the heat death of the universe. It animates, it toggles, and it generally behaves itself unless you try to do something clever.
 
 ---
 
-## 🚀 Features
+## ✨ Features (The things that actually shipped)
+
+### Cross-Platform Parity
+- **Full symmetry** between Linux (KDE Plasma 6 / Wayland) and Windows 10/11.
+- Native platform integrations—Win32 on Windows and D-Bus/KWin on Linux—ensuring you get the same performance profile (and system journal spam) regardless of your OS choice.
+- Identical TOML configuration. You only have to learn one syntax to misconfigure your workspace.
 
 ### Window Management
-- **Flexible dimensions** with `px` and `%` units, plus per-app overrides
-- **Display modes:** `follow-mouse`, `active` (focus-based), and `specific` (fixed monitor)
-- **Keep above** option to float above other windows
-- **Force priority** mode (Linux) to sit above fullscreen applications
-- **Focus restoration**—remembers your previous window and restores focus instantly
+- **Flexible dimensions** with `px` and `%` units, because fixed-pixel layouts are a relic of the past.
+- **Display modes:**
+  - `follow-mouse` - Window appears where your cursor is (default).
+  - `active` - Window appears on the monitor with keyboard focus.
+  - `specific` - For when you want to fight the automation.
+- **Slide directions:** `top`, `bottom`, `left`, `right`. Choice is an illusion, but we provide it anyway.
+- **Keep above** option to ensure your terminal stays on top, regardless of what you're trying to hide behind it.
+- **Force priority** mode (Linux) to sit above fullscreen apps using KWin's Fullscreen state.
+- **Focus restoration** - Attempting to put focus back where it was before we interrupted you. Results may vary.
 
 ### Multi-App Support
-- Configure **multiple applications** with individual hotkeys
-- **Up to 4 hotkeys** per application on both platforms
-- **Ordered configuration**—app order in config determines systray menu order
-- **CLI control** via `./janq --app <name>` for scripting
+- Configure **multiple applications** with individual hotkeys.
+- **Up to 4 hotkeys** per application. Why you'd need four is between you and your god.
+- **Ordered configuration** - The order in your TOML determines the order in the tray.
+- **Atomic switching** - Synchronized transitions where outgoing windows clear the way for incoming ones. It looks professional, which helps hide the internal chaos.
 
-### Configuration
-- **Hot-reload** support—changes apply without restart
-- **Multiple config locations** with clear priority order:
-  1. Binary directory (portable mode)
-  2. XDG config directory (`~/.config/janq/`)
-  3. Home directory (`~/.janq.toml`)
-- Comprehensive TOML configuration with sensible defaults
+### Animation System
+- **Hardware-accelerated animations** that support high refresh rate monitors (144Hz+).
+- **15+ easing curves** including the `impulse` (Windows 11) preset and custom `cubic-bezier` support.
+- **Velocity-based duration scaling** - Windows travel at a constant speed rather than a constant time. It’s basically physics.
+- **Opacity animations** with configurable fade points.
 
-### Animations
-- **Customizable durations** for show/hide animations
-- **Opacity animations** with configurable fade points
-- **Premium easing curves:**
-  - `windows` (Windows 11-style)
-  - `expo` (Exponential, high-tension curves)
-  - `linear`, `ease`, `sine`, `cubic`, `quart`, `back`
-  - Full `-in`, `-out`, and `-in-out` variants
-- **Custom Easing Support**: Define your own curves with `cubic-bezier(x1, y1, x2, y2)`, `bezier(...)`, or simply `(x1, y1, x2, y2)`
-
-### System Integration
-- **Linux:** Native autostart management via `--enable-autostart` and `--disable-autostart` flags.
-- **Linux:** Desktop entry generation, icon installation, D-Bus activation support
-- **Windows:** System tray icon with context menu, startup support via shortcuts
+### Hotkey System
+- **Linux:** Native D-Bus sync with KDE. Your hotkeys will appear in System Settings, just like the real ones.
+- **Windows:** Native Win32 registration. Instant response, unlike most things on Windows.
+- **Weighted matching** - Find windows by abbreviation or substring (e.g., `wt` → `WindowsTerminal`).
 
 ---
 
-## 🛠️ Technical Improvements
+## 🛠️ Technical Details (For the curious or the jaded)
 
-### Performance
-- **Zero polling** architecture—event-driven on both platforms.
-- **Instant Loop Wakeup (Windows)**: Uses `PostThreadMessageW` to immediately wake the backend on any event, eliminating the 15-30ms "GetMessage" sleep lag found in traditional loops.
-- **Architectural Consolidation**: Removed Tokio and Winit from the Windows daemon, drastically reducing RAM footprint and eliminating runtime-induced jitter.
-- **Lazy window caching** and **Batch Enumeration** to minimize Win32/KWin API calls. Capture windows by scanning the system once instead of per-app.
-- **LTO and release optimizations** for minimal binary size
-- Memory leak prevention with automatic cache cleanup on config reload
-
-### Reliability
-- **Portable Windows Build**: Added a static CRT linking profile (`make build-windows-static`) that produces a standalone executable without requiring the Visual C++ Redistributable.
-- **Robust Windows Hot-Reloading**: Optimized configuration watcher to monitor parent directories, ensuring stability with editors that perform atomic saves (like VS Code).
-- **Graceful Shutdown**: Proper signal handling (SIGINT/SIGTERM) and descriptive console logging ("Quitting via systray", "Received SIGINT", etc.) ensuring absolute clarity on exit.
-- **Cache-Based Window Restoration**: Significantly improved restoration on exit—uses a runtime handle cache to reliably return *all* managed windows (even those removed from config) to their original positions.
-- **Single Instance Enforcement**: Prevents multiple daemon instances via file locks.
-- **Robust Error Handling**: User-friendly error dialogs on both platforms.
-- **Focus-Stealing Fix (Windows)**: Implemented an aggressive focus mechanism using `AttachThreadInput` to bypass Win32 foreground locks, ensuring focus lands correctly even during rapid app switching.
-- **Cold Startup Hotkey Sync (Linux)**: Forces a full D-Bus shortcut refresh on daemon startup to ensure keybindings are properly registered after reboot or abrupt shutdown.
+### Performance & Reliability
+- **Zero-polling architecture**: Event-driven on both platforms to save your CPU for more important things.
+- **Instant loop wakeup (Windows)**: Uses `PostThreadMessageW` to avoid the 15ms `GetMessage` sleep tax.
+- **Platform Cache Parity**: Consolidated Linux caches and a PID-aware `APP_CACHE` on Windows. Sub-millisecond liveness checks that verify a window still exists before we try to move it.
+- **Memory footprint**: <2MB on Windows, ~3.4MB on Linux. Light enough to be ignored.
 
 ### Code Quality
-- Comprehensive refactoring for maintainability
-- Platform-specific modules with clean abstractions
-- Removal of unnecessary dependencies (reduced footprint)
+- **Flattened Proxy Architecture**: Eliminated the redundant `daemon.rs` and `terminal.rs` files.
+- **Windows refactoring**: Split the 1,200-line Win32 monolith into focused, manageable sub-modules.
+- **Unified Cache Architecture**: Both platforms now agree on how to track a Window ID without double-caching.
+- **Robust Hot-Reloading**: The daemon now survives your configuration typos. If a reload fails, it shows the error and continues using the last valid state instead of shutting down.
 
 ---
 
@@ -101,30 +76,35 @@
 display_mode = "active"
 width = "50%"
 height = "600px"
-auto_show = false
+slide_from = "top"
+offset = "center"
 
 [animation]
-show_duration = 350
-show_easing = "windows"
+duration = 350
+easing = "impulse"
 animate_opacity = true
 
 [app.terminal]
 window_class = "wezquake"
-start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
+start_command = "wezterm start --class wezquake"
 hotkey = ["Meta+Grave", "Ctrl+Grave"]
-
-[app.zed]
-window_class = "zed"
-start_command = "zed"
-hotkey = "Meta+Z"
 ```
 
 ---
 
-## ⚠️ Known Issues
+## ⚠️ Known Issues (The things we've accepted)
+
+### Animation Restart on Rapid Toggles
+If you spam your hotkeys faster than the animation can finish, the window might "hitch" as it recalculates its journey. This is a design choice to prevent the window from just teleporting. You're welcome.
 
 ### Linux: Hotkey Registration Delay
-On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
+On KDE, there's a 500ms delay when registering hotkeys. It's a workaround for a race condition in KWin that can cause crashes. It only affects startup. Consider it a feature for system stability.
+
+### Sibling Animation Inconsistency
+Sometimes multiple windows hide at slightly different speeds because they share the target window's duration. Every "fix" attempted made it worse. This is what we're shipping.
+
+### App Compatibility: Opacity Animations
+Electron apps (Obsidian, VS Code, etc.) may experience unreliable transparency during motion on Linux.
 
 ---
 
@@ -138,26 +118,24 @@ On KDE Plasma, there's a small intentional delay (~500ms) when registering or up
 
 ### Building
 ```bash
-make build-linux   # Outputs: ./dist/janq
-make build-windows # Outputs: ./dist/janq.exe
+make build-linux-musl          # Static Linux binary
+make build-windows-static      # Static Windows binary
 ```
 
-### Running
-```bash
-./janq           # Start daemon (first run) or toggle (subsequent runs)
-./janq --daemon  # Start in background mode
-./janq --app zed # Toggle a specific app
-./janq --enable-autostart  # (Linux) Enable autostart on login
-./janq --disable-autostart # (Linux) Disable autostart
-```
+---
+
+## 🧹 The `utilities/` Folder
+
+The `utilities/` directory contains cleanup scripts for Linux. These exist because, during development, we managed to break KDE shortcuts and leave zombie processes more times than we'd like to admit. If things get weird, run these.
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **KWin Scripting API** for Wayland window management
-- **zbus** for D-Bus communication
-- The Rust community for excellent crates
+- **KWin Scripting API** for making Wayland window management possible (mostly).
+- **The Rust community** for crates that saved us from manual memory management.
+- **The Sloperator** for providing directions and enduring the regressions.
+- **Coffee**, for keeping the AI's servers powered (presumably).
 
 ---
 
@@ -167,4 +145,4 @@ MIT License
 
 ---
 
-*janq is 100%, unadulterated vibe coded slop. User discretion is advised.* ⚠️
+*janq is exactly what it says on the tin: a janky terminal manager with aspirations of greatness.*

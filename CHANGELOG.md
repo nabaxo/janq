@@ -5,35 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.8] - 2026-01-21
+## [1.0.0] - 2026-01-22
 
-### Added
-- **Animation**: **Velocity-Style Movement** — Animation durations now scale based on the distance a window needs to travel. A configured duration (e.g., 350ms) represents a full-screen slide, ensuring constant movement speed for partial toggles.
-- **Animation**: **Platform Easing Parity** — Unified easing engine supporting 15+ curves (`sine`, `cubic`, `back`, `expo`, `quart`, etc.) with `in`, `out`, and `in-out` variants and custom `cubic-bezier(x1, y1, x2, y2)` support on both Windows and Linux.
-- **Configuration**: **Type-Safe Easing & DisplayMode** — Refactored core configuration types into robust enums with strict validation, preventing invalid strings from crashing the daemon on both platforms.
+### The Inaugural Release
+This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies its existence on your system.
 
-### Fixed
-- **Windows**: **Animation Synchronization** — Implemented generation-based task cancellation to ensure only the latest toggle request controls the window and its siblings, preventing "fighting" animations during rapid spam.
-- **General**: **Fuzzy Matching Refinement** — Improved weighted scoring for abbreviations (e.g., `wt` -> `WindowsTerminal`) by adjusting gap penalties and boundary bonuses.
+### Core Features
+#### Platform Support
+- **Full feature parity**: Linux (KDE Plasma 6) and Windows 10/11.
+- **Native integrations**: Win32 on Windows; D-Bus and KWin injection on Linux.
+- **Symmetric Configuration**: Identical TOML behavior on both platforms.
 
-### Changed
-- **Code Quality**: Systematic cleanup of unused imports, dead variables, and naming convention warnings across the entire codebase.
-- **Documentation**: Added "Known Issues" section to README documenting the conscious decision to accept animation "hitches" to prevent window freezing, complete with bullshit apology from the AI.
+#### Window Management
+- **Dimension flexible**: Support for `px` and `%` units.
+- **Display modes**: `follow-mouse`, `active`, and `specific`.
+- **Z-Order control**: `keep_above` and Linux-specific `force_priority` (Fullscreen role).
+- **Positioning**: Multi-axis slide directions and configurable edge offsets.
 
-## [1.1.7] - 2026-01-21
+#### Multi-App Logic
+- **Ordered configuration**: Config order determines menu and activation priority.
+- **Atomic transitions**: Synchronized animations where outgoing windows clear the way for incoming ones.
 
-### Changed
-- **Configuration**: `janq` now searches for both `janq.toml` and `.janq.toml` in the Home directory, providing consistency across all search locations and platforms.
-- **Linux**: Resolved an app-ordering inconsistency where the CLI default toggle used alphabetical sorting while the tray icon followed the TOML order. `janq` now strictly respects the TOML configuration order for all platform interactions.
+#### Animation Engine
+- **Velocity-based scaling**: Durations scale based on distance, ensuring constant pixels-per-second regardless of window position.
+- **Unified Easing**: Support for 15+ curves and custom `cubic-bezier`.
+- **Opacity fades**: Configurable fade-in and fade-out points.
 
-### Fixed
-- **Linux**: Fixed a bug where `~/janq.toml` (non-hidden) was not being checked in the Home directory despite being documented.
+#### Hotkey & Matching
+- **Zero-config registration**: Native sync with KDE and Win32.
+- **Weighted Matcher**: Tiered scoring system (exact > subtitle > visible > managed).
 
-### Documentation
-- Updated `README.md` with detailed explanations of the fuzzy matching gap penalty, CLI flags for daemon auto-show, and configuration search priority.
-- Added `cleanup_errors.sh` to the utilities table in the README.
+### Performance & Quality
+- **Unified Cache Architecture**: Consolidated handle tracking for both platforms.
+- **Liveness checks**: `/proc/{pid}` validation on both Linux and Windows for sub-millisecond response.
+- **Zero-Polling**: Event-driven architecture with instant loop wakeups.
+- **Robust Hot-Reloading**: Daemon gracefully discards invalid configs and remains running on the last good state.
+- **Flattened internals**: Eliminated proxy modules; consolidated the 1,200-line Win32 monolith into focused sub-modules.
 
-## [1.1.6] - 2026-01-20
+## [0.1.6] - 2026-01-20
 
 ### Fixed
 - **Linux**: Comprehensive taskbar respect for all slide directions. Implemented "Dual-Area" logic to anchor shown positions to the workspace while depth hiding to absolute monitor bounds.
@@ -51,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows**: Optimized sibling discovery by utilizing `HWND_CACHE`, eliminating expensive system-wide process enumeration during animations.
 - **Linux**: Refactored KWin area resolution into a robust `resolveAreaContext` for bulletproof coordinate stability.
 
-## [1.1.5] - 2026-01-20
+## [0.1.5] - 2026-01-20
 
 ### Changed
 - **Icons**: Simplified and optimized `icon.svg` and `icon.ico` for efficiency.
@@ -60,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code Quality**: Unified config watcher logic across platform daemons.
 - **Code Quality**: Improved error handling and reduced aggressive GUI popups for non-critical issues.
 
-## [1.1.4] - 2026-01-19
+## [0.1.4] - 2026-01-19
 
 ### Added
 - **Error Display**: Colorized error messages with Rust-style formatting (red errors, blue arrows, cyan values, yellow app names)
@@ -69,22 +78,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Utilities**: Added `cleanup_errors.sh` to full cleanup script
 
 ### Fixed
-- **Error Display**: Fixed regression where TOML syntax errors (e.g., "expected newline") pointed to wrong line numbers
+- **Error Display**: Fixed regression where TOML syntax errors pointed to wrong line numbers
 - **Error Display**: Fixed "unknown field" errors pointing to incorrect lines when field name appeared elsewhere in config
 - **Error Display**: GUI error popup now only appears when running without a terminal, avoiding double-display when running from terminal
 - **Error Display**: Consistent error behavior on Windows and Linux
 
-## [1.1.3] - 2026-01-19
+## [0.1.3] - 2026-01-19
 
 ### Added
 - **Configuration**: Support for catch-all `duration` and `easing` keys in the `[animation]` section. These can be used to set both show and hide values simultaneously.
 
-## [1.1.2] - 2026-01-16
+## [0.1.2] - 2026-01-16
 
 ### Fixed
 - **Windows**: Smooth reversal for cubic-bezier easing curves with overshoot when toggle-spamming during animation. Animation now continues from the symmetric point in the curve rather than restarting.
 
-## [1.1.1] - 2026-01-16
+## [0.1.1] - 2026-01-16
 
 ### Added
 - **Shortcut**: `offset = "0"` is now an alias for `"center"` in window positioning.
@@ -92,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Linux**: Enforced `FullScreenArea` for all animations, ensuring 100% stability on all monitor configurations and bypassing taskbar-shrunk calculations.
 
-## [1.1.0] - 2026-01-16
+## [0.1.0] - 2026-01-16
 
 ### Added
 - **New Feature**: `slide_from` option to control animation direction (`top`, `bottom`, `left`, `right`)
@@ -112,7 +121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `parking.rs` - Park/restore functions (~160 lines)
   - `window.rs` - Core toggle logic and state management (~280 lines)
 
-## [1.0.3] - 2026-01-15
+## [0.0.3] - 2026-01-15
 
 ### Added
 - **Windows**: Graceful signal handling for Ctrl+C, Ctrl+Break, and console close events
@@ -127,7 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code Quality**: Extracted `shutdown.rs` for consistent shutdown messaging across platforms
 - **Code Quality**: Extracted `config_watcher.rs` infrastructure for potential future consolidation
 
-## [1.0.2] - 2026-01-15
+## [0.0.2] - 2026-01-15
 
 ### Added
 - Comprehensive module-level documentation across all Rust files
@@ -143,7 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Linux**: Icon updates now detected by content comparison, ensuring new icons are installed when changed
 
-## [1.0.1] - 2026-01-14
+## [0.0.1] - 2026-01-14
 
 ### Fixed
 - **Windows**: Resolved issue where Electron apps (like Obsidian) were not "grabbed" (hidden) correctly on startup. Enforced a visibility check during the application polling loop to skip background/hidden windows.
