@@ -31,6 +31,12 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
       return BOOL(1);
     }
 
+    // 2. Instant check: Ownership (ignore child/helper windows that have an owner)
+    // Most 'main' app windows are unowned (GetWindow(hwnd, GW_OWNER) == NULL)
+    if GetWindow(hwnd, GW_OWNER).map(|h| h.0 as usize).unwrap_or(0) != 0 {
+      return BOOL(1);
+    }
+
     // 2. Instant check: Visibility
     // Note: We still want to catch windows that are "parked" (IsWindowVisible == false)
     // but for the INITIAL enumeration during hotkey trigger,
