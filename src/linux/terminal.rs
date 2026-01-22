@@ -94,10 +94,6 @@ pub async fn report_metadata(payload: String) {
 // Terminal Management
 // =============================================================================
 
-// =============================================================================
-// Terminal Management
-// =============================================================================
-
 /// Ensures the application's terminal/window is running.
 ///
 /// Returns `true` if a new process was spawned, `false` if already running.
