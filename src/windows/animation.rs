@@ -26,8 +26,8 @@ use crate::config::{
 };
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
-  force_focus, get_animation_cancel, get_animation_state, get_hwnd_cache, get_previous_focus,
-  get_visible_app, monitor_enum_proc, AnimationState, MonitorEnumCtx, SendHwnd,
+  force_focus, get_animation_cancel, get_animation_state, get_app_cache, get_previous_focus,
+  get_visible_app, monitor_enum_proc, AnimationState, CachedWindow, MonitorEnumCtx,
 };
 
 /// Runs the animation loop synchronously.
@@ -43,9 +43,9 @@ static ANIMATION_GENERATION: AtomicU64 = AtomicU64::new(0);
 pub fn run_animation_task_sync(
   app_name: &str,
   config: &Config,
-  target_hwnd: SendHwnd,
+  target_hwnd: CachedWindow,
   should_show: bool,
-  siblings: Vec<SendHwnd>,
+  siblings: Vec<CachedWindow>,
   restore_focus: bool,
 ) {
   let app_cfg = match config.app.get(app_name) {
@@ -221,15 +221,16 @@ pub fn run_animation_task_sync(
 
     // --- Sibling Data: (hwnd, start_x, start_y, width, height, end_x, end_y, alpha, duration_secs, easing_cfg) ---
     let mut siblings_data = Vec::new();
-    for ohwnd in siblings {
-      if ohwnd.0 == target_hwnd.0 {
+    for ocw in siblings {
+      let ohwnd = ocw.hwnd;
+      if ohwnd == target_hwnd.inner() {
         continue;
       }
       let mut r = RECT::default();
-      if GetWindowRect(ohwnd.inner(), &mut r).is_ok() {
-        let is_visible = IsWindowVisible(ohwnd.inner()).as_bool();
+      if GetWindowRect(ohwnd, &mut r).is_ok() {
+        let is_visible = IsWindowVisible(ohwnd).as_bool();
         if is_visible {
-          let smon = MonitorFromWindow(ohwnd.inner(), MONITOR_DEFAULTTONEAREST);
+          let smon = MonitorFromWindow(ohwnd, MONITOR_DEFAULTTONEAREST);
           let mut smi = MONITORINFO::default();
           smi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
           if GetMonitorInfoW(smon, &mut smi).as_bool() {
@@ -237,12 +238,12 @@ pub fn run_animation_task_sync(
             let s_w = r.right - r.left;
             let s_h = r.bottom - r.top;
 
-            // Look up sibling's app name from HWND cache, then get its config
+            // Look up sibling's app name from APP_CACHE, then get its config
             let sib_app_name = {
-              let cache = get_hwnd_cache().read().unwrap();
+              let cache = get_app_cache().read().unwrap();
               cache
                 .iter()
-                .find(|(_, h)| h.0 == ohwnd.0)
+                .find(|(_, cw)| cw.hwnd == ohwnd)
                 .map(|(name, _)| name.clone())
             };
             let sib_slide = sib_app_name
@@ -300,7 +301,7 @@ pub fn run_animation_task_sync(
             };
 
             let mut sa: u8 = 255;
-            let _ = GetLayeredWindowAttributes(ohwnd.inner(), None, Some(&mut sa), None);
+            let _ = GetLayeredWindowAttributes(ohwnd, None, Some(&mut sa), None);
             siblings_data.push((
               ohwnd,
               r.left, // start_x
@@ -390,7 +391,7 @@ pub fn run_animation_task_sync(
     );
     for (h, _, _, _, _, _, _, _, _, _) in &siblings_data {
       let _ = DwmSetWindowAttribute(
-        h.inner(),
+        *h,
         DWMWA_TRANSITIONS_FORCEDISABLED,
         &TRUE as *const _ as *const _,
         4,
@@ -421,9 +422,9 @@ pub fn run_animation_task_sync(
       prep_layer(target_hwnd.inner());
     }
     for (h, _, _, _, _, _, _, _, _, _) in &siblings_data {
-      let ex = GetWindowLongW(h.inner(), GWL_EXSTYLE);
+      let ex = GetWindowLongW(*h, GWL_EXSTYLE);
       if (ex & WS_EX_LAYERED.0 as i32) == 0 {
-        prep_layer(h.inner());
+        prep_layer(*h);
       }
     }
 
@@ -545,7 +546,7 @@ pub fn run_animation_task_sync(
               computed.min(last_sibling_alphas[i])
             };
             if s_target_alpha != last_sibling_alphas[i] {
-              let _ = SetLayeredWindowAttributes(h.inner(), COLORREF(0), s_target_alpha, LWA_ALPHA);
+              let _ = SetLayeredWindowAttributes(*h, COLORREF(0), s_target_alpha, LWA_ALPHA);
               last_sibling_alphas[i] = s_target_alpha;
             }
           }
@@ -621,7 +622,7 @@ pub fn run_animation_task_sync(
               let on_y = sy + ((*ey - *sy) as f64 * s_ease_val) as i32;
               match DeferWindowPos(
                 hdwp,
-                h.inner(),
+                *h,
                 HWND::default(),
                 on_x,
                 on_y,
@@ -632,7 +633,7 @@ pub fn run_animation_task_sync(
                 Ok(nh) if !nh.is_invalid() => hdwp = nh,
                 _ => {
                   let _ = SetWindowPos(
-                    h.inner(),
+                    *h,
                     HWND::default(),
                     on_x,
                     on_y,
@@ -705,7 +706,10 @@ pub fn run_animation_task_sync(
             let style = GetWindowLongW(valid_next, GWL_EXSTYLE) as u32;
             if (style & WS_EX_TOOLWINDOW.0) == 0 {
               let mut prev = get_previous_focus().lock().unwrap();
-              *prev = Some(SendHwnd(valid_next));
+              *prev = Some(CachedWindow {
+                hwnd: valid_next,
+                pid: 0,
+              });
               break;
             }
           }
@@ -713,15 +717,15 @@ pub fn run_animation_task_sync(
         }
 
         let prev_lock = get_previous_focus().lock().unwrap();
-        if let Some(h) = *prev_lock {
-          if IsWindowVisible(h.0).as_bool() {
-            force_focus(h.0);
+        if let Some(cw) = *prev_lock {
+          if IsWindowVisible(cw.hwnd).as_bool() {
+            force_focus(cw.hwnd);
           }
         }
       }
     }
     for (h, _, _, _, _, _, _, _, _, _) in siblings_data {
-      let _ = ShowWindow(h.inner(), SW_HIDE);
+      let _ = ShowWindow(h, SW_HIDE);
     }
   }
 }

@@ -13,7 +13,7 @@ use windows::Win32::{
 };
 
 use crate::config::{fuzzy_match_window, FoundWindow};
-use crate::windows::window::get_hwnd_cache;
+use crate::windows::window::{get_app_cache, CachedWindow};
 
 /// Context struct for EnumWindows callback.
 pub struct TargetSearch {
@@ -104,17 +104,23 @@ pub fn fetch_system_windows() -> Vec<FoundWindow> {
 }
 
 /// Finds a window by process/class name using fuzzy matching.
-pub fn find_window_by_process(name: &str, candidates: Option<&[FoundWindow]>) -> Option<HWND> {
-  let cache = get_hwnd_cache().read().unwrap();
+pub fn find_window_by_process(
+  name: &str,
+  candidates: Option<&[FoundWindow]>,
+) -> Option<CachedWindow> {
+  let cache = get_app_cache().read().unwrap();
   let managed_ids: Vec<String> = cache
     .values()
-    .map(|sh| (sh.inner().0 as usize).to_string())
+    .map(|cw| (cw.hwnd.0 as usize).to_string())
     .collect();
 
   if let Some(list) = candidates {
     if let Some(best) = fuzzy_match_window(name, list, &managed_ids) {
       if let Ok(handle) = best.id.parse::<usize>() {
-        return Some(HWND(handle as *mut _));
+        return Some(CachedWindow {
+          hwnd: HWND(handle as *mut _),
+          pid: best.pid,
+        });
       }
     }
     return None;
@@ -123,7 +129,10 @@ pub fn find_window_by_process(name: &str, candidates: Option<&[FoundWindow]>) ->
   let found_data = fetch_system_windows();
   if let Some(best) = fuzzy_match_window(name, &found_data, &managed_ids) {
     if let Ok(handle) = best.id.parse::<usize>() {
-      return Some(HWND(handle as *mut _));
+      return Some(CachedWindow {
+        hwnd: HWND(handle as *mut _),
+        pid: best.pid,
+      });
     }
   }
 

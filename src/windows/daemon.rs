@@ -65,7 +65,7 @@ use crate::{
     show_error,
     terminal::ensure_terminal_running,
     window::{
-      fetch_system_windows, get_hwnd_cache, reset_visible_app, restore_app_window,
+      fetch_system_windows, get_app_cache, reset_visible_app, restore_app_window,
       restore_window_visibility, toggle_window,
     },
   },
@@ -224,7 +224,7 @@ pub fn run_daemon(
       // Handle removed or changed apps
       let mut to_restore = Vec::new();
       {
-        let mut cache = get_hwnd_cache().write().unwrap();
+        let mut cache = get_app_cache().write().unwrap();
         for (name, old_app_cfg) in &old_config.app {
           match new_config.app.get(name) {
             Some(new_app_cfg) => {
@@ -460,7 +460,7 @@ pub fn run_daemon(
             let cfg = config.read().unwrap().clone();
             for (name, app_cfg) in &cfg.app {
               let needs_check = {
-                let cache = get_hwnd_cache().read().unwrap();
+                let cache = get_app_cache().read().unwrap();
                 let already_spawning = {
                   let spawning = get_spawning_apps().lock().unwrap();
                   spawning.contains(name)
@@ -469,7 +469,7 @@ pub fn run_daemon(
                 if already_spawning {
                   false
                 } else if let Some(hwnd) = cache.get(name) {
-                  !IsWindow(hwnd.0).as_bool()
+                  !IsWindow(hwnd.hwnd).as_bool()
                 } else {
                   true
                 }

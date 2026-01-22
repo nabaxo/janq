@@ -21,6 +21,7 @@
 //! and restoration on daemon exit.
 
 use rustc_hash::FxHashMap;
+use std::path::Path;
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use windows::Win32::{
@@ -42,16 +43,18 @@ pub use super::parking::{
 // Thread-Safe HWND Wrapper
 // =============================================================================
 
-/// Wrapper for `HWND` that is safe to send across threads.
-
+/// Wrapper for `HWND` and `PID` that is safe to send across threads.
 #[derive(Clone, Copy)]
-pub struct SendHwnd(pub HWND);
-unsafe impl Send for SendHwnd {}
-unsafe impl Sync for SendHwnd {}
+pub struct CachedWindow {
+  pub hwnd: HWND,
+  pub pid: u32,
+}
+unsafe impl Send for CachedWindow {}
+unsafe impl Sync for CachedWindow {}
 
-impl SendHwnd {
+impl CachedWindow {
   pub fn inner(&self) -> HWND {
-    self.0
+    self.hwnd
   }
 }
 
@@ -66,8 +69,8 @@ pub struct AnimationState {
 static ANIMATION_TASK_CANCEL: OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
   OnceLock::new();
 static VISIBLE_APP: OnceLock<RwLock<Option<String>>> = OnceLock::new();
-static PREVIOUS_FOCUS: OnceLock<Mutex<Option<SendHwnd>>> = OnceLock::new();
-static HWND_CACHE: OnceLock<RwLock<FxHashMap<String, SendHwnd>>> = OnceLock::new();
+static PREVIOUS_FOCUS: OnceLock<Mutex<Option<CachedWindow>>> = OnceLock::new();
+static APP_CACHE: OnceLock<RwLock<FxHashMap<String, CachedWindow>>> = OnceLock::new();
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
 
 pub fn get_animation_cancel() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
@@ -80,12 +83,12 @@ pub fn get_visible_app() -> &'static RwLock<Option<String>> {
   VISIBLE_APP.get_or_init(|| RwLock::new(None))
 }
 
-pub fn get_previous_focus() -> &'static Mutex<Option<SendHwnd>> {
+pub fn get_previous_focus() -> &'static Mutex<Option<CachedWindow>> {
   PREVIOUS_FOCUS.get_or_init(|| Mutex::new(None))
 }
 
-pub fn get_hwnd_cache() -> &'static RwLock<FxHashMap<String, SendHwnd>> {
-  HWND_CACHE.get_or_init(|| RwLock::new(FxHashMap::default()))
+pub fn get_app_cache() -> &'static RwLock<FxHashMap<String, CachedWindow>> {
+  APP_CACHE.get_or_init(|| RwLock::new(FxHashMap::default()))
 }
 
 pub fn get_animation_state() -> &'static Mutex<Option<AnimationState>> {
@@ -163,12 +166,19 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   // 1. Find Target HWND
   let mut cached_hwnd = None;
   {
-    let cache = get_hwnd_cache().read().unwrap();
-    if let Some(h) = cache.get(app_name) {
-      unsafe {
-        if IsWindow(h.inner()).as_bool() {
-          cached_hwnd = Some(*h);
+    let cache = get_app_cache().read().unwrap();
+    if let Some(cw) = cache.get(app_name) {
+      // Fast path: check PID liveness via /proc if possible,
+      // otherwise use IsWindow
+      let is_alive = unsafe {
+        if Path::new(&format!("/proc/{}", cw.pid)).exists() {
+          true
+        } else {
+          IsWindow(cw.hwnd).as_bool()
         }
+      };
+      if is_alive {
+        cached_hwnd = Some(*cw);
       }
     }
   }
@@ -176,11 +186,10 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
     h
   } else {
     match find_window_by_process(&app_cfg.window_class, None) {
-      Some(h) => {
-        let mut cache = get_hwnd_cache().write().unwrap();
-        let wrapper = SendHwnd(h);
-        cache.insert(app_name.to_string(), wrapper);
-        wrapper
+      Some(cw) => {
+        let mut cache = get_app_cache().write().unwrap();
+        cache.insert(app_name.to_string(), cw);
+        cw
       }
       None => {
         eprintln!(
@@ -192,17 +201,17 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
     }
   };
 
-  // 2. Discover siblings via HWND_CACHE (Performance optimized)
+  // 2. Discover siblings via APP_CACHE (Performance optimized)
   let mut siblings = Vec::new();
   {
-    let cache = get_hwnd_cache().read().unwrap();
-    for (name, sh) in cache.iter() {
+    let cache = get_app_cache().read().unwrap();
+    for (name, cw) in cache.iter() {
       if name == app_name {
         continue;
       }
       unsafe {
-        if IsWindow(sh.inner()).as_bool() && IsWindowVisible(sh.inner()).as_bool() {
-          siblings.push(*sh);
+        if IsWindow(cw.hwnd).as_bool() && IsWindowVisible(cw.hwnd).as_bool() {
+          siblings.push(*cw);
         }
       }
     }
@@ -238,7 +247,10 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
       if class_name != "progman" && class_name != "workerw" && class_name != "shell_traywnd" {
         let mut prev = get_previous_focus().lock().unwrap();
-        *prev = Some(SendHwnd(fg_window));
+        *prev = Some(CachedWindow {
+          hwnd: fg_window,
+          pid: 0,
+        });
       }
     }
   }

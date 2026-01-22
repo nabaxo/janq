@@ -15,6 +15,7 @@
 
 use std::{
   os::windows::process::CommandExt,
+  path::Path,
   process::{Command, Stdio},
   time::Duration,
 };
@@ -23,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{IsWindow, IsWindowVisible};
 
 use crate::config::{AppConfig, Config, FoundWindow};
 use crate::spawn_guard::{get_spawning_apps, SpawnGuard};
-use crate::windows::window::{find_window_by_process, get_hwnd_cache, park_window, SendHwnd};
+use crate::windows::window::{find_window_by_process, get_app_cache, park_window};
 
 pub fn ensure_terminal_running(
   app_name: &str,
@@ -33,10 +34,12 @@ pub fn ensure_terminal_running(
 ) -> bool {
   // 0. Check cache first
   {
-    let cache = get_hwnd_cache().read().unwrap();
-    if let Some(hwnd) = cache.get(app_name) {
+    let cache = get_app_cache().read().unwrap();
+    if let Some(cw) = cache.get(app_name) {
+      // Fast path: check PID liveness via /proc if possible,
+      // otherwise use IsWindow (which is more reliable for lingering windows)
       unsafe {
-        if IsWindow(hwnd.0).as_bool() {
+        if Path::new(&format!("/proc/{}", cw.pid)).exists() || IsWindow(cw.hwnd).as_bool() {
           return false; // Already managed and running
         }
       }
@@ -52,13 +55,13 @@ pub fn ensure_terminal_running(
     } else {
       None
     };
-    if let Some(hwnd) = find_window_by_process(&app_cfg.window_class, list_to_check) {
+    if let Some(cw) = find_window_by_process(&app_cfg.window_class, list_to_check) {
       {
-        let mut cache = get_hwnd_cache().write().unwrap();
-        cache.insert(app_name.to_string(), SendHwnd(hwnd));
+        let mut cache = get_app_cache().write().unwrap();
+        cache.insert(app_name.to_string(), cw);
       }
 
-      park_window(SendHwnd(hwnd), config, app_cfg);
+      park_window(cw, config, app_cfg);
       return false;
     }
 
@@ -119,15 +122,15 @@ pub fn ensure_terminal_running(
   for i in 0..80 {
     // Wait up to 8s (100ms * 80)
     std::thread::sleep(Duration::from_millis(100));
-    let send_hwnd = {
-      if let Some(hwnd) = find_window_by_process(&app_cfg.window_class, None) {
-        if unsafe { IsWindowVisible(hwnd).as_bool() } {
+    let cw = {
+      if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None) {
+        if unsafe { IsWindowVisible(found_cw.hwnd).as_bool() } {
           found = true;
           {
-            let mut cache = get_hwnd_cache().write().unwrap();
-            cache.insert(app_name.to_string(), SendHwnd(hwnd));
+            let mut cache = get_app_cache().write().unwrap();
+            cache.insert(app_name.to_string(), found_cw);
           }
-          Some(SendHwnd(hwnd))
+          Some(found_cw)
         } else {
           None
         }
@@ -136,7 +139,7 @@ pub fn ensure_terminal_running(
       }
     };
 
-    if let Some(sh) = send_hwnd {
+    if let Some(sh) = cw {
       // Add a slight settling delay for the window to be ready for manipulation
       std::thread::sleep(Duration::from_millis(50));
 

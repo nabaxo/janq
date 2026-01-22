@@ -11,14 +11,14 @@ use windows::Win32::{
 
 use crate::config::{AppConfig, Config};
 use crate::windows::discovery::find_window_by_process;
-use crate::windows::window::{get_animation_cancel, get_hwnd_cache, get_visible_app, SendHwnd};
+use crate::windows::window::{get_animation_cancel, get_app_cache, get_visible_app, CachedWindow};
 
 /// Parks a window offscreen based on its slide direction config.
 ///
 /// Makes the window transparent and positions it just outside the visible
 /// screen area, ready to slide in when toggled.
-pub fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConfig) {
-  let hwnd = send_hwnd.inner();
+pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
+  let hwnd = cw.inner();
   unsafe {
     let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
     if (ex_style & WS_EX_LAYERED.0 as i32) == 0 {
@@ -84,8 +84,8 @@ pub fn park_window(send_hwnd: SendHwnd, config: &Config, app_cfg: &AppConfig) {
 
 /// Restores a window by its window_class config value.
 pub fn restore_app_window(window_class: &str) {
-  if let Some(hwnd) = find_window_by_process(window_class, None) {
-    restore_hwnd(hwnd);
+  if let Some(cw) = find_window_by_process(window_class, None) {
+    restore_hwnd(cw.inner());
   }
 }
 
@@ -122,9 +122,9 @@ pub fn restore_window_visibility() {
   get_animation_cancel().store(true, std::sync::atomic::Ordering::SeqCst);
 
   // 2. Restore all cached windows
-  let cache = get_hwnd_cache().read().unwrap();
-  for hwnd in cache.values() {
-    restore_hwnd(hwnd.inner());
+  let cache = get_app_cache().read().unwrap();
+  for cw in cache.values() {
+    restore_hwnd(cw.inner());
   }
 }
 
