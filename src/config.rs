@@ -158,9 +158,14 @@ impl<'de> serde::Deserialize<'de> for PositionOffset {
         .map_err(serde::de::Error::custom)?;
       Ok(PositionOffset::Pixels(val))
     } else {
+      let hint = if s.chars().all(|c| c.is_alphabetic()) && !s.is_empty() {
+        " Did you mean 'center'?"
+      } else {
+        " Must be either 'center', or a number followed by '%' or 'px'."
+      };
       Err(serde::de::Error::custom(format!(
-        "Invalid position_offset format: '{}'. Must be 'center', end with '%', or end with 'px'.",
-        s
+        "Invalid position_offset format: '{}'.{}",
+        s, hint
       )))
     }
   }
