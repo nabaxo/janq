@@ -706,10 +706,7 @@ pub fn run_animation_task_sync(
             let style = GetWindowLongW(valid_next, GWL_EXSTYLE) as u32;
             if (style & WS_EX_TOOLWINDOW.0) == 0 {
               let mut prev = get_previous_focus().lock().unwrap();
-              *prev = Some(CachedWindow {
-                hwnd: valid_next,
-                pid: 0,
-              });
+              *prev = Some(CachedWindow { hwnd: valid_next });
               break;
             }
           }

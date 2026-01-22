@@ -37,7 +37,7 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 
 ### Performance & Quality
 - **Unified Cache Architecture**: Consolidated handle tracking for both platforms.
-- **Liveness checks**: `/proc/{pid}` validation on both Linux and Windows for sub-millisecond response.
+- **Liveness checks**: Efficient `/proc/{pid}` validation on Linux and direct `IsWindow` handle validation on Windows for sub-millisecond response.
 - **Zero-Polling**: Event-driven architecture with instant loop wakeups.
 - **Robust Hot-Reloading**: Daemon gracefully discards invalid configs and remains running on the last good state.
 - **Flattened internals**: Eliminated proxy modules; consolidated the 1,200-line Win32 monolith into focused sub-modules.

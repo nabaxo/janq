@@ -82,6 +82,7 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
     id: (hwnd.0 as usize).to_string(),
     class_name,
     proc_name,
+    #[cfg(target_os = "linux")]
     pid,
     is_visible,
   });
@@ -119,7 +120,6 @@ pub fn find_window_by_process(
       if let Ok(handle) = best.id.parse::<usize>() {
         return Some(CachedWindow {
           hwnd: HWND(handle as *mut _),
-          pid: best.pid,
         });
       }
     }
@@ -131,7 +131,6 @@ pub fn find_window_by_process(
     if let Ok(handle) = best.id.parse::<usize>() {
       return Some(CachedWindow {
         hwnd: HWND(handle as *mut _),
-        pid: best.pid,
       });
     }
   }

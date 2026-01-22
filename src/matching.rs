@@ -74,6 +74,7 @@ pub struct FoundWindow {
   pub id: String,
   pub class_name: String,
   pub proc_name: String,
+  #[cfg(target_os = "linux")]
   pub pid: u32,
   pub is_visible: bool,
 }
@@ -290,6 +291,7 @@ mod tests {
       id: id.to_string(),
       class_name: class.to_string(),
       proc_name: proc.to_string(),
+      #[cfg(target_os = "linux")]
       pid: 0,
       is_visible: visible,
     }

@@ -58,7 +58,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 ### Performance & Reliability
 - **Zero-polling architecture**: Event-driven on both platforms to save your CPU for more important things.
 - **Instant loop wakeup (Windows)**: Uses `PostThreadMessageW` to avoid the 15ms `GetMessage` sleep tax.
-- **Platform Cache Parity**: Consolidated Linux caches and a PID-aware `APP_CACHE` on Windows. Sub-millisecond liveness checks that verify a window still exists before we try to move it.
+- **Platform Cache Parity**: Consolidated Linux caches and a optimized `APP_CACHE` on Windows. Sub-millisecond liveness checks using native `/proc` on Linux and `IsWindow` on Windows.
 - **Memory footprint**: <2MB on Windows, ~3.4MB on Linux. Light enough to be ignored.
 
 ### Code Quality

@@ -15,7 +15,6 @@
 
 use std::{
   os::windows::process::CommandExt,
-  path::Path,
   process::{Command, Stdio},
   time::Duration,
 };
@@ -36,10 +35,9 @@ pub fn ensure_terminal_running(
   {
     let cache = get_app_cache().read().unwrap();
     if let Some(cw) = cache.get(app_name) {
-      // Fast path: check PID liveness via /proc if possible,
-      // otherwise use IsWindow (which is more reliable for lingering windows)
+      // Check window liveness via IsWindow
       unsafe {
-        if Path::new(&format!("/proc/{}", cw.pid)).exists() || IsWindow(cw.hwnd).as_bool() {
+        if IsWindow(cw.hwnd).as_bool() {
           return false; // Already managed and running
         }
       }

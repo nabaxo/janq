@@ -21,7 +21,6 @@
 //! and restoration on daemon exit.
 
 use rustc_hash::FxHashMap;
-use std::path::Path;
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use windows::Win32::{
@@ -43,11 +42,10 @@ pub use super::parking::{
 // Thread-Safe HWND Wrapper
 // =============================================================================
 
-/// Wrapper for `HWND` and `PID` that is safe to send across threads.
+/// Wrapper for `HWND` that is safe to send across threads.
 #[derive(Clone, Copy)]
 pub struct CachedWindow {
   pub hwnd: HWND,
-  pub pid: u32,
 }
 unsafe impl Send for CachedWindow {}
 unsafe impl Sync for CachedWindow {}
@@ -168,15 +166,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   {
     let cache = get_app_cache().read().unwrap();
     if let Some(cw) = cache.get(app_name) {
-      // Fast path: check PID liveness via /proc if possible,
-      // otherwise use IsWindow
-      let is_alive = unsafe {
-        if Path::new(&format!("/proc/{}", cw.pid)).exists() {
-          true
-        } else {
-          IsWindow(cw.hwnd).as_bool()
-        }
-      };
+      let is_alive = unsafe { IsWindow(cw.hwnd).as_bool() };
       if is_alive {
         cached_hwnd = Some(*cw);
       }
@@ -247,10 +237,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
       if class_name != "progman" && class_name != "workerw" && class_name != "shell_traywnd" {
         let mut prev = get_previous_focus().lock().unwrap();
-        *prev = Some(CachedWindow {
-          hwnd: fg_window,
-          pid: 0,
-        });
+        *prev = Some(CachedWindow { hwnd: fg_window });
       }
     }
   }
