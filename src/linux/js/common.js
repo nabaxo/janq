@@ -248,3 +248,57 @@ const resolveDimensions = (width, isWidthPercent, height, isHeightPercent, area,
   const finalHeight = height > 0 ? (isHeightPercent ? area.height * height : height) : target.frameGeometry.height;
   return { width: finalWidth, height: finalHeight };
 };
+
+const computeSlidePosition = (direction, offsetVal, isPercent, isNegative, isCenter, workArea, fullArea, winW, winH) => {
+  let shownX, shownY, hiddenX, hiddenY;
+
+  if (direction === "top" || direction === "bottom") {
+    // Fixed axis: X (Lock to workArea center/offset)
+    if (isCenter) {
+      shownX = workArea.x + (workArea.width - winW) / 2;
+    } else if (isPercent) {
+      const pct = offsetVal / 100;
+      shownX = isNegative
+        ? workArea.x + workArea.width - winW - (workArea.width * pct)
+        : workArea.x + (workArea.width * pct);
+    } else {
+      shownX = isNegative
+        ? workArea.x + workArea.width - winW - offsetVal
+        : workArea.x + offsetVal;
+    }
+    hiddenX = shownX;
+
+    if (direction === "top") {
+      shownY = workArea.y;
+      hiddenY = fullArea.y - winH;
+    } else {
+      shownY = workArea.y + workArea.height - winH;
+      hiddenY = fullArea.y + fullArea.height;
+    }
+  } else {
+    // Fixed axis: Y (Lock to workArea center/offset)
+    if (isCenter) {
+      shownY = area.y + (area.height - winH) / 2;
+    } else if (isPercent) {
+      const pct = offsetVal / 100;
+      shownY = isNegative
+        ? area.y + area.height - winH - (area.height * pct)
+        : area.y + (area.height * pct);
+    } else {
+      shownY = isNegative
+        ? area.y + area.height - winH - offsetVal
+        : area.y + offsetVal;
+    }
+    hiddenY = shownY;
+
+    if (direction === "left") {
+      shownX = workArea.x;
+      hiddenX = fullArea.x - winW;
+    } else {
+      shownX = workArea.x + workArea.width - winW;
+      hiddenX = fullArea.x + fullArea.width;
+    }
+  }
+
+  return { shownX, shownY, hiddenX, hiddenY };
+};

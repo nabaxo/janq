@@ -11,59 +11,6 @@
   // Compute position along edge based on slide direction and offset.
   // Uses workArea (workspace) for shown position and fixed axis alignment,
   // and fullArea (absolute screen) for the hidden position on the sliding axis.
-  function computeSlidePosition(direction, offsetVal, isPercent, isNegative, isCenter, workArea, fullArea, winW, winH) {
-    let shownX, shownY, hiddenX, hiddenY;
-
-    if (direction === "top" || direction === "bottom") {
-      // Fixed axis: X (Lock to workArea center/offset)
-      if (isCenter) {
-        shownX = workArea.x + (workArea.width - winW) / 2;
-      } else if (isPercent) {
-        const pct = offsetVal / 100;
-        shownX = isNegative
-          ? workArea.x + workArea.width - winW - (workArea.width * pct)
-          : workArea.x + (workArea.width * pct);
-      } else {
-        shownX = isNegative
-          ? workArea.x + workArea.width - winW - offsetVal
-          : workArea.x + offsetVal;
-      }
-      hiddenX = shownX; // Lock fixed axis
-
-      if (direction === "top") {
-        shownY = workArea.y;
-        hiddenY = fullArea.y - winH;
-      } else {
-        shownY = workArea.y + workArea.height - winH;
-        hiddenY = fullArea.y + fullArea.height;
-      }
-    } else {
-      // Fixed axis: Y (Lock to workArea center/offset)
-      if (isCenter) {
-        shownY = workArea.y + (workArea.height - winH) / 2;
-      } else if (isPercent) {
-        const pct = offsetVal / 100;
-        shownY = isNegative
-          ? workArea.y + workArea.height - winH - (workArea.height * pct)
-          : workArea.y + (workArea.height * pct);
-      } else {
-        shownY = isNegative
-          ? workArea.y + workArea.height - winH - offsetVal
-          : workArea.y + offsetVal;
-      }
-      hiddenY = shownY; // Lock fixed axis
-
-      if (direction === "left") {
-        shownX = workArea.x;
-        hiddenX = fullArea.x - winW;
-      } else {
-        shownX = workArea.x + workArea.width - winW;
-        hiddenX = fullArea.x + fullArea.width;
-      }
-    }
-
-    return { shownX, shownY, hiddenX, hiddenY };
-  }
 
   // Look up a sibling's own slide config, fallback to current toggle's config
   function getSiblingSlideConfig(sibClass) {
