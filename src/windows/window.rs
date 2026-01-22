@@ -57,10 +57,6 @@ impl SendHwnd {
 
 #[derive(Clone)]
 pub struct AnimationState {
-  pub app_name: String,
-  pub is_showing: bool,
-  pub start_time: std::time::Instant,
-  pub duration_secs: f64,
   pub hidden_x: i32,
   pub hidden_y: i32,
   pub shown_x: i32,
@@ -212,22 +208,6 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
     }
   }
 
-  // Calculate reverse progress if interrupting
-  let initial_progress = {
-    let state = get_animation_state().lock().unwrap();
-    if let Some(ref st) = *state {
-      if st.app_name == app_name && st.is_showing != should_show {
-        let elapsed = st.start_time.elapsed().as_secs_f64();
-        let current_progress = (elapsed / st.duration_secs).min(1.0);
-        Some(1.0 - current_progress)
-      } else {
-        None
-      }
-    } else {
-      None
-    }
-  };
-
   // Abort current animation
   {
     get_animation_cancel().store(true, std::sync::atomic::Ordering::SeqCst);
@@ -283,7 +263,6 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       should_show,
       siblings,
       restore_focus,
-      initial_progress,
     );
   });
 

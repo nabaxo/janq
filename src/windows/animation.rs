@@ -47,7 +47,6 @@ pub fn run_animation_task_sync(
   should_show: bool,
   siblings: Vec<SendHwnd>,
   restore_focus: bool,
-  initial_progress: Option<f64>,
 ) {
   let app_cfg = match config.app.get(app_name) {
     Some(c) => c,
@@ -445,21 +444,13 @@ pub fn run_animation_task_sync(
       }
     };
 
-    let start_time = if let Some(init_prog) = initial_progress {
-      Instant::now() - std::time::Duration::from_secs_f64(init_prog * dur_secs)
-    } else {
-      Instant::now()
-    };
+    let start_time = Instant::now();
     let mut first_frame = true;
 
     // Store animation state
     {
       let mut state = get_animation_state().lock().unwrap();
       *state = Some(AnimationState {
-        app_name: app_name.to_string(),
-        is_showing: should_show,
-        start_time,
-        duration_secs: dur_secs,
         hidden_x,
         hidden_y,
         shown_x,
