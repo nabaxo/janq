@@ -74,7 +74,6 @@ pub struct FoundWindow {
   pub id: String,
   pub class_name: String,
   pub proc_name: String,
-  #[allow(dead_code)]
   pub pid: u32,
   pub is_visible: bool,
 }

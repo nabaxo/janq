@@ -23,7 +23,14 @@ use tokio::runtime::Builder;
 
 mod config;
 mod config_watcher;
-mod daemon;
+#[cfg(target_os = "linux")]
+mod daemon {
+  pub use crate::linux::daemon::*;
+}
+#[cfg(target_os = "windows")]
+mod daemon {
+  pub use crate::windows::daemon::*;
+}
 mod error;
 #[cfg(target_os = "windows")]
 mod hotkey;
@@ -32,7 +39,16 @@ mod linux;
 mod matching;
 mod shutdown;
 mod spawn_guard;
-mod terminal;
+#[cfg(target_os = "linux")]
+#[allow(unused_imports)]
+mod terminal {
+  pub use crate::linux::terminal::*;
+}
+#[cfg(target_os = "windows")]
+#[allow(unused_imports)]
+mod terminal {
+  pub use crate::windows::terminal::*;
+}
 mod validation;
 #[cfg(target_os = "windows")]
 mod windows;
