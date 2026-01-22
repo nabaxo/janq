@@ -6,7 +6,7 @@
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
-But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq uses like less than 2 MB RAM on Windows and 3.5 MB on my Fedora KDE system.
+But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq on _startup_ uses like less than 2 MB RAM on Windows and 3.5 MB on my Fedora KDE system.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
