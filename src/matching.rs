@@ -229,6 +229,56 @@ fn score_subsequence(needle: &str, haystack: &str) -> i32 {
 }
 
 // =============================================================================
+// Suggestion Helper for Config Validation
+// =============================================================================
+
+/// Minimum score to suggest a correction (lower threshold than window matching
+/// since we're matching shorter strings like "activ" -> "active")
+const SUGGESTION_THRESHOLD: i32 = 300;
+
+/// Suggests the most similar option from a list of valid options.
+///
+/// Uses the same fuzzy matching algorithm as window matching, but tuned for
+/// short strings like configuration values.
+///
+/// # Arguments
+/// * `input` - The user's (invalid) input
+/// * `valid_options` - Slice of valid option strings to match against
+///
+/// # Returns
+/// The best matching option if score is above threshold, otherwise None.
+///
+/// # Example
+/// ```ignore
+/// let options = &["follow-mouse", "active", "specific"];
+/// assert_eq!(suggest_similar("activ", options), Some("active"));
+/// assert_eq!(suggest_similar("xyz", options), None);
+/// ```
+pub fn suggest_similar<'a>(input: &str, valid_options: &[&'a str]) -> Option<&'a str> {
+  let lower_input = input.trim().to_lowercase();
+  if lower_input.is_empty() {
+    return None;
+  }
+
+  let mut best_score = SUGGESTION_THRESHOLD;
+  let mut best_option = None;
+
+  for &option in valid_options {
+    // Symmetry check: catches both 'activ' -> 'active' AND 'actives' -> 'active'
+    let score_a = score_haystack(&lower_input, option);
+    let score_b = score_haystack(option, &lower_input);
+    let score = score_a.max(score_b);
+
+    if score > best_score {
+      best_score = score;
+      best_option = Some(option);
+    }
+  }
+
+  best_option
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 

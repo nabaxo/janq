@@ -56,7 +56,10 @@ pub fn validate_hotkey(s: &str) -> Result<(), String> {
 
         // Validate base key name
         if !is_valid_base_key(&p) {
-          return Err(format!("Unknown or invalid key name: '{}'", part));
+          let hint = crate::matching::suggest_similar(&p, VALID_KEYS)
+            .map(|s| format!(" Did you mean '{}'?", s))
+            .unwrap_or_else(|| format!(" Valid base keys include: {}.", VALID_KEYS.join(", ")));
+          return Err(format!("Unknown key name: '{}'{}", part, hint));
         }
         has_base_key = true;
       }
@@ -70,6 +73,82 @@ pub fn validate_hotkey(s: &str) -> Result<(), String> {
   Ok(())
 }
 
+/// All valid base key names for hotkey configuration.
+/// This is the single source of truth for both validation and fuzzy suggestions.
+pub const VALID_KEYS: &[&str] = &[
+  // Special keys
+  "grave",
+  "`",
+  "backtick",
+  "section",
+  "§",
+  "plusminus",
+  "±",
+  "minus",
+  "-",
+  "equal",
+  "=",
+  "dead_grave",
+  // Punctuation
+  "bracketleft",
+  "[",
+  "bracketright",
+  "]",
+  "backslash",
+  "\\",
+  "semicolon",
+  ";",
+  "quote",
+  "'",
+  "comma",
+  ",",
+  "period",
+  ".",
+  "slash",
+  "/",
+  // Editing
+  "enter",
+  "return",
+  "space",
+  "esc",
+  "escape",
+  "tab",
+  "capslock",
+  "caps_lock",
+  "backspace",
+  // Navigation
+  "up",
+  "arrowup",
+  "down",
+  "arrowdown",
+  "left",
+  "arrowleft",
+  "right",
+  "arrowright",
+  "pgup",
+  "pageup",
+  "pgdn",
+  "pagedown",
+  "home",
+  "end",
+  "insert",
+  "delete",
+  "del",
+  // Function keys
+  "f1",
+  "f2",
+  "f3",
+  "f4",
+  "f5",
+  "f6",
+  "f7",
+  "f8",
+  "f9",
+  "f10",
+  "f11",
+  "f12",
+];
+
 /// Checks if a string is a valid base key name.
 ///
 /// Supports:
@@ -79,21 +158,12 @@ pub fn validate_hotkey(s: &str) -> Result<(), String> {
 /// - Navigation keys (arrows, page up/down, home, end)
 /// - Function keys (F1-F12)
 pub fn is_valid_base_key(s: &str) -> bool {
-  match s {
-    // Alphanumeric
-    s if s.len() == 1 && s.chars().next().unwrap().is_ascii_alphanumeric() => true,
-    // Special keys
-    "grave" | "`" | "backtick" | "section" | "§" | "plusminus" | "±" | "minus" | "-" | "equal"
-    | "=" | "dead_grave" => true,
-    "bracketleft" | "[" | "bracketright" | "]" | "backslash" | "\\" | "semicolon" | ";"
-    | "quote" | "'" | "comma" | "," | "period" | "." | "slash" | "/" => true,
-    "enter" | "return" | "space" | "esc" | "escape" | "tab" | "capslock" | "caps_lock"
-    | "backspace" => true,
-    "up" | "arrowup" | "down" | "arrowdown" | "left" | "arrowleft" | "right" | "arrowright" => true,
-    "pgup" | "pageup" | "pgdn" | "pagedown" | "home" | "end" | "insert" | "delete" | "del" => true,
-    "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" => true,
-    _ => false,
+  // Single alphanumeric characters are always valid
+  if s.len() == 1 && s.chars().next().unwrap().is_ascii_alphanumeric() {
+    return true;
   }
+  // Check against our canonical list
+  VALID_KEYS.contains(&s)
 }
 
 /// Parses a cubic-bezier easing curve specification.

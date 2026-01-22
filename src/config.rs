@@ -90,21 +90,32 @@ pub enum SlideDirection {
   Right,
 }
 
+impl SlideDirection {
+  /// Valid string values for this enum (single source of truth).
+  pub const VALID_VALUES: &'static [&'static str] = &["top", "bottom", "left", "right"];
+}
+
 impl<'de> serde::Deserialize<'de> for SlideDirection {
   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
   where
     D: serde::Deserializer<'de>,
   {
     let s = String::deserialize(deserializer)?;
-    match s.trim().to_lowercase().as_str() {
+    let lower = s.trim().to_lowercase();
+    match lower.as_str() {
       "top" => Ok(SlideDirection::Top),
       "bottom" => Ok(SlideDirection::Bottom),
       "left" => Ok(SlideDirection::Left),
       "right" => Ok(SlideDirection::Right),
-      _ => Err(serde::de::Error::custom(format!(
-        "Invalid slide_from value: '{}'. Must be 'top', 'bottom', 'left', or 'right'.",
-        s
-      ))),
+      other => {
+        let hint = crate::matching::suggest_similar(other, Self::VALID_VALUES)
+          .map(|s| format!(" Did you mean '{}'?", s))
+          .unwrap_or_else(|| format!(" Valid values: {}.", Self::VALID_VALUES.join(", ")));
+        Err(serde::de::Error::custom(format!(
+          "Invalid slide_from value: '{}'.{}",
+          s, hint
+        )))
+      }
     }
   }
 }
@@ -619,6 +630,11 @@ pub enum DisplayMode {
   Specific(i32),
 }
 
+impl DisplayMode {
+  /// Valid string values for this enum (single source of truth).
+  pub const VALID_VALUES: &'static [&'static str] = &["follow-mouse", "active", "specific"];
+}
+
 impl std::fmt::Display for DisplayMode {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
@@ -637,13 +653,18 @@ impl<'de> serde::Deserialize<'de> for DisplayMode {
     let s = String::deserialize(deserializer)?;
     let s = s.trim().to_lowercase();
     match s.as_str() {
-      "follow-mouse" | "followmouse" | "mouse" => Ok(DisplayMode::FollowMouse),
-      "active" | "focus" | "focused" => Ok(DisplayMode::Active),
+      "follow-mouse" => Ok(DisplayMode::FollowMouse),
+      "active" => Ok(DisplayMode::Active),
       "specific" => Ok(DisplayMode::Specific(0)), // Will use display_index
-      other => Err(serde::de::Error::custom(format!(
-        "Invalid display_mode '{}'. Use 'follow-mouse', 'active', or 'specific'.",
-        other
-      ))),
+      other => {
+        let hint = crate::matching::suggest_similar(other, Self::VALID_VALUES)
+          .map(|s| format!(" Did you mean '{}'?", s))
+          .unwrap_or_else(|| format!(" Valid values: {}.", Self::VALID_VALUES.join(", ")));
+        Err(serde::de::Error::custom(format!(
+          "Invalid display_mode '{}'.{}",
+          other, hint
+        )))
+      }
     }
   }
 }
@@ -682,8 +703,10 @@ impl Default for WindowConfig {
 
 /// A type-safe easing curve.
 ///
-/// All user-facing aliases (e.g., `in-sine`, `ease-in-sine`) are canonicalized
-/// to this enum during deserialization. Backends only need to handle canonical names.
+/// Supported values: linear, ease, ease-in, ease-out, ease-in-out,
+/// sine, sine-in, sine-out, cubic, cubic-in, cubic-out,
+/// quart, quart-in, quart-out, back, back-in, back-out,
+/// expo, expo-in, expo-out, impulse, or cubic-bezier(x1,y1,x2,y2)
 #[derive(Clone, Debug, PartialEq)]
 pub enum Easing {
   Linear,
@@ -708,6 +731,33 @@ pub enum Easing {
   ExpoInOut,
   Impulse,
   Custom(f64, f64, f64, f64),
+}
+
+impl Easing {
+  /// Valid string values for this enum (single source of truth).
+  pub const VALID_VALUES: &'static [&'static str] = &[
+    "linear",
+    "ease",
+    "ease-in",
+    "ease-out",
+    "ease-in-out",
+    "sine",
+    "sine-in",
+    "sine-out",
+    "cubic",
+    "cubic-in",
+    "cubic-out",
+    "quart",
+    "quart-in",
+    "quart-out",
+    "back",
+    "back-in",
+    "back-out",
+    "expo",
+    "expo-in",
+    "expo-out",
+    "impulse",
+  ];
 }
 
 impl Default for Easing {
@@ -761,36 +811,33 @@ impl<'de> serde::Deserialize<'de> for Easing {
       "ease-in" => Easing::EaseIn,
       "ease-out" => Easing::EaseOut,
       "ease-in-out" => Easing::EaseInOut,
-      // Sine
-      "sine" | "sine-in-out" | "in-out-sine" | "ease-in-out-sine" => Easing::SineInOut,
-      "sine-in" | "in-sine" | "ease-in-sine" => Easing::SineIn,
-      "sine-out" | "out-sine" | "ease-out-sine" => Easing::SineOut,
-      // Cubic
-      "cubic" | "cubic-in-out" | "in-out-cubic" | "ease-in-out-cubic" => Easing::CubicInOut,
-      "cubic-in" | "in-cubic" | "ease-in-cubic" => Easing::CubicIn,
-      "cubic-out" | "out-cubic" | "ease-out-cubic" => Easing::CubicOut,
-      // Quart
-      "quart" | "quart-in-out" | "in-out-quart" | "ease-in-out-quart" => Easing::QuartInOut,
-      "quart-in" | "in-quart" | "ease-in-quart" => Easing::QuartIn,
-      "quart-out" | "out-quart" | "ease-out-quart" => Easing::QuartOut,
-      // Back
-      "back" | "back-in-out" | "in-out-back" | "ease-in-out-back" => Easing::BackInOut,
-      "back-in" | "in-back" | "ease-in-back" => Easing::BackIn,
-      "back-out" | "out-back" | "ease-out-back" => Easing::BackOut,
-      // Expo
-      "expo" | "expo-in-out" | "in-out-expo" | "ease-in-out-expo" => Easing::ExpoInOut,
-      "expo-in" | "in-expo" | "ease-in-expo" => Easing::ExpoIn,
-      "expo-out" | "out-expo" | "ease-out-expo" => Easing::ExpoOut,
-      // Impulse (Windows)
-      "impulse" | "windows" => Easing::Impulse,
+      "sine" => Easing::SineInOut,
+      "sine-in" => Easing::SineIn,
+      "sine-out" => Easing::SineOut,
+      "cubic" => Easing::CubicInOut,
+      "cubic-in" => Easing::CubicIn,
+      "cubic-out" => Easing::CubicOut,
+      "quart" => Easing::QuartInOut,
+      "quart-in" => Easing::QuartIn,
+      "quart-out" => Easing::QuartOut,
+      "back" => Easing::BackInOut,
+      "back-in" => Easing::BackIn,
+      "back-out" => Easing::BackOut,
+      "expo" => Easing::ExpoInOut,
+      "expo-in" => Easing::ExpoIn,
+      "expo-out" => Easing::ExpoOut,
+      "impulse" => Easing::Impulse,
       // Custom Bezier
       other => {
         if let Some((x1, y1, x2, y2)) = crate::validation::parse_bezier(other) {
           Easing::Custom(x1, y1, x2, y2)
         } else {
+          let hint = crate::matching::suggest_similar(other, Self::VALID_VALUES)
+            .map(|s| format!(" Did you mean '{}'?", s))
+            .unwrap_or_else(|| format!(" Use a keyword (like 'ease', 'impulse', 'back-out') or a custom cubic-bezier. Valid keywords: {}.", Self::VALID_VALUES.join(", ")));
           return Err(serde::de::Error::custom(format!(
-            "Invalid easing curve '{}'. Use a keyword (like 'ease', 'impulse', 'back-out') or a custom cubic-bezier.",
-            other
+            "Invalid easing curve '{}'.{}",
+            other, hint
           )));
         }
       }
