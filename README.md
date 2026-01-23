@@ -104,20 +104,20 @@ start_command = 'C:\Program Files\Terminal\wt.exe'
 
 ## Configuration
 
-### Search Priority
+### Search Priorityjanq.tomljanq.toml
 
-janq searches for a configuration file _(janq.toml or .janq.toml) _in the following order:
+janq searches for a configuration file _(janq.toml or .janq.toml)_ in the following order:
 
 1.  **Binary Directory** (Portable Mode):
     - Same folder as the `janq` executable.
 2.  **XDG Config Directory**:
-    - `~/.config/janq/janq.toml` or `~/.config/janq/.janq.toml`
-    - _On Windows_: `%AppData%\Roaming\janq\janq.toml`
+    - `~/.config/janq/` or `~/.config/janq/`
+    - _On Windows_: `%AppData%\Roaming\janq\`
 3.  **User Configuration**:
-    - `~/janq.toml`
-    - _On Windows_: `%UserProfile%\janq.toml`
+    - `~/`
+    - _On Windows_: `%UserProfile%\`
 
-(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. Option 3, the AI told me is stupid, since the crate we're using checks any changes to parent folder. I only left it for completeness).
+(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. Option 3, the AI told me is stupid, since the crate we're using checks any changes to containing _folder_. I only left it for completeness).
 
 > [!CAUTION]
 > **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. janq includes a safeguard to prevent destroying your system integration.
@@ -327,7 +327,7 @@ The `utilities/` directory contains cleanup scripts for Linux. These exist becau
 
 If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
 
-_(Sloperator note: Just use `full_cleanup.sh`.)_
+_(Sloperator note: Just use `full_cleanup.sh`)._
 
 ## Related Projects
 - **zbus**: Facilitating D-Bus communication.
@@ -373,6 +373,8 @@ When toggling between two different apps rapidly (while one is mid-animation), t
 On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
 
 ### App Compatibility: Opacity Animations
+(Sloperator: This mostly effects Linux, opacity seems to work fine on Windows, even on electron apps).
+
 Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord (Sloperator note: maybe?)) may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
 
 **Note:** Just test and find out if enabling `animate_opacity` works for your particular app. If you notice flickering, "blank" windows during toggle, or if the animation just feels sluggish or weird, Just don't enable `animate_opacity` for that specific app in your config.
@@ -384,6 +386,8 @@ Some applications (especially Electron-based ones like Obsidian, VS Code, or Dis
 - Add the window classes managed by janq (e.g., `wezterm`, `obsidian`) to the effect's **Exclusion List**.
 
 While **janq** is optimized for high-refresh displays and uses `ForceBlur` to stabilize transitions, some degree of content lag is currently an inherent platform limitation for these types of apps.
+
+(Sloperator: I haven't really noticed an animation smoothness issues on Linux, aside from me having Geometry Change kwin effect. But that got solved by blacklisting the janq managed app in the effects settings).
 
 ### Sibling Animation Duration Divergence
 (Sloperator: I made the LLM write this, it made me feel better)
