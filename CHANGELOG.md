@@ -20,6 +20,7 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Dimension flexible**: Support for `px` and `%` units.
 - **Display modes**: `follow-mouse`, `active`, and `specific`.
 - **Z-Order control**: `keep_above` and Linux-specific `force_priority` (Fullscreen role).
+- **Border control**: `no_borders` option to remove window chrome on Linux (defaults to `true`).
 - **Positioning**: Multi-axis slide directions and configurable edge offsets.
 
 #### Multi-App Logic

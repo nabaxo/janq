@@ -158,10 +158,10 @@ const getEasing = (progress, type) => {
   }
 };
 
-const setQuakeProperties = (target, keepAbove, isVisible, forcePriority) => {
+const setQuakeProperties = (target, keepAbove, noBorders, isVisible, forcePriority) => {
   target.onAllDesktops = true;
   target.keepAbove = keepAbove;
-  target.noBorder = true;
+  target.noBorder = noBorders;
   target.skipTaskbar = true;
   target.skipPager = true;
   if (target.skipSwitcher !== undefined) target.skipSwitcher = true;

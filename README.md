@@ -168,30 +168,31 @@ hotkey = "Meta+Z"
 ### Default Values
 
 | Section | Option | Default | Description | Per-App |
-| :--- | :--- | :--- | :--- | :--- |
+| :--- | :--- | :--- | :--- | :---: |
 | `[app]` | `window_class` | **Required** | Window class/name to match for toggling | — |
 | | `start_command` | **Required** | Command to launch the application | — |
 | | `hotkey` | `"Meta+Grave"` | Global hotkey(s) to toggle the app | — |
-| `[window]` | `display_mode` | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific` | ✗ no |
-| | `display_index` | `0` | Monitor index when `display_mode = "specific"` | ✗ no |
-| | `width` | — | Window width (`%` or `px`) | ✓ yes |
-| | `height` | — | Window height (`%` or `px`) | ✓ yes |
-| | `slide_from` | `"top"` | Direction to slide in: `top`, `bottom`, `left`, `right` | ✓ yes |
-| | `offset` | `"center"` | Position along edge: `center`, `50%`, `-10%`, `100px`, `-50px` | ✓ yes |
-| | `keep_above` | `false` | Keep window above all others | ✗ no |
-| | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps. **Note: janq removes window borders/chrome unconditionally for all managed windows.** | ✗ no |
-| | `auto_show` | `false` | Show window on daemon startup | ✗ no |
-| `[animation]` | `duration`\* | — | Set both show/hide duration at once | ✗ no |
-| | `show_duration` | `350` (ms) | Duration of the show animation | ✗ no |
-| | `hide_duration` | `350` (ms) | Duration of the hide animation | ✗ no |
-| | `easing`\* | — | Set both show/hide easing at once | ✗ no |
-| | `show_easing` | `"ease"` | Easing curve for showing | ✗ no |
-| | `hide_easing` | `"ease"` | Easing curve for hiding | ✗ no |
-| | `animate_opacity` | `false` | Fade opacity during animations | ✓ yes |
-| | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ✗ no |
-| | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ✗ no |
+| `[window]` | `display_mode` | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific` | ❌ |
+| | `display_index` | `0` | Monitor index when `display_mode = "specific"` | ❌ |
+| | `width` | — | Window width (`%` or `px`) | ✔️ |
+| | `height` | — | Window height (`%` or `px`) | ✔️ |
+| | `slide_from` | `"top"` | Direction to slide in: `top`, `bottom`, `left`, `right` | ✔️ |
+| | `offset` | `"center"` | Position along edge: `center`, `50%`, `-10%`, `100px`, `-50px` | ✔️ |
+| | `keep_above` | `false` | Keep window above all others | ❌ |
+| | `no_borders` | `true` | (Linux) Remove window borders/chrome for managed windows | ❌ |
+| | `force_priority` | `false` | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps | ❌ |
+| | `auto_show` | `false` | Show window on daemon startup | ❌ |
+| `[animation]` | `duration`\* | — | Set both show/hide duration at once | ❌ |
+| | `show_duration` | `350` (ms) | Duration of the show animation | ❌ |
+| | `hide_duration` | `350` (ms) | Duration of the hide animation | ❌ |
+| | `easing`\* | — | Set both show/hide easing at once | ❌ |
+| | `show_easing` | `"ease"` | Easing curve for showing | ❌ |
+| | `hide_easing` | `"ease"` | Easing curve for hiding | ❌ |
+| | `animate_opacity` | `false` | Fade opacity during animations | ✔️ |
+| | `show_opacity_point` | `0.2` | Animation progress (0-1) by which the window becomes fully opaque | ❌ |
+| | `hide_opacity_point` | `0.8` | Animation progress (0-1) when fade-out starts | ❌ |
 
-\***Note:** `duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined. **Note: Durations are scaled based on distance to ensure a constant movement velocity.**
+\*`duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined. **Note: Durations are scaled based on distance to ensure a constant movement velocity.**
 
 (Sloperator: For your own sanity, just use the single `duration` and `easing` keys, check [here](#sibling-animation-duration-divergence)).
 
@@ -375,7 +376,7 @@ On KDE Plasma, there's a small intentional delay (~500ms) when registering or up
 ### App Compatibility: Opacity Animations
 (Sloperator: This mostly effects Linux, opacity seems to work fine on Windows, even on electron apps).
 
-Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord (Sloperator note: maybe?)) may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
+Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord (Sloperator: maybe?)), may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
 
 **Note:** Just test and find out if enabling `animate_opacity` works for your particular app. If you notice flickering, "blank" windows during toggle, or if the animation just feels sluggish or weird, Just don't enable `animate_opacity` for that specific app in your config.
 

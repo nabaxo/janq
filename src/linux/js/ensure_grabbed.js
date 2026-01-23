@@ -6,7 +6,7 @@
 
     if (target) {
       console.log(`janq_grab: Grabbing window for ${app.windowClass} (id: ${target.internalId}, pid: ${target.pid})`);
-      setQuakeProperties(target, app.keepAbove, app.isVisible, app.forcePriority);
+      setQuakeProperties(target, app.keepAbove, app.noBorders, app.isVisible, app.forcePriority);
 
       const context = resolveAreaContext(target, app.displayMode, app.displayIndex);
       const area = context.work;

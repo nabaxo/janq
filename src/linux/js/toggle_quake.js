@@ -1,6 +1,6 @@
 (function (
   windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
-  duration, easingType, shouldShow, keepAbove, animateOpacity,
+  duration, easingType, shouldShow, keepAbove, noBorders, animateOpacity,
   showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, janqClasses,
   forcePriority, refreshRate,
   slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter,
@@ -125,7 +125,7 @@
   }
 
   if (shouldShow) {
-    setQuakeProperties(target, keepAbove, true, forcePriority);
+    setQuakeProperties(target, keepAbove, noBorders, true, forcePriority);
     focusKick(target, false);
 
     const startAnimation = () => {

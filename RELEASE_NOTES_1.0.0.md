@@ -31,6 +31,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
   - `specific` - For when you want to fight the automation.
 - **Slide directions:** `top`, `bottom`, `left`, `right`. Choice is an illusion, but we provide it anyway.
 - **Keep above** option to ensure your terminal stays on top, regardless of what you're trying to hide behind it.
+- **No borders** option (Linux) to remove window chrome. Enabled by default because Quake terminals look better without frames.
 - **Force priority** mode (Linux) to sit above fullscreen apps using KWin's Fullscreen state.
 - **Focus restoration** - Attempting to put focus back where it was before we interrupted you. Results may vary.
 

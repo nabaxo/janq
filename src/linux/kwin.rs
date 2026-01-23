@@ -533,7 +533,7 @@ async fn run_toggle_script(
     .strip_suffix(';')
     .unwrap_or(script_body_trimmed);
   let script_content = format!(
-    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}, {},\n  \"{}\", {}, {}, {}, {},\n  {}\n);",
+    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}, {},\n  \"{}\", {}, {}, {}, {},\n  {}\n);",
     script_body,
     app_cfg.window_class,
     config.window.display_mode,
@@ -546,6 +546,7 @@ async fn run_toggle_script(
     easing,
     params.visible,
     config.window.keep_above,
+    config.window.no_borders,
     animate_opacity,
     show_opacity_point,
     hide_opacity_point,
@@ -624,9 +625,9 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
     let offset_is_center = matches!(position_offset, PositionOffset::Center);
 
     apps_json.push(format!(
-            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
+            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, noBorders: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
             app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
-            config.window.keep_above, target_id, target_pid, is_visible, config.window.force_priority,
+            config.window.keep_above, config.window.no_borders, target_id, target_pid, is_visible, config.window.force_priority,
             slide_from_str, offset_value, offset_is_percent, offset_is_negative, offset_is_center
         ));
   }
