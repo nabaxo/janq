@@ -153,7 +153,7 @@ struct ToggleParams<'a> {
   prev_id: &'a str,
   target_id: &'a str,
   target_pid: u32,
-  janq_classes: &'a str,
+  siblings_json: String,
 }
 
 // =============================================================================
@@ -385,7 +385,7 @@ pub async fn toggle_quake(
     let (target_id, _) = get_window_id_and_pid(app_name, &app_cfg.window_class)
       .await
       .unwrap_or((String::new(), 0));
-    if target_id.is_empty() || !is_window_valid(&target_id).await {
+    if target_id.is_empty() || !is_window_valid(&app_cfg.window_class, &target_id).await {
       state.visible_app = None;
       return Ok(()); // Just reset state, don't immediately try to show/spawn.
     }
@@ -393,12 +393,49 @@ pub async fn toggle_quake(
 
   let should_show = !is_currently_visible;
 
+  // Calculate explicit siblings to hide based on cache and managed apps
+  let mut siblings_json_parts = Vec::new();
+  for (name, other_app) in &config.app {
+    if name == app_name || other_app.window_class == app_cfg.window_class {
+      continue;
+    }
+
+    // Check cache for this sibling's window ID
+    if let Some(cached) = crate::linux::cache::get_cached_window(name) {
+      if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
+        let (other_dir, other_offset) = other_app.resolve_slide_config(&config.window);
+        let other_dir_str = match other_dir {
+          SlideDirection::Top => "top",
+          SlideDirection::Bottom => "bottom",
+          SlideDirection::Left => "left",
+          SlideDirection::Right => "right",
+        };
+        let (other_val, other_is_pct, other_is_neg) = match other_offset {
+          PositionOffset::Center => (0.0, false, false),
+          PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
+          PositionOffset::Percent(pct) => ((pct.abs() * 100.0), true, pct < 0.0),
+        };
+        let other_is_center = matches!(
+          other_app
+            .position_offset
+            .as_ref()
+            .unwrap_or(&config.window.position_offset),
+          PositionOffset::Center
+        );
+        siblings_json_parts.push(format!(
+          "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, easing: \"{}\" }}",
+          cached.id, cached.pid, other_dir_str, other_val, other_is_pct, other_is_neg, other_is_center, config.animation.hide_easing
+        ));
+      }
+    }
+  }
+  let siblings_json = format!("[{}]", siblings_json_parts.join(", "));
+
   let janq_classes: Vec<String> = config
     .app
     .values()
     .map(|v| v.window_class.to_string())
     .collect();
-  let classes_string = janq_classes.join(",");
 
   if should_show {
     let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
@@ -416,7 +453,7 @@ pub async fn toggle_quake(
         prev_id: "",
         target_id: &target_id,
         target_pid,
-        janq_classes: &classes_string,
+        siblings_json: siblings_json.clone(),
       },
       state.max_refresh_rate,
     )
@@ -438,7 +475,7 @@ pub async fn toggle_quake(
         prev_id: &prev_id,
         target_id: &target_id,
         target_pid,
-        janq_classes: &classes_string,
+        siblings_json,
       },
       state.max_refresh_rate,
     )
@@ -533,7 +570,7 @@ async fn run_toggle_script(
     .strip_suffix(';')
     .unwrap_or(script_body_trimmed);
   let script_content = format!(
-    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, \"{}\", {}, {},\n  \"{}\", {}, {}, {}, {},\n  {}\n);",
+    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, {}, {}, {},\n  \"{}\", {}, {}, {}, {},\n  {}\n);",
     script_body,
     app_cfg.window_class,
     config.window.display_mode,
@@ -553,7 +590,7 @@ async fn run_toggle_script(
     params.prev_id,
     params.target_id,
     params.target_pid,
-    params.janq_classes,
+    params.siblings_json,
     config.window.force_priority,
     refresh_rate,
     // Slide parameters for target app
@@ -650,13 +687,25 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
   .map_err(anyhow::Error::from)
 }
 
-pub async fn restore_app(window_class: &str, conn: &Connection) -> anyhow::Result<()> {
+pub async fn restore_app(
+  app_name: &str,
+  window_class: &str,
+  conn: &Connection,
+) -> anyhow::Result<()> {
+  let (id, pid) = crate::linux::cache::get_cached_window(app_name)
+    .map(|c| (c.id, c.pid))
+    .unwrap_or((String::new(), 0));
+
   let script_body_raw = RESTORE_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
   let script_body_trimmed = script_body_raw.trim();
   let script_body = script_body_trimmed
     .strip_suffix(';')
     .unwrap_or(script_body_trimmed);
-  let script_content = format!("{}(\"{}\");", script_body, window_class);
+
+  let script_content = format!(
+    "{}(\"{}\", \"{}\", {});",
+    script_body, window_class, id, pid
+  );
   run_kwin_script(
     conn,
     "janq_restore_script",
@@ -668,8 +717,8 @@ pub async fn restore_app(window_class: &str, conn: &Connection) -> anyhow::Resul
 }
 
 pub async fn restore_quake(config: &Config, conn: &Connection) -> anyhow::Result<()> {
-  for app_cfg in config.app.values() {
-    let _ = restore_app(&app_cfg.window_class, conn).await;
+  for (name, app_cfg) in &config.app {
+    let _ = restore_app(name, &app_cfg.window_class, conn).await;
   }
   Ok(())
 }

@@ -1,7 +1,7 @@
 (function (
   windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
   duration, easingType, shouldShow, keepAbove, noBorders, animateOpacity,
-  showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, janqClasses,
+  showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, siblingsToHideJson,
   forcePriority, refreshRate,
   slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter,
   allSlideConfigs
@@ -23,11 +23,52 @@
     return { dir: slideFrom, val: offsetValue, pct: offsetIsPercent, neg: offsetIsNegative, ctr: offsetIsCenter, easing: easingType };
   }
 
-  const target = findTarget(windowClass, targetWindowId, targetPid);
+  // Precise Single-Pass Discovery
+  const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  const incomingSiblings = siblingsToHideJson || [];
+  const cleanTargetId = normalizeId(targetWindowId);
+  const safeTargetPid = targetPid || 0;
+
+  let target = null;
+  const siblingsToHide = [];
+  const managedSibIds = new Set(incomingSiblings.map(s => normalizeId(s.id)));
+  const managedSibPids = new Set(incomingSiblings.map(s => s.pid).filter(p => p > 0));
+
+  for (const c of clients) {
+    const cId = normalizeId(c.internalId);
+    const cPid = c.pid || 0;
+
+    // 1. Identify Target
+    if (!target) {
+      if (cleanTargetId !== "" && cId === cleanTargetId) target = c;
+      else if (safeTargetPid > 0 && cPid === safeTargetPid) target = c;
+    }
+
+    // 2. Identify Siblings (only if they aren't the target and are visible/alive)
+    if (c !== target && c.opacity > 0.01) {
+      let isMatch = false;
+      if (cId !== "" && managedSibIds.has(cId)) isMatch = true;
+      else if (cPid > 0 && managedSibPids.has(cPid)) isMatch = true;
+
+      if (isMatch) {
+        // Resolve sibling context for visibility check
+        const sibCfg = getSiblingSlideConfig(c.resourceClass || c.resourceName);
+        const cArea = workspace.clientArea(KWin.PlacementArea, c);
+        let isActuallyVisible = false;
+
+        if (sibCfg.dir === "top") isActuallyVisible = (c.frameGeometry.y + c.frameGeometry.height > cArea.y + 1);
+        else if (sibCfg.dir === "bottom") isActuallyVisible = (c.frameGeometry.y < cArea.y + cArea.height - 1);
+        else if (sibCfg.dir === "left") isActuallyVisible = (c.frameGeometry.x + c.frameGeometry.width > cArea.x + 1);
+        else if (sibCfg.dir === "right") isActuallyVisible = (c.frameGeometry.x < cArea.x + cArea.width - 1);
+
+        if (isActuallyVisible) siblingsToHide.push(c);
+      }
+    }
+  }
+
   if (!target) return;
 
-  // Resolve the monitor and areas together for perfect stability.
-  // The internal 'sticky' logic in resolveAreaContext handles hide-locking automatically.
+  // Resolve areas for the target
   const context = resolveAreaContext(target, displayMode, displayIndex);
   const workArea = context.work;
   const fullArea = context.full;
@@ -39,7 +80,7 @@
   let finalWidth = target.frameGeometry.width;
   let finalHeight = target.frameGeometry.height;
 
-  // Determine if window needs repositioning based on slide direction
+  // ... (rest of the repositioning logic) ...
   const isHorizontalSlide = (slideFrom === "left" || slideFrom === "right");
   let offscreenPos, onScreenThreshold;
   if (isHorizontalSlide) {
@@ -75,158 +116,185 @@
   }
 
   const slidePos = computeSlidePosition(slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter, workArea, fullArea, finalWidth, finalHeight);
-  const finalX = slidePos.shownX;
-  const finalY = slidePos.shownY;
-  const offscreenX = slidePos.hiddenX;
-  const offscreenY = slidePos.hiddenY;
+  const finalX = shouldShow ? slidePos.shownX : slidePos.hiddenX;
+  const finalY = shouldShow ? slidePos.shownY : slidePos.hiddenY;
 
-  const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-  const rawClasses = (janqClasses || "").toLowerCase().split(",");
-  const allClasses = [];
-  for (const rawClass of rawClasses) {
-    const trimmed = rawClass.trim();
-    if (trimmed) allClasses.push(trimmed);
+  // Prepare sibling animation data
+  const siblingDatas = [];
+  const targetTotalDist = Math.sqrt((finalX - startX) ** 2 + (finalY - startY) ** 2);
+  let groupMaxDist = targetTotalDist;
+
+  for (const sib of siblingsToHide) {
+    const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
+    const sibContext = resolveAreaContext(sib, "active", 0);
+    const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibContext.work, sibContext.full, sib.frameGeometry.width, sib.frameGeometry.height);
+
+    const sDiffX = sibOffscreen.hiddenX - sib.frameGeometry.x;
+    const sDiffY = sibOffscreen.hiddenY - sib.frameGeometry.y;
+    const sDist = Math.sqrt(sDiffX * sDiffX + sDiffY * sDiffY);
+    if (sDist > groupMaxDist) groupMaxDist = sDist;
+
+    siblingDatas.push({
+      client: sib,
+      startX: sib.frameGeometry.x,
+      startY: sib.frameGeometry.y,
+      startOpacity: sib.opacity,
+      endX: sibOffscreen.hiddenX,
+      endY: sibOffscreen.hiddenY,
+      dist: sDist,
+      easing: sibCfg.easing
+    });
   }
 
-  const siblingsToHide = [];
-  for (const c of clients) {
-    if (c === target) continue;
-    const cClass = (c.resourceClass || "").toLowerCase();
-    const cName = (c.resourceName || "").toLowerCase();
+  // Calculate scaled durations relative to max distance
+  const targetScaledDur = (groupMaxDist > 0) ? Math.min(duration, (duration * targetTotalDist) / groupMaxDist) : duration;
 
-    let isManaged = false;
-    for (const siblingClass of allClasses) {
-      if (cClass.includes(siblingClass) || cName.includes(siblingClass)) {
-        isManaged = true;
-        break;
-      }
-    }
-
-    if (isManaged) {
-      const cArea = workspace.clientArea(KWin.PlacementArea, c);
-      const sibCfg = getSiblingSlideConfig(c.resourceClass || c.resourceName);
-      let isActuallyVisible = false;
-
-      // Direction-aware visibility detection
-      if (sibCfg.dir === "top") {
-        isActuallyVisible = (c.frameGeometry.y + c.frameGeometry.height > cArea.y + 1);
-      } else if (sibCfg.dir === "bottom") {
-        isActuallyVisible = (c.frameGeometry.y < cArea.y + cArea.height - 1);
-      } else if (sibCfg.dir === "left") {
-        isActuallyVisible = (c.frameGeometry.x + c.frameGeometry.width > cArea.x + 1);
-      } else if (sibCfg.dir === "right") {
-        isActuallyVisible = (c.frameGeometry.x < cArea.x + cArea.width - 1);
-      }
-
-      if (c.opacity > 0.01 && isActuallyVisible) {
-        siblingsToHide.push(c);
-      }
-    }
+  for (const s of siblingDatas) {
+    s.duration = (groupMaxDist > 0) ? Math.min(duration, (duration * s.dist) / groupMaxDist) : duration;
   }
 
-  if (shouldShow) {
-    setQuakeProperties(target, keepAbove, noBorders, true, forcePriority);
-    focusKick(target, false);
+  const startAnimation = () => {
+    if (duration > 0) {
+      const startTime = Date.now();
+      const diffX = finalX - startX;
+      const diffY = finalY - startY;
 
-    const startAnimation = () => {
-      if (duration > 0) {
-        const startTime = Date.now();
-        const diffX = finalX - startX;
-        const diffY = finalY - startY;
+      let firstFrame = true;
+      const wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
 
-        // Implementation of duration scaling (Velocity matching)
-        let scaledDuration = duration;
-        if (duration > 0) {
-          const totalDist = isHorizontalSlide ? finalWidth : finalHeight;
-          const currentDist = Math.sqrt(diffX * diffX + diffY * diffY);
-          if (totalDist > 0) {
-            scaledDuration = Math.min(duration, (duration * currentDist) / totalDist);
-          }
-        }
+      const timer = new QTimer();
+      timer.interval = Math.max(1, Math.floor(1000 / refreshRate));
+      timer.timeout.connect(() => {
+        const now = Date.now();
+        const elapsed = now - startTime;
 
-        const siblingDatas = [];
-        for (const sib of siblingsToHide) {
-          const sibContext = resolveAreaContext(sib, "active", 0); // Active mode for siblings is effectively current monitor
-          const sibWorkArea = sibContext.work;
-          const sibFullArea = sibContext.full;
-          const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
-          const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibWorkArea, sibFullArea, sib.frameGeometry.width, sib.frameGeometry.height);
-          siblingDatas.push({
-            client: sib,
-            startX: sib.frameGeometry.x,
-            startY: sib.frameGeometry.y,
-            startOpacity: sib.opacity,
-            endX: sibOffscreen.hiddenX,
-            endY: sibOffscreen.hiddenY,
-            easing: sibCfg.easing
-          });
-        }
+        // Timer runs for the full global duration to ensure all windows finish and the script unloads
+        const globalProgress = Math.min(elapsed / duration, 1.0);
 
-        let firstFrame = true;
-        const timer = new QTimer();
-        timer.interval = Math.max(1, Math.floor(1000 / refreshRate));
-        timer.timeout.connect(() => {
-          const now = Date.now();
-          const elapsed = now - startTime;
-          const progress = scaledDuration > 0 ? Math.min(elapsed / scaledDuration, 1.0) : 1.0;
-          const ease = getEasing(progress, easingType);
+        // Target's internal progress
+        const targetProgress = targetScaledDur > 0 ? Math.min(elapsed / targetScaledDur, 1.0) : 1.0;
+        const targetEase = getEasing(targetProgress, easingType);
 
-          if (firstFrame) {
+        if (firstFrame) {
+          if (shouldShow) {
             focusKick(target, false);
-            if (forcePriority) target.fullScreen = true;
-            target.opacity = animateOpacity ? 0.0 : 1.0;
-            firstFrame = false;
           }
+          if (forcePriority) target.fullScreen = true;
+          if (shouldShow) target.opacity = animateOpacity ? 0.0 : 1.0;
+          firstFrame = false;
+        }
 
-          const currentX = startX + diffX * ease;
-          const currentY = startY + diffY * ease;
+        // Apply target window transformation
+        if (shouldShow) {
+          target.frameGeometry = { x: startX + diffX * targetEase, y: startY + diffY * targetEase, width: finalWidth, height: finalHeight };
           if (animateOpacity) {
-            const opacityEase = Math.min(1.0, Math.max(0, ease / (showOpacityPoint <= 0 ? 0.0001 : showOpacityPoint)));
-            target.opacity = Math.max(target.opacity, startOpacity + (1.0 - startOpacity) * opacityEase);
+            const opEase = Math.min(1.0, Math.max(0, globalProgress / (showOpacityPoint <= 0 ? 0.0001 : showOpacityPoint)));
+            target.opacity = 0.0 + (1.0 - 0.0) * opEase;
           } else {
             target.opacity = 1.0;
           }
-          target.frameGeometry = { x: currentX, y: currentY, width: finalWidth, height: finalHeight };
-
-          for (const data of siblingDatas) {
-            const sibEase = getEasing(progress, data.easing);
-            const sibX = data.startX + (data.endX - data.startX) * sibEase;
-            const sibY = data.startY + (data.endY - data.startY) * sibEase;
-            data.client.frameGeometry = { x: sibX, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-            if (animateOpacity) {
-              const denom = 1.0 - hideOpacityPoint;
-              const opacityEase = Math.min(1.0, Math.max(0, (sibEase - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-              data.client.opacity = Math.min(data.client.opacity, data.startOpacity * (1.0 - opacityEase));
-            }
+        } else {
+          target.frameGeometry = { x: startX + diffX * targetEase, y: startY + diffY * targetEase, width: finalWidth, height: finalHeight };
+          if (animateOpacity) {
+            const denom = 1.0 - hideOpacityPoint;
+            const opEase = Math.min(1.0, Math.max(0, (globalProgress - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+            target.opacity = 1.0 - opEase;
+          } else {
+            target.opacity = (globalProgress >= 1.0 ? 0.0 : 1.0);
           }
+        }
 
-          if (progress >= 1.0) {
-            timer.stop();
+        // Apply sibling window transformations
+        for (const data of siblingDatas) {
+          const sProgress = data.duration > 0 ? Math.min(elapsed / data.duration, 1.0) : 1.0;
+          const sEase = getEasing(sProgress, data.easing);
+
+          data.client.frameGeometry = { x: data.startX + (data.endX - data.startX) * sEase, y: data.startY + (data.endY - data.startY) * sEase, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+
+          if (animateOpacity) {
+            const denom = 1.0 - hideOpacityPoint;
+            const sOpEase = Math.min(1.0, Math.max(0, (globalProgress - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+            data.client.opacity = 1.0 - sOpEase;
+          } else {
+            data.client.opacity = (globalProgress >= 1.0 ? 0.0 : 1.0);
+          }
+        }
+
+        if (globalProgress >= 1.0) {
+          timer.stop();
+          if (shouldShow) {
             target.opacity = 1.0;
             target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
             focusKick(target, false);
-            setForceBlur(target, false);
-            for (const data of siblingDatas) {
-              data.client.opacity = 0.0;
-              data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+          } else {
+            target.opacity = 0.0;
+            target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+            target.fullScreen = false;
+            if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+
+            const stillActive = (workspace.activeWindow === target || workspace.activeClient === target);
+            if (wasActive && stillActive) {
+              const stacking = workspace.stackingOrder;
+              let targetBehind = null;
+              let targetIndex = -1;
+              for (let s = 0; s < stacking.length; s++) {
+                if (stacking[s] === target) {
+                  targetIndex = s;
+                  break;
+                }
+              }
+              if (targetIndex > 0) {
+                for (let s = targetIndex - 1; s >= 0; s--) {
+                  const c = stacking[s];
+                  if (c.normalWindow && c.opacity > 0 && (c.resourceClass || c.resourceName)) {
+                    targetBehind = c;
+                    break;
+                  }
+                }
+              }
+
+              if (targetBehind) {
+                focusKick(targetBehind, false);
+              } else if (prevWindowId && prevWindowId !== "") {
+                const allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+                for (const c of allClients) {
+                  if (c.internalId && normalizeId(c.internalId) === normalizeId(prevWindowId)) {
+                    focusKick(c, false);
+                    break;
+                  }
+                }
+              }
             }
           }
-        });
-        setForceBlur(target, true);
-        timer.start();
-      } else {
-        target.opacity = 1.0;
-        target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+          setForceBlur(target, false);
+          for (const data of siblingDatas) {
+            data.client.opacity = 0.0;
+            data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+          }
+          if (!shouldShow && KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
+        }
+      });
+      setForceBlur(target, true);
+      timer.start();
+    } else {
+      // Instant transition
+      target.opacity = shouldShow ? 1.0 : 0.0;
+      target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+      for (const data of siblingDatas) {
+        data.client.opacity = 0.0;
+        data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
       }
-    };
+    }
+  };
 
+  if (shouldShow) {
+    setQuakeProperties(target, keepAbove, noBorders, true, forcePriority);
     if (needsReposition) {
       target.opacity = 0.0;
       target.fullScreen = false;
-      target.frameGeometry = { x: offscreenX, y: offscreenY, width: finalWidth, height: finalHeight };
-      startX = offscreenX;
-      startY = offscreenY;
-      startOpacity = animateOpacity ? 0.0 : 1.0;
+      target.frameGeometry = { x: slidePos.hiddenX, y: slidePos.hiddenY, width: finalWidth, height: finalHeight };
+      startX = slidePos.hiddenX;
+      startY = slidePos.hiddenY;
       const delayTimer = new QTimer();
       delayTimer.interval = 200;
       delayTimer.singleShot = true;
@@ -236,137 +304,6 @@
       startAnimation();
     }
   } else {
-    const endX = offscreenX;
-    const endY = offscreenY;
-    const wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
-
-    if (duration > 0) {
-      const startTime = Date.now();
-      const diffX = endX - startX;
-      const diffY = endY - startY;
-
-      // Implementation of duration scaling (Velocity matching)
-      let scaledDuration = duration;
-      if (duration > 0) {
-        const totalDist = isHorizontalSlide ? finalWidth : finalHeight;
-        const currentDist = Math.sqrt(diffX * diffX + diffY * diffY);
-        if (totalDist > 0) {
-          scaledDuration = Math.min(duration, (duration * currentDist) / totalDist);
-        }
-      }
-
-      const siblingDatas = [];
-      for (const sib of siblingsToHide) {
-        const sibContext = resolveAreaContext(sib, "active", 0);
-        const sibWorkArea = sibContext.work;
-        const sibFullArea = sibContext.full;
-        const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
-        const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibWorkArea, sibFullArea, sib.frameGeometry.width, sib.frameGeometry.height);
-        siblingDatas.push({
-          client: sib,
-          startX: sib.frameGeometry.x,
-          startY: sib.frameGeometry.y,
-          startOpacity: sib.opacity,
-          endX: sibOffscreen.hiddenX,
-          endY: sibOffscreen.hiddenY,
-          easing: sibCfg.easing
-        });
-      }
-
-      const timer = new QTimer();
-      timer.interval = Math.max(1, Math.floor(1000 / refreshRate));
-      timer.timeout.connect(() => {
-        const now = Date.now();
-        const elapsed = now - startTime;
-        const progress = scaledDuration > 0 ? Math.min(elapsed / scaledDuration, 1.0) : 1.0;
-        const ease = getEasing(progress, easingType);
-        const currentX = startX + diffX * ease;
-        const currentY = startY + diffY * ease;
-
-        if (animateOpacity) {
-          const denom = 1.0 - hideOpacityPoint;
-          const opacityEase = Math.min(1.0, Math.max(0, (ease - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-          target.opacity = Math.min(target.opacity, startOpacity * (1.0 - opacityEase));
-        }
-
-        target.frameGeometry = { x: currentX, y: currentY, width: finalWidth, height: finalHeight };
-
-        for (const data of siblingDatas) {
-          const sibEase = getEasing(progress, data.easing);
-          const sibX = data.startX + (data.endX - data.startX) * sibEase;
-          const sibY = data.startY + (data.endY - data.startY) * sibEase;
-          data.client.frameGeometry = { x: sibX, y: sibY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-          if (animateOpacity) {
-            const denom = 1.0 - hideOpacityPoint;
-            const opacityEase = Math.min(1.0, Math.max(0, (sibEase - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-            data.client.opacity = Math.min(data.client.opacity, data.startOpacity * (1.0 - opacityEase));
-          }
-        }
-
-        if (progress >= 1.0) {
-          timer.stop();
-          target.opacity = 0.0;
-          target.frameGeometry = { x: endX, y: endY, width: finalWidth, height: finalHeight };
-          target.fullScreen = false;
-          if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
-          setForceBlur(target, false);
-
-          for (const data of siblingDatas) {
-            data.client.opacity = 0.0;
-            data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-          }
-
-          const stillActive = (workspace.activeWindow === target || workspace.activeClient === target);
-          if (wasActive && stillActive) {
-            const stacking = workspace.stackingOrder;
-            let targetBehind = null;
-            let targetIndex = -1;
-            for (let s = 0; s < stacking.length; s++) {
-              if (stacking[s] === target) {
-                targetIndex = s;
-                break;
-              }
-            }
-            if (targetIndex > 0) {
-              for (let s = targetIndex - 1; s >= 0; s--) {
-                const c = stacking[s];
-                if (c.normalWindow && c.opacity > 0 && (c.resourceClass || c.resourceName)) {
-                  targetBehind = c;
-                  break;
-                }
-              }
-            }
-
-            if (targetBehind) {
-              focusKick(targetBehind, false);
-            } else if (prevWindowId && prevWindowId !== "") {
-              const allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-              for (const c of allClients) {
-                if (c.internalId && normalizeId(c.internalId) === normalizeId(prevWindowId)) {
-                  focusKick(c, false);
-                  break;
-                }
-              }
-            }
-          }
-          if (KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
-        }
-      });
-      setForceBlur(target, true);
-      timer.start();
-    } else {
-      target.opacity = 0.0;
-      target.frameGeometry = { x: endX, y: endY, width: finalWidth, height: finalHeight };
-      target.fullScreen = false;
-      if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
-      for (const sib of siblingsToHide) {
-        sib.opacity = 0.0;
-        const sibArea = workspace.clientArea(KWin.PlacementArea, sib);
-        const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
-        const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibArea, sib.frameGeometry.width, sib.frameGeometry.height);
-        sib.frameGeometry = { x: sibOffscreen.hiddenX, y: sibOffscreen.hiddenY, width: sib.frameGeometry.width, height: sib.frameGeometry.height };
-      }
-      if (KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
-    }
+    startAnimation();
   }
 });

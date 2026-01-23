@@ -158,7 +158,7 @@ pub async fn ensure_terminal_running_with_candidates(
 
   // 3. Process is running but no window found: Prioritize Release (un-quake)
   if process_running {
-    let _ = crate::linux::kwin::restore_app(window_class, conn).await;
+    let _ = crate::linux::kwin::restore_app("", window_class, conn).await;
     sleep(Duration::from_millis(400)).await;
 
     // If release uncovered an existing window, reuse it immediately
@@ -364,10 +364,19 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
   windows
 }
 
-pub async fn is_window_valid(id: &str) -> bool {
+pub async fn is_window_valid(window_class: &str, id: &str) -> bool {
   if id.is_empty() {
     return false;
   }
+
+  // 1. Fast path: Check cache
+  if let Some(cached) = get_cached_window(window_class) {
+    if cached.id == id && Path::new(&format!("/proc/{}", cached.pid)).exists() {
+      return true;
+    }
+  }
+
+  // 2. Fallback: full system fetch
   let windows = fetch_system_windows_async().await;
   windows.iter().any(|w| w.id == id)
 }

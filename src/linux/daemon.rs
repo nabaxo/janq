@@ -401,7 +401,7 @@ pub async fn run_daemon(
       for (name, app_cfg) in &old_config.app {
         if !new_config_in_async.app.contains_key(name) {
           println!("Watcher: Restoring app '{}' (removed from config)", name);
-          let _ = restore_app(&app_cfg.window_class, &conn_in_async).await;
+          let _ = restore_app(name, &app_cfg.window_class, &conn_in_async).await;
         }
       }
 

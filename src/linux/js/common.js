@@ -278,16 +278,16 @@ const computeSlidePosition = (direction, offsetVal, isPercent, isNegative, isCen
   } else {
     // Fixed axis: Y (Lock to workArea center/offset)
     if (isCenter) {
-      shownY = area.y + (area.height - winH) / 2;
+      shownY = workArea.y + (workArea.height - winH) / 2;
     } else if (isPercent) {
       const pct = offsetVal / 100;
       shownY = isNegative
-        ? area.y + area.height - winH - (area.height * pct)
-        : area.y + (area.height * pct);
+        ? workArea.y + workArea.height - winH - (workArea.height * pct)
+        : workArea.y + (workArea.height * pct);
     } else {
       shownY = isNegative
-        ? area.y + area.height - winH - offsetVal
-        : area.y + offsetVal;
+        ? workArea.y + workArea.height - winH - offsetVal
+        : workArea.y + offsetVal;
     }
     hiddenY = shownY;
 

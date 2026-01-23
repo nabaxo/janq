@@ -40,8 +40,14 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Unified Cache Architecture**: Consolidated handle tracking for both platforms.
 - **Liveness checks**: Efficient `/proc/{pid}` validation on Linux and direct `IsWindow` handle validation on Windows for sub-millisecond response.
 - **Zero-Polling**: Event-driven architecture with instant loop wakeups.
+- **Zero-Scan KWin Toggles**: Refactored Linux KWin scripts to perform a single-pass discovery using cached IDs and PIDs, eliminating redundant system-wide window scans.
+- **Precise Restoration**: Optimized window focus restoration on Linux by targeting cached PIDs directly instead of scanning the window list.
+- **Smooth Opacity Animations**: Integrated frame-by-frame opacity transitions into the KWin animation loop for jitter-free fades.
 - **Robust Hot-Reloading**: Daemon gracefully discards invalid configs and remains running on the last good state.
 - **Flattened internals**: Eliminated proxy modules; consolidated the 1,200-line Win32 monolith into focused sub-modules.
+
+### Utilities
+- **KWin Reset Utility**: Added `hard_reset_kwin.sh` for aggressive recovery from KWin state corruption or script hangs.
 
 ## [0.1.6] - 2026-01-20
 
