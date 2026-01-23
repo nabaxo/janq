@@ -422,9 +422,10 @@ pub async fn toggle_quake(
             .unwrap_or(&config.window.position_offset),
           PositionOffset::Center
         );
+        let other_anim_op = other_app.get_animate_opacity(config.animation.animate_opacity);
         siblings_json_parts.push(format!(
-          "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, easing: \"{}\" }}",
-          cached.id, cached.pid, other_dir_str, other_val, other_is_pct, other_is_neg, other_is_center, config.animation.hide_easing
+          "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, easing: \"{}\", animOp: {} }}",
+          cached.id, cached.pid, other_dir_str, other_val, other_is_pct, other_is_neg, other_is_center, config.animation.hide_easing, other_anim_op
         ));
       }
     }
@@ -551,15 +552,17 @@ async fn run_toggle_script(
         .unwrap_or(&config.window.position_offset),
       PositionOffset::Center
     );
+    let other_anim_op = other_app.get_animate_opacity(config.animation.animate_opacity);
     all_slide_configs.push(format!(
-      "'{}': {{ dir: '{}', val: {}, pct: {}, neg: {}, ctr: {}, easing: '{}' }}",
+      "'{}': {{ dir: '{}', val: {}, pct: {}, neg: {}, ctr: {}, easing: '{}', animOp: {} }}",
       other_app.window_class.to_lowercase(),
       other_dir_str,
       other_val,
       other_is_pct,
       other_is_neg,
       other_is_center,
-      config.animation.hide_easing
+      config.animation.hide_easing,
+      other_anim_op
     ));
   }
   let all_slide_configs_str = format!("{{ {} }}", all_slide_configs.join(", "));

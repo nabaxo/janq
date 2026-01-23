@@ -60,6 +60,8 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Zero-polling architecture**: Event-driven on both platforms to save your CPU for more important things.
 - **Instant loop wakeup (Windows)**: Uses `PostThreadMessageW` to avoid the 15ms `GetMessage` sleep tax.
 - **Zero-Scan Logic (Linux)**: KWin scripts now perform a single-pass window discovery using cached IDs/PIDs, eliminating expensive O(n) scans during toggles.
+- **Autonomous Sibling Physics**: Sibling windows no longer "follow" the main window; they compute their own individual paths, durations, and easing curves for perfect synchronization.
+- **Synchronized Compositor Management**: Granular `ForceBlur` control ensures background blur is enabled only during movement and cleaned up per-window, eliminating "ghost" artifacts on the desktop.
 - **Platform Cache Parity**: Consolidated Linux caches and a optimized `APP_CACHE` on Windows. Sub-millisecond liveness checks using native `/proc` on Linux and `IsWindow` on Windows.
 - **Memory footprint**: <2MB on Windows, ~3.4MB on Linux. Light enough to be ignored.
 
@@ -106,7 +108,7 @@ On KDE, there's a 500ms delay when registering hotkeys. It's a workaround for a 
 Sometimes multiple windows hide at slightly different speeds because they share the target window's duration. Every "fix" attempted made it worse. This is what we're shipping.
 
 ### App Compatibility: Opacity Animations
-Electron apps (Obsidian, VS Code, etc.) may experience unreliable transparency during motion on Linux. This has been improved with a frame-synchronized opacity fade loop, but compositor-level quirks may still persist.
+Electron apps (Obsidian, VS Code, etc.) may experience unreliable transparency during motion on Linux. This has been solved with a frame-synchronized opacity loop and eased clamping, though minor compositor-level quirks may still persist under extreme load.
 
 ---
 

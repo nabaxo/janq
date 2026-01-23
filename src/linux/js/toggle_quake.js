@@ -17,10 +17,10 @@
     const key = (sibClass || "").toLowerCase();
     if (allSlideConfigs && allSlideConfigs[key]) {
       const cfg = allSlideConfigs[key];
-      return { dir: cfg.dir, val: cfg.val, pct: cfg.pct, neg: cfg.neg, ctr: cfg.ctr, easing: cfg.easing };
+      return { dir: cfg.dir, val: cfg.val, pct: cfg.pct, neg: cfg.neg, ctr: cfg.ctr, easing: cfg.easing, animOp: cfg.animOp };
     }
     // Fallback to current app's config (shouldn't happen for managed apps)
-    return { dir: slideFrom, val: offsetValue, pct: offsetIsPercent, neg: offsetIsNegative, ctr: offsetIsCenter, easing: easingType };
+    return { dir: slideFrom, val: offsetValue, pct: offsetIsPercent, neg: offsetIsNegative, ctr: offsetIsCenter, easing: easingType, animOp: animateOpacity };
   }
 
   // Precise Single-Pass Discovery
@@ -142,7 +142,9 @@
       endX: sibOffscreen.hiddenX,
       endY: sibOffscreen.hiddenY,
       dist: sDist,
-      easing: sibCfg.easing
+      easing: sibCfg.easing,
+      animOp: sibCfg.animOp,
+      blurActive: true
     });
   }
 
@@ -161,6 +163,7 @@
 
       let firstFrame = true;
       const wasActive = (workspace.activeWindow === target || workspace.activeClient === target);
+      let targetBlurActive = true;
 
       const timer = new QTimer();
       timer.interval = Math.max(1, Math.floor(1000 / refreshRate));
@@ -188,8 +191,9 @@
         if (shouldShow) {
           target.frameGeometry = { x: startX + diffX * targetEase, y: startY + diffY * targetEase, width: finalWidth, height: finalHeight };
           if (animateOpacity) {
-            const opEase = Math.min(1.0, Math.max(0, globalProgress / (showOpacityPoint <= 0 ? 0.0001 : showOpacityPoint)));
-            target.opacity = 0.0 + (1.0 - 0.0) * opEase;
+            const rawProgress = Math.min(1.0, Math.max(0, globalProgress / (showOpacityPoint <= 0 ? 0.0001 : showOpacityPoint)));
+            const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, easingType)));
+            target.opacity = opEase;
           } else {
             target.opacity = 1.0;
           }
@@ -197,26 +201,42 @@
           target.frameGeometry = { x: startX + diffX * targetEase, y: startY + diffY * targetEase, width: finalWidth, height: finalHeight };
           if (animateOpacity) {
             const denom = 1.0 - hideOpacityPoint;
-            const opEase = Math.min(1.0, Math.max(0, (globalProgress - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+            const rawProgress = Math.min(1.0, Math.max(0, (globalProgress - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+            const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, easingType)));
             target.opacity = 1.0 - opEase;
           } else {
             target.opacity = (globalProgress >= 1.0 ? 0.0 : 1.0);
           }
         }
 
-        // Apply sibling window transformations
+        // Target Blur Cleanup (Early)
+        if (targetProgress >= 1.0 && targetBlurActive) {
+          setForceBlur(target, false);
+          targetBlurActive = false;
+        }
+
         for (const data of siblingDatas) {
           const sProgress = data.duration > 0 ? Math.min(elapsed / data.duration, 1.0) : 1.0;
           const sEase = getEasing(sProgress, data.easing);
 
           data.client.frameGeometry = { x: data.startX + (data.endX - data.startX) * sEase, y: data.startY + (data.endY - data.startY) * sEase, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
 
-          if (animateOpacity) {
+          if (data.animOp) {
+            // Sync opacity with sibling's own internal duration
+            const sOpProgress = data.duration > 0 ? Math.min(elapsed / data.duration, 1.0) : 1.0;
+            // Siblings are ALWAYS being hidden in this script logic
             const denom = 1.0 - hideOpacityPoint;
-            const sOpEase = Math.min(1.0, Math.max(0, (globalProgress - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-            data.client.opacity = 1.0 - sOpEase;
+            const rawProgress = Math.min(1.0, Math.max(0, (sOpProgress - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+            const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, data.easing)));
+            data.client.opacity = 1.0 - opEase;
           } else {
             data.client.opacity = (globalProgress >= 1.0 ? 0.0 : 1.0);
+          }
+
+          // Sibling Blur Cleanup (Early)
+          if (sProgress >= 1.0 && data.blurActive) {
+            setForceBlur(data.client, false);
+            data.blurActive = false;
           }
         }
 
@@ -266,8 +286,9 @@
               }
             }
           }
-          setForceBlur(target, false);
+          if (targetBlurActive) setForceBlur(target, false);
           for (const data of siblingDatas) {
+            if (data.blurActive) setForceBlur(data.client, false);
             data.client.opacity = 0.0;
             data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
           }
@@ -275,6 +296,7 @@
         }
       });
       setForceBlur(target, true);
+      for (const data of siblingDatas) setForceBlur(data.client, true);
       timer.start();
     } else {
       // Instant transition
