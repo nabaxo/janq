@@ -42,8 +42,9 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Zero-Polling**: Event-driven architecture with instant loop wakeups.
 - **Zero-Scan KWin Toggles**: Refactored Linux KWin scripts to perform a single-pass discovery using cached IDs and PIDs, eliminating redundant system-wide window scans.
 - **Precise Restoration**: Optimized window focus restoration on Linux by targeting cached PIDs directly instead of scanning the window list.
-- **Autonomous Sibling Logic**: Sibling windows now operate as independent physical entities with their own individual easing curves, directions, and velocity-scaled durations.
-- **Visual Polish**: Integrated frame-synchronized opacity transitions that respect the configured motion easing curves, strictly clamped to handle overshoot.
+- **Autonomous Sibling Logic**: Sibling windows (Windows & Linux) now operate as independent physical entities with their own individual easing curves, directions, and velocity-scaled durations.
+- **Visual Polish**: Integrated frame-synchronized opacity transitions that respect configured motion easing curves, strictly clamped for stability.
+- **Cross-Platform Parity**: Aligned Windows and Linux animation engines; Windows now uses correctly eased progress mapping and respects per-app sibling configurations.
 - **Per-Window Blur Management**: Implemented granular `ForceBlur` lifecycle tracking on Linux, ensures compositor blur effects are disabled for each window the millisecond its personal animation ends.
 - **Robust Hot-Reloading**: Daemon gracefully discards invalid configs and remains running on the last good state.
 - **Flattened internals**: Eliminated proxy modules; consolidated the 1,200-line Win32 monolith into focused sub-modules.

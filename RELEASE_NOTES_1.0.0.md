@@ -108,7 +108,7 @@ On KDE, there's a 500ms delay when registering hotkeys. It's a workaround for a 
 Sometimes multiple windows hide at slightly different speeds because they share the target window's duration. Every "fix" attempted made it worse. This is what we're shipping.
 
 ### App Compatibility: Opacity Animations
-Electron apps (Obsidian, VS Code, etc.) may experience unreliable transparency during motion on Linux. This has been solved with a frame-synchronized opacity loop and eased clamping, though minor compositor-level quirks may still persist under extreme load.
+Electron apps (Obsidian, VS Code, etc.) may experience unreliable transparency during motion. This has been solved across both platforms with a frame-synchronized opacity loop and eased progress mapping, ensuring consistent visual stability regardless of the OS.
 
 ---
 

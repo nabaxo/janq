@@ -271,16 +271,17 @@ pub fn run_animation_task_sync(
             );
 
             // Sibling-specific overrides
-            let (target_dur_ms, target_easing) = sib_app_name
+            let (target_dur_ms, target_easing, sib_anim_op) = sib_app_name
               .as_ref()
               .and_then(|name| config.app.get(name))
-              .map(|_a| {
+              .map(|a| {
                 (
-                  config.animation.hide_duration, // Use app-specific hide duration if we had it, but for now global hide
+                  config.animation.hide_duration,
                   &config.animation.hide_easing,
+                  a.get_animate_opacity(config.animation.animate_opacity),
                 )
               })
-              .unwrap_or((sib_dur_ms, sib_easing_cfg));
+              .unwrap_or((sib_dur_ms, sib_easing_cfg, config.animation.animate_opacity));
 
             // Siblings slide out using their hidden positions from compute_slide_positions
             let (sib_end_x, sib_end_y) = (sib_positions.hidden_x, sib_positions.hidden_y);
@@ -313,6 +314,7 @@ pub fn run_animation_task_sync(
               sa,
               s_dur_ms / 1000.0,
               target_easing.clone(),
+              sib_anim_op,
             ));
           }
         }
@@ -389,7 +391,7 @@ pub fn run_animation_task_sync(
       &TRUE as *const _ as *const _,
       4,
     );
-    for (h, _, _, _, _, _, _, _, _, _) in &siblings_data {
+    for (h, _, _, _, _, _, _, _, _, _, _) in &siblings_data {
       let _ = DwmSetWindowAttribute(
         *h,
         DWMWA_TRANSITIONS_FORCEDISABLED,
@@ -421,7 +423,7 @@ pub fn run_animation_task_sync(
     } else {
       prep_layer(target_hwnd.inner());
     }
-    for (h, _, _, _, _, _, _, _, _, _) in &siblings_data {
+    for (h, _, _, _, _, _, _, _, _, _, _) in &siblings_data {
       let ex = GetWindowLongW(*h, GWL_EXSTYLE);
       if (ex & WS_EX_LAYERED.0 as i32) == 0 {
         prep_layer(*h);
@@ -461,7 +463,7 @@ pub fn run_animation_task_sync(
 
     let max_dur_secs = siblings_data
       .iter()
-      .map(|(_, _, _, _, _, _, _, _, ds, _)| *ds)
+      .map(|(_, _, _, _, _, _, _, _, ds, _, _)| *ds)
       .fold(dur_secs, |a, b| a.max(b));
 
     if max_dur_secs > 0.0 {
@@ -470,15 +472,15 @@ pub fn run_animation_task_sync(
       let mut last_alpha = t_curr_alpha;
       let mut last_sibling_xs: Vec<i32> = siblings_data
         .iter()
-        .map(|(_, sx, _, _, _, _, _, _, _, _)| *sx)
+        .map(|(_, sx, _, _, _, _, _, _, _, _, _)| *sx)
         .collect();
       let mut last_sibling_ys: Vec<i32> = siblings_data
         .iter()
-        .map(|(_, _, sy, _, _, _, _, _, _, _)| *sy)
+        .map(|(_, _, sy, _, _, _, _, _, _, _, _)| *sy)
         .collect();
       let mut last_sibling_alphas: Vec<u8> = siblings_data
         .iter()
-        .map(|(_, _, _, _, _, _, _, sa, _, _)| *sa)
+        .map(|(_, _, _, _, _, _, _, sa, _, _, _)| *sa)
         .collect();
 
       let loop_start_time = Instant::now();
@@ -509,21 +511,19 @@ pub fn run_animation_task_sync(
 
         let mut needs_pos_update = false;
         if animate_opacity {
-          let target_alpha_val = if should_show { 255.0 } else { 0.0 };
           let t_alpha = {
-            let opacity_ease = if should_show {
-              (target_ease_val / op_point).clamp(0.0, 1.0)
+            let raw_op_progress = if should_show {
+              (target_progress / op_point).clamp(0.0, 1.0)
             } else {
               let denom = 1.0 - op_point;
-              ((target_ease_val - op_point) / if denom <= 0.0 { 0.0001 } else { denom })
+              ((target_progress - op_point) / if denom <= 0.0 { 0.0001 } else { denom })
                 .clamp(0.0, 1.0)
             };
-            let computed =
-              (t_curr_alpha as f64 + (target_alpha_val - t_curr_alpha as f64) * opacity_ease) as u8;
+            let eased_op = get_easing(raw_op_progress, easing);
             if should_show {
-              computed.max(last_alpha)
+              (255.0 * eased_op) as u8
             } else {
-              computed.min(last_alpha)
+              (255.0 * (1.0 - eased_op)) as u8
             }
           };
 
@@ -532,27 +532,31 @@ pub fn run_animation_task_sync(
               SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), t_alpha, LWA_ALPHA);
             last_alpha = t_alpha;
           }
+        } else if first_frame && should_show {
+          let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
+          last_alpha = 255;
+        }
 
-          for (i, (h, _, _, _, _, _, _, sa, s_dur, _)) in siblings_data.iter().enumerate() {
+        // --- Sibling Opacity ---
+        for (i, (h, _, _, _, _, _, _, _, s_dur, s_easing, s_anim_op)) in
+          siblings_data.iter().enumerate()
+        {
+          if *s_anim_op {
             let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
             let s_progress = (elapsed_since_start / *s_dur).min(1.0);
-            let s_ease_val = get_easing(s_progress, &config.animation.hide_easing);
+            // Siblings always follow the "hide" path in synchronization with their own duration
             let s_denom = 1.0 - config.animation.hide_opacity_point;
-            let s_opacity_ease = ((s_ease_val - config.animation.hide_opacity_point)
+            let raw_op_progress = ((s_progress - config.animation.hide_opacity_point)
               / if s_denom <= 0.0 { 0.0001 } else { s_denom })
             .clamp(0.0, 1.0);
-            let s_target_alpha = {
-              let computed = (*sa as f64 * (1.0 - s_opacity_ease)) as u8;
-              computed.min(last_sibling_alphas[i])
-            };
+            let eased_op = get_easing(raw_op_progress, s_easing);
+            let s_target_alpha = (255.0 * (1.0 - eased_op)) as u8;
+
             if s_target_alpha != last_sibling_alphas[i] {
               let _ = SetLayeredWindowAttributes(*h, COLORREF(0), s_target_alpha, LWA_ALPHA);
               last_sibling_alphas[i] = s_target_alpha;
             }
           }
-        } else if first_frame && should_show {
-          let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
-          last_alpha = 255;
         }
 
         // --- Position Update ---
@@ -564,7 +568,8 @@ pub fn run_animation_task_sync(
         if next_x != last_x || next_y != last_y || first_frame {
           needs_pos_update = true;
         } else {
-          for (i, (_, sx, sy, _, _, ex, ey, _, s_dur, s_easing)) in siblings_data.iter().enumerate()
+          for (i, (_, sx, sy, _, _, ex, ey, _, s_dur, s_easing, _)) in
+            siblings_data.iter().enumerate()
           {
             let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
             let s_progress = (elapsed_since_start / *s_dur).min(1.0);
@@ -612,7 +617,7 @@ pub fn run_animation_task_sync(
               _ => {}
             }
 
-            for (i, (h, sx, sy, sw, sh, ex, ey, _, s_dur, s_easing)) in
+            for (i, (h, sx, sy, sw, sh, ex, ey, _, s_dur, s_easing, _)) in
               siblings_data.iter().enumerate()
             {
               let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
@@ -721,7 +726,7 @@ pub fn run_animation_task_sync(
         }
       }
     }
-    for (h, _, _, _, _, _, _, _, _, _) in siblings_data {
+    for (h, _, _, _, _, _, _, _, _, _, _) in siblings_data {
       let _ = ShowWindow(h, SW_HIDE);
     }
   }
