@@ -4,7 +4,7 @@
 
 # janq v1.0.0 — The Inaugural Release of Questionable Decisions
 
-**Release Date:** January 12, 2026
+**Release Date:** January 24, 2026
 
 > **janq** - The Janky Quake-Style Terminal Manager (Because apparently, the existing ones weren't janky enough)
 
@@ -54,61 +54,16 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 
 ---
 
-## 🛠️ Technical Details (For the curious or the jaded)
+## 🛠️ Performance & Architecture
 
-### Performance & Reliability
-- **Zero-polling architecture**: Event-driven on both platforms to save your CPU for more important things.
-- **Instant loop wakeup (Windows)**: Uses `PostThreadMessageW` to avoid the 15ms `GetMessage` sleep tax.
 - **Zero-Scan Logic (Linux)**: KWin scripts now perform a single-pass window discovery using cached IDs/PIDs, eliminating expensive O(n) scans during toggles.
-- **Autonomous Sibling Physics**: Sibling windows no longer "follow" the main window; they compute their own individual paths, durations, and easing curves for perfect synchronization.
-- **Synchronized Compositor Management**: Granular `ForceBlur` control ensures background blur is enabled only during movement and cleaned up per-window, eliminating "ghost" artifacts on the desktop.
-- **Platform Cache Parity**: Consolidated Linux caches and a optimized `APP_CACHE` on Windows. Sub-millisecond liveness checks using native `/proc` on Linux and `IsWindow` on Windows.
+- **Deterministic Sibling Lifecycle**: Sibling windows compute their own individual paths and durations. Linux backends use precise ID/PID matching to ensure siblings always respect their own individual settings (avoiding the "half-faded sibling" bug).
+- **JSON Argument Consolidation (Linux)**: Refactored D-Bus script injection to pass consolidated JSON objects, replacing 26+ fragile positional arguments.
+- **Pre-calculated Geometry**: Both platforms now fully pre-compute sibling trajectories and durations before entering the high-frequency animation loop.
+- **Event-Driven Core**: Event-driven on both platforms; uses `PostThreadMessageW` on Windows to avoid the 15ms `GetMessage` sleep tax.
+- **Sub-millisecond liveness checks**: Native `/proc` on Linux and `IsWindow` on Windows.
 - **Memory footprint**: <2MB on Windows, ~3.4MB on Linux. Light enough to be ignored.
-
-### Code Quality
-- **Flattened Proxy Architecture**: Eliminated the redundant `daemon.rs` and `terminal.rs` files.
-- **Windows refactoring**: Split the 1,200-line Win32 monolith into focused, manageable sub-modules.
-- **Unified Cache Architecture**: Both platforms now agree on how to track a Window ID without double-caching.
-- **Robust Hot-Reloading**: The daemon now survives your configuration typos. If a reload fails, it shows the error and continues using the last valid state instead of shutting down.
-
----
-
-## 📋 Configuration Example
-
-```toml
-[window]
-display_mode = "active"
-width = "50%"
-height = "600px"
-slide_from = "top"
-offset = "center"
-
-[animation]
-duration = 350
-easing = "impulse"
-animate_opacity = true
-
-[app.terminal]
-window_class = "wezquake"
-start_command = "wezterm start --class wezquake"
-hotkey = ["Meta+Grave", "Ctrl+Grave"]
-```
-
----
-
-## ⚠️ Known Issues (The things we've accepted)
-
-### Animation Restart on Rapid Toggles
-If you spam your hotkeys faster than the animation can finish, the window might "hitch" as it recalculates its journey. This is a design choice to prevent the window from just teleporting. You're welcome.
-
-### Linux: Hotkey Registration Delay
-On KDE, there's a 500ms delay when registering hotkeys. It's a workaround for a race condition in KWin that can cause crashes. It only affects startup. Consider it a feature for system stability.
-
-### Sibling Animation Inconsistency
-Sometimes multiple windows hide at slightly different speeds because they share the target window's duration. Every "fix" attempted made it worse. This is what we're shipping.
-
-### App Compatibility: Opacity Animations
-Electron apps (Obsidian, VS Code, etc.) may experience unreliable transparency during motion. This has been solved across both platforms with a frame-synchronized opacity loop and eased progress mapping, ensuring consistent visual stability regardless of the OS.
+- **Flattened Proxy Architecture**: Eliminated redundant layers and split the Win32 monolith into focused sub-modules.
 
 ---
 
@@ -128,25 +83,22 @@ make build-windows-static      # Static Windows binary
 
 ---
 
-## 🧹 The `utilities/` Folder
+## ⚠️ Known Issues
 
-The `utilities/` directory contains cleanup scripts for Linux. These exist because, during development, we managed to break KDE shortcuts and leave zombie processes more times than we'd like to admit. If things get weird, run these.
+### Animation Restart on Rapid Toggles
+If you spam your hotkeys faster than the animation can finish, the window might "hitch" as it recalculates its journey. This is a design choice to prevent the window from just teleporting. You're welcome.
 
----
+### Linux: Hotkey Registration Delay
+On KDE, there's a 500ms delay when registering hotkeys. It's a workaround for a race condition in KWin that can cause crashes. It only affects startup. Consider it a feature for system stability.
 
-## 🙏 Acknowledgments
+### Linux: App Compatibility: Opacity Animations & Coordination
+Some applications (especially Electron-based ones or XWayland clients) may experience unreliable transparency or "stutter" during motion on Linux. Due to the asynchronous nature of Wayland property updates, opacity and position may occasionally update in different frames. janq uses the "Fullscreen role" or `ForceBlur` to stabilize this, but for some apps, disabling `animate_opacity` remains the most stable choice.
 
-- **KWin Scripting API** for making Wayland window management possible (mostly).
-- **The Rust community** for crates that saved us from manual memory management.
-- **The Sloperator** for providing directions and enduring the regressions.
-- **Coffee**, for keeping the AI's servers powered (presumably).
+### Sibling Animation Inconsistency
+When multiple applications are configured, sibling windows use the target window's duration instead of their own configured `hide_duration`. This creates a minor visual inconsistency during transitions that I've attempted to fix multiple times with absolutely zero improvement over the original behavior. Every "fix" attempted made it worse. This is what we're shipping.
 
 ---
 
 ## 📄 License
 
 MIT License
-
----
-
-*janq is exactly what it says on the tin: a janky terminal manager with aspirations of greatness.*

@@ -1,38 +1,17 @@
-(function (
-  windowClass, displayMode, displayIndex, width, isWidthPercent, height, isHeightPercent,
-  duration, easingType, shouldShow, keepAbove, noBorders, animateOpacity,
-  showOpacityPoint, hideOpacityPoint, prevWindowId, targetWindowId, targetPid, siblingsToHideJson,
-  forcePriority, refreshRate,
-  slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter,
-  allSlideConfigs
-) {
+(function (config, incomingSiblings, refreshRate) {
   /*{{COMMON_KWIN_JS}}*/
 
   // Compute position along edge based on slide direction and offset.
   // Uses workArea (workspace) for shown position and fixed axis alignment,
   // and fullArea (absolute screen) for the hidden position on the sliding axis.
 
-  // Look up a sibling's own slide config, fallback to current toggle's config
-  function getSiblingSlideConfig(sibClass) {
-    const key = (sibClass || "").toLowerCase();
-    if (allSlideConfigs && allSlideConfigs[key]) {
-      const cfg = allSlideConfigs[key];
-      return { dir: cfg.dir, val: cfg.val, pct: cfg.pct, neg: cfg.neg, ctr: cfg.ctr, easing: cfg.easing, animOp: cfg.animOp };
-    }
-    // Fallback to current app's config (shouldn't happen for managed apps)
-    return { dir: slideFrom, val: offsetValue, pct: offsetIsPercent, neg: offsetIsNegative, ctr: offsetIsCenter, easing: easingType, animOp: animateOpacity };
-  }
-
   // Precise Single-Pass Discovery
   const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
-  const incomingSiblings = siblingsToHideJson || [];
-  const cleanTargetId = normalizeId(targetWindowId);
-  const safeTargetPid = targetPid || 0;
+  const cleanTargetId = normalizeId(config.targetWindowId);
+  const safeTargetPid = config.targetPid || 0;
 
   let target = null;
   const siblingsToHide = [];
-  const managedSibIds = new Set(incomingSiblings.map(s => normalizeId(s.id)));
-  const managedSibPids = new Set(incomingSiblings.map(s => s.pid).filter(p => p > 0));
 
   for (const c of clients) {
     const cId = normalizeId(c.internalId);
@@ -46,13 +25,13 @@
 
     // 2. Identify Siblings (only if they aren't the target and are visible/alive)
     if (c !== target && c.opacity > 0.01) {
-      let isMatch = false;
-      if (cId !== "" && managedSibIds.has(cId)) isMatch = true;
-      else if (cPid > 0 && managedSibPids.has(cPid)) isMatch = true;
+      let managedData = null;
+      if (cId !== "") managedData = incomingSiblings.find(s => normalizeId(s.id) === cId);
+      if (!managedData && cPid > 0) managedData = incomingSiblings.find(s => s.pid === cPid);
 
-      if (isMatch) {
-        // Resolve sibling context for visibility check
-        const sibCfg = getSiblingSlideConfig(c.resourceClass || c.resourceName);
+      if (managedData) {
+        // Use pre-calculated data from Rust
+        const sibCfg = managedData;
         const cArea = workspace.clientArea(KWin.PlacementArea, c);
         let isActuallyVisible = false;
 
@@ -69,7 +48,7 @@
   if (!target) return;
 
   // Resolve areas for the target
-  const context = resolveAreaContext(target, displayMode, displayIndex);
+  const context = resolveAreaContext(target, config.displayMode, config.displayIndex);
   const workArea = context.work;
   const fullArea = context.full;
 
@@ -80,11 +59,10 @@
   let finalWidth = target.frameGeometry.width;
   let finalHeight = target.frameGeometry.height;
 
-  // ... (rest of the repositioning logic) ...
-  const isHorizontalSlide = (slideFrom === "left" || slideFrom === "right");
+  const isHorizontalSlide = (config.slideFrom === "left" || config.slideFrom === "right");
   let offscreenPos, onScreenThreshold;
   if (isHorizontalSlide) {
-    if (slideFrom === "left") {
+    if (config.slideFrom === "left") {
       offscreenPos = fullArea.x - target.frameGeometry.width;
       onScreenThreshold = workArea.x + 50;
     } else {
@@ -92,7 +70,7 @@
       onScreenThreshold = workArea.x + workArea.width - target.frameGeometry.width - 50;
     }
   } else {
-    if (slideFrom === "top") {
+    if (config.slideFrom === "top") {
       offscreenPos = fullArea.y - target.frameGeometry.height;
       onScreenThreshold = workArea.y + 50;
     } else {
@@ -106,18 +84,18 @@
     : (startX < workArea.x - 10) || (startX > workArea.x + workArea.width + 10);
 
   const needsReposition = onWrongMonitor || (isHorizontalSlide
-    ? (slideFrom === "left" ? startX < offscreenPos - 50 || startX > onScreenThreshold : startX > offscreenPos + 50 || startX < onScreenThreshold)
-    : (slideFrom === "top" ? startY < offscreenPos - 50 || startY > onScreenThreshold : startY > offscreenPos + 50 || startY < onScreenThreshold));
+    ? (config.slideFrom === "left" ? startX < offscreenPos - 50 || startX > onScreenThreshold : startX > offscreenPos + 50 || startX < onScreenThreshold)
+    : (config.slideFrom === "top" ? startY < offscreenPos - 50 || startY > onScreenThreshold : startY > offscreenPos + 50 || startY < onScreenThreshold));
 
   if (needsReposition) {
-    const dims = resolveDimensions(width, isWidthPercent, height, isHeightPercent, workArea, target);
+    const dims = resolveDimensions(config.width, config.isWidthPercent, config.height, config.isHeightPercent, workArea, target);
     finalWidth = dims.width;
     finalHeight = dims.height;
   }
 
-  const slidePos = computeSlidePosition(slideFrom, offsetValue, offsetIsPercent, offsetIsNegative, offsetIsCenter, workArea, fullArea, finalWidth, finalHeight);
-  const finalX = shouldShow ? slidePos.shownX : slidePos.hiddenX;
-  const finalY = shouldShow ? slidePos.shownY : slidePos.hiddenY;
+  const slidePos = computeSlidePosition(config.slideFrom, config.offsetValue, config.offsetIsPercent, config.offsetIsNegative, config.offsetIsCenter, workArea, fullArea, finalWidth, finalHeight);
+  const finalX = config.shouldShow ? slidePos.shownX : slidePos.hiddenX;
+  const finalY = config.shouldShow ? slidePos.shownY : slidePos.hiddenY;
 
   // Prepare sibling animation data
   const siblingDatas = [];
@@ -125,7 +103,10 @@
   let groupMaxDist = targetTotalDist;
 
   for (const sib of siblingsToHide) {
-    const sibCfg = getSiblingSlideConfig(sib.resourceClass || sib.resourceName);
+    const sibCfg = incomingSiblings.find(s => normalizeId(s.id) === normalizeId(sib.internalId)) ||
+      incomingSiblings.find(s => s.pid === sib.pid);
+    if (!sibCfg) continue;
+
     const sibContext = resolveAreaContext(sib, "active", 0);
     const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibContext.work, sibContext.full, sib.frameGeometry.width, sib.frameGeometry.height);
 
@@ -149,14 +130,14 @@
   }
 
   // Calculate scaled durations relative to max distance
-  const targetScaledDur = (groupMaxDist > 0) ? Math.min(duration, (duration * targetTotalDist) / groupMaxDist) : duration;
+  const targetScaledDur = (groupMaxDist > 0) ? Math.min(config.duration, (config.duration * targetTotalDist) / groupMaxDist) : config.duration;
 
   for (const s of siblingDatas) {
-    s.duration = (groupMaxDist > 0) ? Math.min(duration, (duration * s.dist) / groupMaxDist) : duration;
+    s.duration = (groupMaxDist > 0) ? Math.min(config.duration, (config.duration * s.dist) / groupMaxDist) : config.duration;
   }
 
   const startAnimation = () => {
-    if (duration > 0) {
+    if (config.duration > 0) {
       const startTime = Date.now();
       const diffX = finalX - startX;
       const diffY = finalY - startY;
@@ -172,37 +153,37 @@
         const elapsed = now - startTime;
 
         // Timer runs for the full global duration to ensure all windows finish and the script unloads
-        const globalProgress = Math.min(elapsed / duration, 1.0);
+        const globalProgress = Math.min(elapsed / config.duration, 1.0);
 
         // Target's internal progress
         const targetProgress = targetScaledDur > 0 ? Math.min(elapsed / targetScaledDur, 1.0) : 1.0;
-        const targetEase = getEasing(targetProgress, easingType);
+        const targetEase = getEasing(targetProgress, config.easingType);
 
         if (firstFrame) {
-          if (shouldShow) {
+          if (config.shouldShow) {
             focusKick(target, false);
           }
-          if (forcePriority) target.fullScreen = true;
-          if (shouldShow) target.opacity = animateOpacity ? 0.0 : 1.0;
+          if (config.forcePriority) target.fullScreen = true;
+          if (config.shouldShow) target.opacity = config.animateOpacity ? 0.0 : 1.0;
           firstFrame = false;
         }
 
         // Apply target window transformation
-        if (shouldShow) {
+        if (config.shouldShow) {
           target.frameGeometry = { x: startX + diffX * targetEase, y: startY + diffY * targetEase, width: finalWidth, height: finalHeight };
-          if (animateOpacity) {
-            const rawProgress = Math.min(1.0, Math.max(0, globalProgress / (showOpacityPoint <= 0 ? 0.0001 : showOpacityPoint)));
-            const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, easingType)));
+          if (config.animateOpacity) {
+            const rawProgress = Math.min(1.0, Math.max(0, globalProgress / (config.showOpacityPoint <= 0 ? 0.0001 : config.showOpacityPoint)));
+            const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, config.easingType)));
             target.opacity = opEase;
           } else {
             target.opacity = 1.0;
           }
         } else {
           target.frameGeometry = { x: startX + diffX * targetEase, y: startY + diffY * targetEase, width: finalWidth, height: finalHeight };
-          if (animateOpacity) {
-            const denom = 1.0 - hideOpacityPoint;
-            const rawProgress = Math.min(1.0, Math.max(0, (globalProgress - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
-            const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, easingType)));
+          if (config.animateOpacity) {
+            const denom = 1.0 - config.hideOpacityPoint;
+            const rawProgress = Math.min(1.0, Math.max(0, (globalProgress - config.hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+            const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, config.easingType)));
             target.opacity = 1.0 - opEase;
           } else {
             target.opacity = (globalProgress >= 1.0 ? 0.0 : 1.0);
@@ -225,8 +206,8 @@
             // Sync opacity with sibling's own internal duration
             const sOpProgress = data.duration > 0 ? Math.min(elapsed / data.duration, 1.0) : 1.0;
             // Siblings are ALWAYS being hidden in this script logic
-            const denom = 1.0 - hideOpacityPoint;
-            const rawProgress = Math.min(1.0, Math.max(0, (sOpProgress - hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
+            const denom = 1.0 - config.hideOpacityPoint;
+            const rawProgress = Math.min(1.0, Math.max(0, (sOpProgress - config.hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
             const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, data.easing)));
             data.client.opacity = 1.0 - opEase;
           } else {
@@ -242,7 +223,7 @@
 
         if (globalProgress >= 1.0) {
           timer.stop();
-          if (shouldShow) {
+          if (config.shouldShow) {
             target.opacity = 1.0;
             target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
             focusKick(target, false);
@@ -275,10 +256,10 @@
 
               if (targetBehind) {
                 focusKick(targetBehind, false);
-              } else if (prevWindowId && prevWindowId !== "") {
+              } else if (config.prevWindowId && config.prevWindowId !== "") {
                 const allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
                 for (const c of allClients) {
-                  if (c.internalId && normalizeId(c.internalId) === normalizeId(prevWindowId)) {
+                  if (c.internalId && normalizeId(c.internalId) === normalizeId(config.prevWindowId)) {
                     focusKick(c, false);
                     break;
                   }
@@ -292,7 +273,7 @@
             data.client.opacity = 0.0;
             data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
           }
-          if (!shouldShow && KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
+          if (!config.shouldShow && KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
         }
       });
       setForceBlur(target, true);
@@ -300,7 +281,7 @@
       timer.start();
     } else {
       // Instant transition
-      target.opacity = shouldShow ? 1.0 : 0.0;
+      target.opacity = config.shouldShow ? 1.0 : 0.0;
       target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
       for (const data of siblingDatas) {
         data.client.opacity = 0.0;
@@ -309,8 +290,8 @@
     }
   };
 
-  if (shouldShow) {
-    setQuakeProperties(target, keepAbove, noBorders, true, forcePriority);
+  if (config.shouldShow) {
+    setQuakeProperties(target, config.keepAbove, config.noBorders, true, config.forcePriority);
     if (needsReposition) {
       target.opacity = 0.0;
       target.fullScreen = false;

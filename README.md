@@ -337,33 +337,19 @@ _(Sloperator note: Just use `full_cleanup.sh`)._
 ## Technical Implementation
 ### (Sloperator: Features the AI is particularly proud about)
 
-### Cross-Platform Parity
+### Platform-Specific Backends
+janq achieves cross-platform parity by utilizing native APIs. On Windows, it uses the Win32 API and `BeginDeferWindowPos` for atomic, flicker-free multi-window transitions. On Linux (KDE Plasma 6), it injects JavaScript directly into KWin's scripting engine via D-Bus.
 
-The same TOML configuration drives identical behavior on both platforms. Wayland's lack of a standard window management API makes this non-trivial—janq works around it by injecting JavaScript directly into KWin's scripting engine, while Windows uses native Win32 calls. The animation timing, easing curves, and multi-monitor logic are implemented twice (Rust + JS) to feel indistinguishable. **The architecture utilizes a "Flattened Proxy" pattern: redundant proxy layers were removed in favor of direct platform re-exports, and both backends utilize "Velocity-Style" animations where duration scales based on travel distance.**
+### Performance Optimizations
+- **Velocity-Style Animations**: Both platforms use "Velocity-Style" animations where duration scales based on travel distance, ensuring constant movement speed regardless of window position.
+- **Zero-IPC Liveness Checks**: On Linux, janq performs direct `/proc/{pid}` checks (<0.1ms) instead of querying KWin, ensuring instant response.
+- **Flattened Proxy Architecture**: Redundant internal abstraction layers were removed to minimize overhead and improve maintainability.
+- **Memory Footprint**: janq idles at <2MB RAM on Windows and ~3.5MB on Linux while managing animations at 144Hz+.
 
-### Flicker-Free Multi-Window Transitions
-
-On Windows, sibling window hide/show operations are batched using `BeginDeferWindowPos`—a Win32 API that groups multiple window position changes into a single atomic kernel-level transaction. The compositor repaints everything in one VSync interval, eliminating the flicker you'd get from sequential `SetWindowPos` calls. On KWin, animations are coordinated within the compositor's own event loop.
-
-### Sub-Millisecond Linux Toggle Response
-
-Instead of querying KWin via D-Bus on every toggle (which adds ~10-50ms of latency), janq caches PIDs and performs direct `/proc/{pid}` liveness checks. A typical check completes in <0.1ms. The full KWin script query only runs on cache miss or when the process dies.
-
-### Memory Footprint
-
-janq idles at **<2MB RAM on Windows** and ~3.4MB on Linux while managing animations at 144Hz+. No runtime, no garbage collector, no Electron.
-
-### Bezier Solver
-
-Both platforms implement identical Newton-Raphson cubic bezier solvers ([animation.rs](src/windows/animation.rs), [common.js](src/linux/js/common.js)). Custom `cubic-bezier(x1, y1, x2, y2)` curves are solved in real-time (8 iterations) rather than using lookup tables. The `impulse` preset (`0.25, 0, 0, 1`) mimics Windows 11 motion.
-
-### Window Matching
-
-Weighted fuzzy matching with tiered scoring: exact match (10,000), substring (5,000), and subsequence (1,000 + bonuses for word boundaries and consecutive characters). The algorithm penalizes gaps between characters to ensure tight, reliable matches. Visible windows get +2,000, already-managed windows +1,000. Minimum threshold of 500 filters noise.
-
-### Spawn Protection
-
-RAII-based `SpawnGuard` prevents duplicate process spawns during rapid hotkey presses. Uses Rust's `Drop` trait for unconditional cleanup.
+### Physics & Logic
+- **Bezier Solver**: Both platforms implement identical Newton-Raphson cubic bezier solvers for smooth, hardware-accelerated transitions.
+- **Advanced Window Matching**: A weighted fuzzy scoring system (Exact > Substring > Subsequence) ensures reliable targeting of complex applications using `APP_CACHE` on Windows and PID caching on Linux.
+- **Spawn Protection**: RAII-based `SpawnGuard` ensures rapid hotkey presses don't result in duplicate process spawns.
 
 ## Known Issues and other notes
 
@@ -376,9 +362,11 @@ On KDE Plasma, there's a small intentional delay (~500ms) when registering or up
 ### App Compatibility: Opacity Animations
 (Sloperator: This mostly effects Linux, opacity seems to work fine on Windows, even on electron apps).
 
-Some applications (especially Electron-based ones like Obsidian, VS Code, or Discord (Sloperator: maybe?)), may experience unreliable or non-functional `animate_opacity`, particularly on Linux. This is often due to how these apps manage their own rendering buffers or "occlusion" optimizations that conflict with compositor-level transparency signals during motion.
+Some applications (especially Electron-based ones or XWayland clients) may experience unreliable transparency or "stutter" during motion on Linux.
 
-**Note:** Just test and find out if enabling `animate_opacity` works for your particular app. If you notice flickering, "blank" windows during toggle, or if the animation just feels sluggish or weird, Just don't enable `animate_opacity` for that specific app in your config.
+**KWin Technical Limitation**: Due to the asynchronous nature of Wayland property updates vs. buffer commits, a window's `opacity` and its `frameGeometry` (position) may occasionally arrive in different compositor frames. This can cause a "flicker" where the window appears at the new position but with the old opacity for a single frame. (Sloperator: More like that it doesn't animate opacity all the way when opening sibling).
+
+**The Fix**: janq uses the "Fullscreen role" (`force_priority = true`) or `ForceBlur` to trick the compositor into prioritizing these updates. However, for some apps, disabling `animate_opacity` is still the most stable choice. (Sloperator: It's the best I could make the AI do ¯\_(ツ)_/¯).
 
 ### Linux: Animation Artifacts (Ghosting / Jitter)
 **If you experience intense jittering or "fighting" animations**, you likely have a third-party KWin effect active (like "Geometry Change") that is competing with janq to animate the window. To fix this:

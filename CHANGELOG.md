@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-01-22
+## [1.0.0] - 2026-01-24
 
 ### The Inaugural Release
 This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies its existence on your system.
@@ -42,7 +42,9 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Zero-Polling**: Event-driven architecture with instant loop wakeups.
 - **Zero-Scan KWin Toggles**: Refactored Linux KWin scripts to perform a single-pass discovery using cached IDs and PIDs, eliminating redundant system-wide window scans.
 - **Precise Restoration**: Optimized window focus restoration on Linux by targeting cached PIDs directly instead of scanning the window list.
-- **Autonomous Sibling Logic**: Sibling windows (Windows & Linux) now operate as independent physical entities with their own individual easing curves, directions, and velocity-scaled durations.
+- **Autonomous Sibling Logic**: Sibling windows now operate as independent physical entities with their own individual easing curves, directions, and velocity-scaled durations. This includes a robust ID/PID matching system on Linux to ensure per-app configurations are respected during multi-window transitions.
+- **JSON Argument Consolidation**: Refactored Linux KWin script invocation to use consolidated JSON objects, replacing 26+ positional arguments and eliminating redundant configuration maps for better performance.
+- **Pre-calculated Animation Geometry**: Both platforms now fully pre-compute sibling trajectories and durations before entering the high-frequency animation loop, minimizing overhead during rendering.
 - **Visual Polish**: Integrated frame-synchronized opacity transitions that respect configured motion easing curves, strictly clamped for stability.
 - **Cross-Platform Parity**: Aligned Windows and Linux animation engines; Windows now uses correctly eased progress mapping and respects per-app sibling configurations.
 - **Per-Window Blur Management**: Implemented granular `ForceBlur` lifecycle tracking on Linux, ensures compositor blur effects are disabled for each window the millisecond its personal animation ends.
@@ -67,7 +69,7 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Documentation**: Added priority hierarchy note for animation `duration` and `easing` configurations.
 
 ### Changed
-- **Windows**: Optimized sibling discovery by utilizing `HWND_CACHE`, eliminating expensive system-wide process enumeration during animations.
+- **Windows**: Optimized sibling discovery by utilizing `APP_CACHE`, eliminating expensive system-wide process enumeration during animations.
 - **Linux**: Refactored KWin area resolution into a robust `resolveAreaContext` for bulletproof coordinate stability.
 
 ## [0.1.5] - 2026-01-20

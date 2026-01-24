@@ -41,6 +41,49 @@ use crate::linux::terminal::{
 };
 
 // =============================================================================
+// Linux Animation Logic
+// =============================================================================
+
+/// Consolidated animation parameters for a specific application (Linux/JS specific).
+#[derive(Clone, Debug)]
+struct ResolvedAnimationParts {
+  pub dir: &'static str,
+  pub val: f64,
+  pub is_pct: bool,
+  pub is_neg: bool,
+  pub is_center: bool,
+  pub animate_opacity: bool,
+  pub hide_easing: String,
+}
+
+fn get_animation_parts(app_cfg: &AppConfig, global_window: &Config) -> ResolvedAnimationParts {
+  let (dir, offset) = app_cfg.resolve_slide_config(&global_window.window);
+  let dir_str = match dir {
+    SlideDirection::Top => "top",
+    SlideDirection::Bottom => "bottom",
+    SlideDirection::Left => "left",
+    SlideDirection::Right => "right",
+  };
+  let (val, is_pct, is_neg) = match offset {
+    PositionOffset::Center => (0.0, false, false),
+    PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
+    PositionOffset::Percent(pct) => (pct.abs() * 100.0, true, pct < 0.0),
+  };
+  let is_center = matches!(offset, PositionOffset::Center);
+  let animate_opacity = app_cfg.get_animate_opacity(global_window.animation.animate_opacity);
+
+  ResolvedAnimationParts {
+    dir: dir_str,
+    val,
+    is_pct,
+    is_neg,
+    is_center,
+    animate_opacity,
+    hide_easing: global_window.animation.hide_easing.to_string(),
+  }
+}
+
+// =============================================================================
 // KWin Script Runner
 // =============================================================================
 
@@ -403,29 +446,11 @@ pub async fn toggle_quake(
     // Check cache for this sibling's window ID
     if let Some(cached) = crate::linux::cache::get_cached_window(name) {
       if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
-        let (other_dir, other_offset) = other_app.resolve_slide_config(&config.window);
-        let other_dir_str = match other_dir {
-          SlideDirection::Top => "top",
-          SlideDirection::Bottom => "bottom",
-          SlideDirection::Left => "left",
-          SlideDirection::Right => "right",
-        };
-        let (other_val, other_is_pct, other_is_neg) = match other_offset {
-          PositionOffset::Center => (0.0, false, false),
-          PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
-          PositionOffset::Percent(pct) => ((pct.abs() * 100.0), true, pct < 0.0),
-        };
-        let other_is_center = matches!(
-          other_app
-            .position_offset
-            .as_ref()
-            .unwrap_or(&config.window.position_offset),
-          PositionOffset::Center
-        );
-        let other_anim_op = other_app.get_animate_opacity(config.animation.animate_opacity);
+        let anim_parts = get_animation_parts(other_app, config);
+
         siblings_json_parts.push(format!(
           "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, easing: \"{}\", animOp: {} }}",
-          cached.id, cached.pid, other_dir_str, other_val, other_is_pct, other_is_neg, other_is_center, config.animation.hide_easing, other_anim_op
+          cached.id, cached.pid, anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center, anim_parts.hide_easing, anim_parts.animate_opacity
         ));
       }
     }
@@ -500,7 +525,6 @@ async fn run_toggle_script(
   };
   let ((width, is_width_percent), (height, is_height_percent)) =
     app_cfg.resolve_dimensions(&config.window);
-  let animate_opacity = app_cfg.get_animate_opacity(config.animation.animate_opacity);
   let easing = if params.visible {
     &config.animation.show_easing
   } else {
@@ -510,100 +534,25 @@ async fn run_toggle_script(
   let hide_opacity_point = config.animation.hide_opacity_point.clamp(0.0, 1.0);
 
   // Resolve slide direction and position offset for the target app
-  let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
-  let slide_from_str = match slide_from {
-    SlideDirection::Top => "top",
-    SlideDirection::Bottom => "bottom",
-    SlideDirection::Left => "left",
-    SlideDirection::Right => "right",
-  };
-  let (offset_value, offset_is_percent, offset_is_negative) = match position_offset {
-    PositionOffset::Center => (0.0, false, false),
-    PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
-    PositionOffset::Percent(pct) => ((pct.abs() * 100.0), true, pct < 0.0),
-  };
-  let offset_is_center = matches!(
-    app_cfg
-      .position_offset
-      .as_ref()
-      .unwrap_or(&config.window.position_offset),
-    PositionOffset::Center
-  );
+  let anim_parts = get_animation_parts(app_cfg, config);
 
-  // Build per-app slide configs for sibling hiding
-  let mut all_slide_configs = Vec::new();
-  for (_, other_app) in &config.app {
-    let (other_dir, other_offset) = other_app.resolve_slide_config(&config.window);
-    let other_dir_str = match other_dir {
-      SlideDirection::Top => "top",
-      SlideDirection::Bottom => "bottom",
-      SlideDirection::Left => "left",
-      SlideDirection::Right => "right",
-    };
-    let (other_val, other_is_pct, other_is_neg) = match other_offset {
-      PositionOffset::Center => (0.0, false, false),
-      PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
-      PositionOffset::Percent(pct) => ((pct.abs() * 100.0), true, pct < 0.0),
-    };
-    let other_is_center = matches!(
-      other_app
-        .position_offset
-        .as_ref()
-        .unwrap_or(&config.window.position_offset),
-      PositionOffset::Center
-    );
-    let other_anim_op = other_app.get_animate_opacity(config.animation.animate_opacity);
-    all_slide_configs.push(format!(
-      "'{}': {{ dir: '{}', val: {}, pct: {}, neg: {}, ctr: {}, easing: '{}', animOp: {} }}",
-      other_app.window_class.to_lowercase(),
-      other_dir_str,
-      other_val,
-      other_is_pct,
-      other_is_neg,
-      other_is_center,
-      config.animation.hide_easing,
-      other_anim_op
-    ));
-  }
-  let all_slide_configs_str = format!("{{ {} }}", all_slide_configs.join(", "));
+  let config_json = format!(
+    "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, keepAbove: {}, noBorders: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
+    app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
+    duration, easing, params.visible, config.window.keep_above, config.window.no_borders, anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
+    params.prev_id, params.target_id, params.target_pid, config.window.force_priority,
+    anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center
+  );
 
   let script_body_raw = TOGGLE_SCRIPT_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
   let script_body_trimmed = script_body_raw.trim();
   let script_body = script_body_trimmed
     .strip_suffix(';')
     .unwrap_or(script_body_trimmed);
+
   let script_content = format!(
-    "{}(\n  \"{}\", \"{}\", {}, {}, {}, {}, {},\n  {}, \"{}\", {}, {}, {}, {},\n  {}, {}, \"{}\", \"{}\", {}, {}, {}, {},\n  \"{}\", {}, {}, {}, {},\n  {}\n);",
-    script_body,
-    app_cfg.window_class,
-    config.window.display_mode,
-    config.window.display_index,
-    width,
-    is_width_percent,
-    height,
-    is_height_percent,
-    duration,
-    easing,
-    params.visible,
-    config.window.keep_above,
-    config.window.no_borders,
-    animate_opacity,
-    show_opacity_point,
-    hide_opacity_point,
-    params.prev_id,
-    params.target_id,
-    params.target_pid,
-    params.siblings_json,
-    config.window.force_priority,
-    refresh_rate,
-    // Slide parameters for target app
-    slide_from_str,
-    offset_value,
-    offset_is_percent,
-    offset_is_negative,
-    offset_is_center,
-    // Per-app slide configs for siblings
-    all_slide_configs_str
+    "{}(\n  {},\n  {},\n  {}\n);",
+    script_body, config_json, params.siblings_json, refresh_rate
   );
 
   run_kwin_script(conn, "janq_toggle_engine", &script_content, None)
@@ -650,25 +599,13 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
     let is_visible = state.visible_app.as_deref() == Some(app_name);
 
     // Resolve slide config for initial parking
-    let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
-    let slide_from_str = match slide_from {
-      SlideDirection::Top => "top",
-      SlideDirection::Bottom => "bottom",
-      SlideDirection::Left => "left",
-      SlideDirection::Right => "right",
-    };
-    let (offset_value, offset_is_percent, offset_is_negative) = match &position_offset {
-      PositionOffset::Center => (0.0, false, false),
-      PositionOffset::Pixels(px) => (px.abs() as f64, false, *px < 0),
-      PositionOffset::Percent(pct) => ((pct.abs() * 100.0), true, *pct < 0.0),
-    };
-    let offset_is_center = matches!(position_offset, PositionOffset::Center);
+    let anim_parts = get_animation_parts(app_cfg, config);
 
     apps_json.push(format!(
             "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, noBorders: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
             app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
             config.window.keep_above, config.window.no_borders, target_id, target_pid, is_visible, config.window.force_priority,
-            slide_from_str, offset_value, offset_is_percent, offset_is_negative, offset_is_center
+            anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center
         ));
   }
 

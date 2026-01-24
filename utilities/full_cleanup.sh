@@ -56,5 +56,13 @@ else
     echo "Warning: cleanup_errors.sh not found in $DIR, skipping error cleanup."
 fi
 
+# 6. Aggressive KWin Reset
+if [ -f "$DIR/hard_reset_kwin.sh" ]; then
+    echo "--- Running aggressive KWin reset ---"
+    bash "$DIR/hard_reset_kwin.sh"
+else
+    echo "Warning: hard_reset_kwin.sh not found in $DIR, skipping aggressive KWin reset."
+fi
+
 echo "=== FULL RESET COMPLETE ==="
 echo "You can now rebuild and restart the daemon."
