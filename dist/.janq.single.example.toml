@@ -1,6 +1,8 @@
 # janq Single-App Configuration Example
 # Place this file at ~/.janq.toml or ~/.config/janq/janq.toml
 
+# Any key with a default value can be omitted if you want to use the default.
+
 [app]
 # The WM_CLASS (Linux) or Process Name/Class (Windows) of the window to manage.
 # janq uses this to identify and capture the correct window.
@@ -11,13 +13,15 @@ window_class = "wezquake"
 # TIP: For apps like wezterm, you can set initial size via --config flags to set size and other specific configs that you want the app to have while handled by janq.
 start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
 
-# Global hotkey(s) to toggle the window.
+# Global hotkey(s) to toggle the window. (Default: "Meta+Grave")
 # Supports single string: "Meta+Grave"
 # Supports array of strings: ["Meta+Grave", "Meta+Section"]
+# Can be omitted to use the default hotkey.
 hotkey = "Meta+Grave"
 
-# Whether to animate opacity during show/hide transitions.
+# Whether to animate opacity during show/hide transitions. (Default: inherits from [animation])
 # If unset, it inherits from the global [animation] block.
+# Can be omitted to use the global setting.
 animate_opacity = true
 
 # Optional: Override global window dimensions for this specific app.
@@ -33,47 +37,60 @@ animate_opacity = true
 # "follow-mouse" - Monitor where the cursor is
 # "active"       - Monitor that has the currently focused window
 # "specific"     - Monitor defined by display_index
+# (Default: "follow-mouse")
 display_mode = "follow-mouse"
+
+# Monitor index when display_mode is "specific". (Default: 0)
 display_index = 0
 
 # Window dimensions. Supports % (percent of monitor), px (pixels), "0" or "unset".
+# (Default: unset/null)
 # If unset, janq will not resize the window at all.
+# Can be omitted to leave dimensions managed by the application.
 width = "100%"
 height = "50%"
 
-# Stay on top of other windows.
+# Stay on top of other windows. (Default: false)
 keep_above = true
+
+# Show window automatically on daemon startup. (Default: false)
 auto_show = false
 
-# (Linux only) Use KWin Fullscreen state to sit on top of other fullscreen apps.
+# (Linux only) Use KWin Fullscreen state to sit on top of other fullscreen apps. (Default: false)
 force_priority = false
 
-# Hide window from task managers, pagers, and the task switcher (Linux).
-skip_pager = true
+# Hide window from task managers, pagers, and the task switcher (Linux). (Default: false)
+skip_pager = false
 
-# (Linux only) Window follows you across virtual desktops.
+# (Linux only) Window follows you across virtual desktops. (Default: true)
 all_desktops = true
 
-# Remove window borders/chrome.
+# Remove window borders/chrome. (Default: false)
 no_borders = false
 
-# Direction to slide in: "top", "bottom", "left", "right"
+# Direction to slide in: "top", "bottom", "left", "right" (Default: "top")
 slide_from = "top"
 
-# Position along the edge: "center", "50%", "-10%", "100px", "-50px"
+# Position along the edge: "center", "50%", "-10%", "100px", "-50px" (Default: "center")
 offset = "center"
 
 # --- Animation Settings ---
 [animation]
-# Durations in milliseconds
+# Durations in milliseconds. (Default: 350)
 show_duration = 350
 hide_duration = 350
 
-# Easing curves: "ease-out-cubic", "ease-in-quart", "windows", "linear"
-show_easing = "back"
-hide_easing = "ease-in-quart"
+# Easing curves: "linear", "ease", "ease-in", "ease-out", "ease-in-out", "sine", "sine-in", "sine-out",
+#                "cubic", "cubic-in", "cubic-out", "quart", "quart-in", "quart-out", "back", "back-in",
+#                "back-out", "expo", "expo-in", "expo-out", "impulse", or "cubic-bezier(x1,y1,x2,y2)"
+# (Default: "ease")
+show_easing = "cubic-out"
+hide_easing = "expo-in"
 
-# Global opacity settings
+# Global opacity settings. (Default: false)
 animate_opacity = true
+
+# Opacity points (0.0 - 1.0). (Defaults: 0.2 and 0.8)
+# Can be omitted to use the defaults.
 show_opacity_point = 0.2
 hide_opacity_point = 0.8

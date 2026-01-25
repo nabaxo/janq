@@ -713,7 +713,7 @@ impl Default for WindowConfig {
       height: None,
       keep_above: false,
       no_borders: false,
-      skip_pager: true,
+      skip_pager: false,
       all_desktops: None,
       force_priority: None,
       auto_show: false,

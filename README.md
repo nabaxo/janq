@@ -197,7 +197,7 @@ hotkey = "Meta+Z"
 |               | `offset`             | `"center"`       | Position along edge: `center`, `50%`, `-10%`, `100px`, `-50px`                       |   ✔️    |
 |               | `keep_above`         | `false`          | Keep window above all others                                                         |   ❌    |
 |               | `no_borders`         | `false`          | Remove window borders/chrome for managed windows                                     |   ❌    |
-|               | `skip_pager`         | `true`           | Hide window from task manager, pager, and switcher (Linux: also hides from Meta+Tab) |   ❌    |
+|               | `skip_pager`         | `false`          | Hide window from task manager, pager, and switcher (Linux: also hides from Meta+Tab) |   ❌    |
 |               | `all_desktops`       | `true`           | (Linux) Window follows you across virtual desktops                                   |   ❌    |
 |               | `force_priority`     | `false`          | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps             |   ❌    |
 |               | `auto_show`          | `false`          | Show window on daemon startup                                                        |   ❌    |

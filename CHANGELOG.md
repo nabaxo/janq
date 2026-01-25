@@ -21,7 +21,7 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Display modes**: `follow-mouse`, `active`, and `specific`.
 - **Z-Order control**: `keep_above` and Linux-specific `force_priority` (Fullscreen role).
 - **Border control**: `no_borders` option to remove window chrome (defaults to `false`).
-- **Pager control**: `skip_pager` option to hide managed windows from task managers, pagers, and the task switcher on Linux (defaults to `true`).
+- **Pager control**: `skip_pager` option to hide managed windows from task managers, pagers, and the task switcher on Linux (defaults to `false`).
 - **Workspace control**: `all_desktops` option (Linux only) to allow windows to follow you across virtual desktops (defaults to `true`).
 - **Positioning**: Multi-axis slide directions and configurable edge offsets.
 

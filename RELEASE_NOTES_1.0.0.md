@@ -32,7 +32,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Slide directions:** `top`, `bottom`, `left`, `right`. Choice is an illusion, but we provide it anyway.
 - **Keep above** option to ensure your terminal stays on top, regardless of what you're trying to hide behind it.
 - **No borders** option now cross-platform. Remove window borders/chrome for managed windows on both Windows and Linux.
-- **Improved Pager Stability (Linux)**: `skip_pager = true` now properly hides managed windows from the task manager, the pager, AND the `Meta+Tab` task switcher.
+- **Pager control**: `skip_pager` option to hide managed windows from task managers, pagers, and the task switcher (now defaults to `false`).
 - **all_desktops setting (Linux)**: Choose whether managed windows follow you across virtual desktops (defaulting to `true`).
 - **Desktop-Aware Focus (Linux)**: Closing the terminal no longer snaps you back to your previous desktop if you've moved desktops while the app was open.
 - **Force priority** mode (Linux) to sit above fullscreen apps using KWin's Fullscreen state.
