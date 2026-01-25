@@ -20,7 +20,9 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Dimension flexible**: Support for `px` and `%` units.
 - **Display modes**: `follow-mouse`, `active`, and `specific`.
 - **Z-Order control**: `keep_above` and Linux-specific `force_priority` (Fullscreen role).
-- **Border control**: `no_borders` option to remove window chrome on Linux (defaults to `true`).
+- **Border control**: `no_borders` option to remove window chrome (defaults to `false`).
+- **Pager control**: `skip_pager` option to hide managed windows from task managers, pagers, and the task switcher on Linux (defaults to `true`).
+- **Workspace control**: `all_desktops` option (Linux only) to allow windows to follow you across virtual desktops (defaults to `true`).
 - **Positioning**: Multi-axis slide directions and configurable edge offsets.
 
 #### Multi-App Logic
@@ -49,6 +51,8 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Cross-Platform Parity**: Aligned Windows and Linux animation engines; Windows now uses correctly eased progress mapping and respects per-app sibling configurations.
 - **Per-Window Blur Management**: Implemented granular `ForceBlur` lifecycle tracking on Linux, ensures compositor blur effects are disabled for each window the millisecond its personal animation ends.
 - **Robust Hot-Reloading**: Daemon gracefully discards invalid configs and remains running on the last good state.
+- **Desktop-Aware Focus**: Optimized window focus restoration on Linux to be virtual-desktop aware. janq now avoids "snapping" you back to your previous desktop if you've moved desktops while the managed app was open.
+- **Platform-Specific Validation**: Added strict configuration validation that blocks startup with an error if Linux-only settings (`all_desktops`, `force_priority`) are present on Windows, regardless of their value.
 - **Flattened internals**: Eliminated proxy modules; consolidated the 1,200-line Win32 monolith into focused sub-modules.
 
 ### Utilities

@@ -401,9 +401,40 @@ pub fn run_animation_task_sync(
     }
 
     let prep_layer = |h: HWND| {
-      let ex = GetWindowLongW(h, GWL_EXSTYLE);
-      if (ex & WS_EX_LAYERED.0 as i32) == 0 {
-        SetWindowLongW(h, GWL_EXSTYLE, ex | WS_EX_LAYERED.0 as i32);
+      let mut ex = GetWindowLongW(h, GWL_EXSTYLE) as u32;
+      let mut changed = false;
+      if (ex & WS_EX_LAYERED.0) == 0 {
+        ex |= WS_EX_LAYERED.0;
+        changed = true;
+      }
+      if config.window.skip_pager {
+        if (ex & WS_EX_TOOLWINDOW.0) == 0 {
+          ex |= WS_EX_TOOLWINDOW.0;
+          changed = true;
+        }
+      } else if (ex & WS_EX_TOOLWINDOW.0) != 0 {
+        ex &= !WS_EX_TOOLWINDOW.0;
+        changed = true;
+      }
+
+      if changed {
+        SetWindowLongW(h, GWL_EXSTYLE, ex as i32);
+      }
+
+      let mut style = GetWindowLongW(h, GWL_STYLE) as u32;
+      if config.window.no_borders {
+        if (style & (WS_CAPTION.0 | WS_THICKFRAME.0)) != 0 {
+          style &= !(WS_CAPTION.0 | WS_THICKFRAME.0);
+          SetWindowLongW(h, GWL_STYLE, style as i32);
+          changed = true;
+        }
+      } else if (style & (WS_CAPTION.0 | WS_THICKFRAME.0)) != (WS_CAPTION.0 | WS_THICKFRAME.0) {
+        style |= WS_CAPTION.0 | WS_THICKFRAME.0;
+        SetWindowLongW(h, GWL_STYLE, style as i32);
+        changed = true;
+      }
+
+      if changed {
         let _ = SetWindowPos(
           h,
           HWND::default(),

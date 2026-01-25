@@ -31,7 +31,10 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
   - `specific` - For when you want to fight the automation.
 - **Slide directions:** `top`, `bottom`, `left`, `right`. Choice is an illusion, but we provide it anyway.
 - **Keep above** option to ensure your terminal stays on top, regardless of what you're trying to hide behind it.
-- **No borders** option (Linux) to remove window chrome. Enabled by default because Quake terminals look better without frames.
+- **No borders** option now cross-platform. Remove window borders/chrome for managed windows on both Windows and Linux.
+- **Improved Pager Stability (Linux)**: `skip_pager = true` now properly hides managed windows from the task manager, the pager, AND the `Meta+Tab` task switcher.
+- **all_desktops setting (Linux)**: Choose whether managed windows follow you across virtual desktops (defaulting to `true`).
+- **Desktop-Aware Focus (Linux)**: Closing the terminal no longer snaps you back to your previous desktop if you've moved desktops while the app was open.
 - **Force priority** mode (Linux) to sit above fullscreen apps using KWin's Fullscreen state.
 - **Focus restoration** - Attempting to put focus back where it was before we interrupted you. Results may vary.
 
@@ -51,12 +54,14 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Linux:** Native D-Bus sync with KDE. Your hotkeys will appear in System Settings, just like the real ones.
 - **Windows:** Native Win32 registration. Instant response, unlike most things on Windows.
 - **Weighted matching** - Find windows by abbreviation or substring (e.g., `wt` → `WindowsTerminal`).
+- **Platform-Specific Validation**: janq now blocks startup with a hard error if you try to use Linux-specific settings on Windows, ensuring your configuration is valid for your current platform.
 
 ---
 
 ## 🛠️ Performance & Architecture
 
 - **Zero-Scan Logic (Linux)**: KWin scripts now perform a single-pass window discovery using cached IDs/PIDs, eliminating expensive O(n) scans during toggles.
+- **Desktop-Aware Focus Logic**: Focus restoration now respects your current virtual desktop, avoiding cross-desktop displacement calls on Linux.
 - **Deterministic Sibling Lifecycle**: Sibling windows compute their own individual paths and durations. Linux backends use precise ID/PID matching to ensure siblings always respect their own individual settings (avoiding the "half-faded sibling" bug).
 - **JSON Argument Consolidation (Linux)**: Refactored D-Bus script injection to pass consolidated JSON objects, replacing 26+ fragile positional arguments.
 - **Pre-calculated Geometry**: Both platforms now fully pre-compute sibling trajectories and durations before entering the high-frequency animation loop.

@@ -158,13 +158,17 @@ const getEasing = (progress, type) => {
   }
 };
 
-const setQuakeProperties = (target, keepAbove, noBorders, isVisible, forcePriority) => {
-  target.onAllDesktops = true;
+const setQuakeProperties = (target, keepAbove, noBorders, skipPager, isVisible, forcePriority, allDesktops) => {
+  target.onAllDesktops = allDesktops !== undefined ? allDesktops : true;
+  if (!target.onAllDesktops && isVisible) {
+    if (target.desktops !== undefined) target.desktops = [workspace.currentDesktop];
+    else target.desktop = workspace.currentDesktop;
+  }
   target.keepAbove = keepAbove;
   target.noBorder = noBorders;
   target.skipTaskbar = true;
-  target.skipPager = true;
-  if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+  target.skipPager = isVisible ? skipPager : true;
+  if (target.skipSwitcher !== undefined) target.skipSwitcher = isVisible ? skipPager : true;
   if (forcePriority && !isVisible) target.fullScreen = true;
 };
 
@@ -181,6 +185,19 @@ const resetQuakeProperties = (target) => {
 
 const focusKick = (target, restoreOriginal) => {
   const activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
+
+  // If we're restoring focus, ensure the target is on the current desktop to avoid jumping
+  if (restoreOriginal && target) {
+    const targetDesktops = target.desktops || [];
+    const currentDesktop = workspace.currentDesktop;
+    const isOnCurrentDesktop = target.onAllDesktops || targetDesktops.indexOf(currentDesktop) !== -1;
+
+    if (!isOnCurrentDesktop) {
+      console.log("janq_focus: Skipping focus restoration to window on different desktop.");
+      return;
+    }
+  }
+
   if (workspace.activeWindow !== undefined) {
     workspace.activeWindow = null;
     workspace.activeWindow = target;

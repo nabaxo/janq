@@ -537,10 +537,10 @@ async fn run_toggle_script(
   let anim_parts = get_animation_parts(app_cfg, config);
 
   let config_json = format!(
-    "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, keepAbove: {}, noBorders: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
+    "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
     app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
-    duration, easing, params.visible, config.window.keep_above, config.window.no_borders, anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
-    params.prev_id, params.target_id, params.target_pid, config.window.force_priority,
+    duration, easing, params.visible, config.window.keep_above, config.window.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
+    params.prev_id, params.target_id, params.target_pid, config.window.force_priority.unwrap_or(false),
     anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center
   );
 
@@ -602,9 +602,9 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
     let anim_parts = get_animation_parts(app_cfg, config);
 
     apps_json.push(format!(
-            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, noBorders: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
+            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
             app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
-            config.window.keep_above, config.window.no_borders, target_id, target_pid, is_visible, config.window.force_priority,
+            config.window.keep_above, config.window.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), target_id, target_pid, is_visible, config.window.force_priority.unwrap_or(false),
             anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center
         ));
   }

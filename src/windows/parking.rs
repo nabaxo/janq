@@ -20,10 +20,28 @@ use crate::windows::window::{get_animation_cancel, get_app_cache, get_visible_ap
 pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
   let hwnd = cw.inner();
   unsafe {
-    let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-    if (ex_style & WS_EX_LAYERED.0 as i32) == 0 {
-      SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+    let mut ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    if (ex_style & WS_EX_LAYERED.0) == 0 {
+      ex_style |= WS_EX_LAYERED.0;
     }
+    if config.window.skip_pager {
+      ex_style |= WS_EX_TOOLWINDOW.0;
+    } else {
+      ex_style &= !WS_EX_TOOLWINDOW.0;
+    }
+    SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style as i32);
+
+    let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    let original_style = style;
+    if config.window.no_borders {
+      style &= !(WS_CAPTION.0 | WS_THICKFRAME.0);
+    } else {
+      style |= WS_CAPTION.0 | WS_THICKFRAME.0;
+    }
+    if style != original_style {
+      SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+    }
+
     let _ = SetWindowPos(
       hwnd,
       HWND::default(),
@@ -92,19 +110,28 @@ pub fn restore_app_window(window_class: &str) {
 /// Restores a specific window to a visible state.
 fn restore_hwnd(hwnd: HWND) {
   unsafe {
-    let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
-    if (ex & WS_EX_LAYERED.0 as i32) == 0 {
-      SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED.0 as i32);
-      let _ = SetWindowPos(
-        hwnd,
-        HWND::default(),
-        0,
-        0,
-        0,
-        0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-      );
+    let mut ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    if (ex & WS_EX_LAYERED.0) == 0 {
+      ex |= WS_EX_LAYERED.0;
     }
+    // Always clear TOOLWINDOW on restore so it shows back in taskbar if unmanaged
+    ex &= !WS_EX_TOOLWINDOW.0;
+    SetWindowLongW(hwnd, GWL_EXSTYLE, ex as i32);
+
+    // Restore borders
+    let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    style |= WS_CAPTION.0 | WS_THICKFRAME.0;
+    SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+
+    let _ = SetWindowPos(
+      hwnd,
+      HWND::default(),
+      0,
+      0,
+      0,
+      0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+    );
     let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
     let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
     let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);

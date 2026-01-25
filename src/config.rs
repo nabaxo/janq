@@ -469,6 +469,17 @@ impl Config {
       );
     }
 
+    // Platform-specific validation
+    #[cfg(target_os = "windows")]
+    if self.window.all_desktops.is_some() || self.window.force_priority.is_some() {
+      return Err(
+        crate::error::format_error(
+          "Linux-only settings (all_desktops, force_priority) are present in your config. These are not supported on Windows.",
+        )
+        .into(),
+      );
+    }
+
     Ok(())
   }
 }
@@ -683,7 +694,9 @@ pub struct WindowConfig {
   pub height: Option<Dimension>,
   pub keep_above: bool,
   pub no_borders: bool,
-  pub force_priority: bool,
+  pub skip_pager: bool,
+  pub all_desktops: Option<bool>,
+  pub force_priority: Option<bool>,
   pub auto_show: bool,
   pub slide_from: SlideDirection,
   // This allows both "position_offset" and "offset" in TOML
@@ -699,8 +712,10 @@ impl Default for WindowConfig {
       width: None,
       height: None,
       keep_above: false,
-      no_borders: true,
-      force_priority: false,
+      no_borders: false,
+      skip_pager: true,
+      all_desktops: None,
+      force_priority: None,
       auto_show: false,
       slide_from: SlideDirection::default(),
       position_offset: PositionOffset::default(),

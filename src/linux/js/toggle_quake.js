@@ -231,6 +231,7 @@
             target.opacity = 0.0;
             target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
             target.fullScreen = false;
+            target.skipPager = true;
             if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
 
             const stillActive = (workspace.activeWindow === target || workspace.activeClient === target);
@@ -247,7 +248,8 @@
               if (targetIndex > 0) {
                 for (let s = targetIndex - 1; s >= 0; s--) {
                   const c = stacking[s];
-                  if (c.normalWindow && c.opacity > 0 && (c.resourceClass || c.resourceName)) {
+                  const isOnCurrentDesktop = c.onAllDesktops || (c.desktops && c.desktops.indexOf(workspace.currentDesktop) !== -1);
+                  if (c.normalWindow && c.opacity > 0 && (c.resourceClass || c.resourceName) && isOnCurrentDesktop) {
                     targetBehind = c;
                     break;
                   }
@@ -291,7 +293,7 @@
   };
 
   if (config.shouldShow) {
-    setQuakeProperties(target, config.keepAbove, config.noBorders, true, config.forcePriority);
+    setQuakeProperties(target, config.keepAbove, config.noBorders, config.skipPager, true, config.forcePriority, config.allDesktops);
     if (needsReposition) {
       target.opacity = 0.0;
       target.fullScreen = false;
