@@ -3,6 +3,17 @@ use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::process::Command;
 
+/// Project-wide Result type that replaces anyhow::Result.
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Replacement for anyhow::anyhow! macro for creating simple string errors.
+#[macro_export]
+macro_rules! format_error_boxed {
+  ($($arg:tt)*) => {
+    Box::<dyn std::error::Error + Send + Sync>::from(format!($($arg)*))
+  };
+}
+
 // =============================================================================
 // ConfigError - Wrapper for rich config error messages
 // =============================================================================

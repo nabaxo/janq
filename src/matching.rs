@@ -72,8 +72,8 @@ const THRESHOLD_MINIMUM: i32 = 500;
 #[derive(Clone, Debug, Default)]
 pub struct FoundWindow {
   pub id: String,
-  pub class_name: String,
-  pub proc_name: String,
+  pub class_lowercase: String,
+  pub proc_lowercase: String,
   #[cfg(target_os = "linux")]
   pub pid: u32,
   pub is_visible: bool,
@@ -118,12 +118,12 @@ pub fn fuzzy_match_window(
     let mut score = 0;
 
     // 1. Check class_name and proc_name
-    for haystack in &[&win.class_name, &win.proc_name] {
+    for haystack in &[&win.class_lowercase, &win.proc_lowercase] {
       if haystack.is_empty() {
         continue;
       }
 
-      let haystack_score = score_haystack(&lower_target, haystack);
+      let haystack_score = score_haystack_lowercased(&lower_target, haystack);
       score = score.max(haystack_score);
     }
 
@@ -148,11 +148,8 @@ pub fn fuzzy_match_window(
   best_win
 }
 
-/// Scores how well a haystack (window class/process name) matches the target.
-fn score_haystack(lower_target: &str, haystack: &str) -> i32 {
-  // Lowercase haystack for case-insensitive matching
-  let lower_haystack = haystack.to_lowercase();
-
+/// Scores how well a lowercased haystack (window class/process name) matches the target.
+fn score_haystack_lowercased(lower_target: &str, lower_haystack: &str) -> i32 {
   // Exact match
   if lower_haystack == lower_target {
     return SCORE_EXACT_MATCH;
@@ -164,7 +161,14 @@ fn score_haystack(lower_target: &str, haystack: &str) -> i32 {
   }
 
   // Fuzzy subsequence matching
-  score_subsequence(lower_target, &lower_haystack)
+  score_subsequence(lower_target, lower_haystack)
+}
+
+/// Scores how well a haystack (window class/process name) matches the target.
+/// This version lowercases the haystack, which may allocate.
+pub fn score_haystack(lower_target: &str, haystack: &str) -> i32 {
+  let lower_haystack = haystack.to_lowercase();
+  score_haystack_lowercased(lower_target, &lower_haystack)
 }
 
 /// Scores a fuzzy subsequence match with boundary/gap penalties.
@@ -289,8 +293,8 @@ mod tests {
   fn make_window(id: &str, class: &str, proc: &str, visible: bool) -> FoundWindow {
     FoundWindow {
       id: id.to_string(),
-      class_name: class.to_string(),
-      proc_name: proc.to_string(),
+      class_lowercase: class.to_lowercase(),
+      proc_lowercase: proc.to_lowercase(),
       #[cfg(target_os = "linux")]
       pid: 0,
       is_visible: visible,

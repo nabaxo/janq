@@ -20,7 +20,7 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Dimension flexible**: Support for `px` and `%` units.
 - **Display modes**: `follow-mouse`, `active`, and `specific`.
 - **Z-Order control**: `keep_above` and Linux-specific `force_priority` (Fullscreen role).
-- **Border control**: `no_borders` option to remove window chrome (defaults to `false`).
+- **Border control**: `no_borders` option to remove window chrome. Supports both global default and per-app overrides.
 - **Pager control**: `skip_pager` option to hide managed windows from task managers, pagers, and the task switcher on Linux (defaults to `false`).
 - **Workspace control**: `all_desktops` option (Linux only) to allow windows to follow you across virtual desktops (defaults to `true`).
 - **Positioning**: Multi-axis slide directions and configurable edge offsets.
@@ -39,12 +39,17 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Weighted Matcher**: Tiered scoring system (exact > subtitle > visible > managed).
 
 ### Performance & Quality
+- **Unified Async Architecture**: Migrated both platforms to a shared Tokio-based async event loop for all IPC, file watching, and animation logic.
+- **Library Split**: Extracted core logic (config, matching, lifecycle) into a dedicated library crate (`src/lib.rs`).
+- **Minimalist Argument Parsing**: Removed `clap` dependency and implemented a minimal manual argument parser, reducing binary size and idle RAM usage by ~0.15MB.
+- **Dependency Reduction**: Removed `anyhow` and `dirs` dependencies, replacing them with a custom `Result` type, platform-agnostic error macros, and a local `paths` module for significant binary size reduction and improved compile times.
+- **Improved Windows Path Discovery**: Refactored Windows configuration path resolution to be more robust and provide platform-aware error messages (suggesting `%APPDATA%\janq\janq.toml` when no config is found).
 - **Unified Cache Architecture**: Consolidated handle tracking for both platforms.
 - **Liveness checks**: Efficient `/proc/{pid}` validation on Linux and direct `IsWindow` handle validation on Windows for sub-millisecond response.
 - **Zero-Polling**: Event-driven architecture with instant loop wakeups.
 - **Zero-Scan KWin Toggles**: Refactored Linux KWin scripts to perform a single-pass discovery using cached IDs and PIDs, eliminating redundant system-wide window scans.
 - **Precise Restoration**: Optimized window focus restoration on Linux by targeting cached PIDs directly instead of scanning the window list.
-- **Autonomous Sibling Logic**: Sibling windows now operate as independent physical entities with their own individual easing curves, directions, and velocity-scaled durations. This includes a robust ID/PID matching system on Linux to ensure per-app configurations are respected during multi-window transitions.
+- **Autonomous Sibling Logic**: Sibling windows now operate as independent physical entities with their own individual easing curves and directions. While they share the primary window's base duration, their progress is independently velocity-scaled for synchronized transitions.
 - **JSON Argument Consolidation**: Refactored Linux KWin script invocation to use consolidated JSON objects, replacing 26+ positional arguments and eliminating redundant configuration maps for better performance.
 - **Pre-calculated Animation Geometry**: Both platforms now fully pre-compute sibling trajectories and durations before entering the high-frequency animation loop, minimizing overhead during rendering.
 - **Visual Polish**: Integrated frame-synchronized opacity transitions that respect configured motion easing curves, strictly clamped for stability.

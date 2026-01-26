@@ -15,7 +15,6 @@
 //! - Section sign (`§`) maps to `Code::IntlBackslash` (EU keyboards)
 //! - Function keys F1-F12 supported
 
-use anyhow::{Context, Result};
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 
 /// Parses a hotkey string into a `HotKey` struct for registration.
@@ -27,7 +26,7 @@ use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 /// - `"Meta+Grave"` → Super + Backtick
 /// - `"Ctrl+Alt+F12"` → Control + Alt + F12
 /// - `"F1"` → F1 with no modifiers
-pub fn parse_hotkey(hotkey_str: &str) -> Result<HotKey> {
+pub fn parse_hotkey(hotkey_str: &str) -> janq::error::Result<HotKey> {
   let parts: Vec<&str> = hotkey_str.split('+').collect();
   let mut mods = Modifiers::empty();
   let mut key_code: Option<Code> = None;
@@ -44,13 +43,13 @@ pub fn parse_hotkey(hotkey_str: &str) -> Result<HotKey> {
         if let Some(code) = parse_code(p.as_str()) {
           key_code = Some(code);
         } else {
-          return Err(anyhow::anyhow!("Unknown key: {}", part));
+          return Err(janq::format_error_boxed!("Unknown key: {}", part));
         }
       }
     }
   }
 
-  let code = key_code.context("No key code specified")?;
+  let code = key_code.ok_or_else(|| janq::format_error_boxed!("No key code specified"))?;
   Ok(HotKey::new(Some(mods), code))
 }
 

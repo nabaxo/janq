@@ -33,23 +33,17 @@
 
 use std::{
   collections::HashMap, // Required for D-Bus HashMap parameter types
-  env::temp_dir,
-  fs::File,
   path::PathBuf,
   process::{exit, id},
   sync::{Arc, RwLock},
 };
 
-use fs2::FileExt;
 use tokio::{
-  runtime::Handle,
   signal::unix::{signal, SignalKind},
   time::{sleep, Duration},
 };
-use zbus::{interface, zvariant::OwnedValue, Connection, Proxy};
+use zbus::{interface, names::BusName, names::InterfaceName, zvariant::OwnedValue, Connection};
 
-use crate::config::{load_config, Config};
-use crate::error::show_error;
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
 use crate::linux::hotkey::sync_kde_shortcuts;
 use crate::linux::kwin::{
@@ -59,7 +53,9 @@ use crate::linux::kwin::{
 use crate::linux::terminal::{
   ensure_terminal_running, ensure_terminal_running_with_candidates, fetch_system_windows_async,
 };
-use crate::shutdown::{print_shutdown_message, print_termination_complete};
+use janq::config::{load_config, Config};
+use janq::error::show_error;
+use janq::shutdown::{print_shutdown_message, print_termination_complete};
 
 // =============================================================================
 // D-Bus Interfaces
@@ -224,15 +220,9 @@ pub async fn run_daemon(
   initial_config: Config,
   config_path: Option<PathBuf>,
   target_app: Option<String>,
-) -> anyhow::Result<()> {
+) -> janq::error::Result<()> {
   // 0. Acquire Lock File
-  let lock_path = temp_dir().join("janq.lock");
-  let lock_file = File::create(&lock_path)?;
-  if lock_file.try_lock_exclusive().is_err() {
-    return Err(anyhow::anyhow!(
-      "janq is already running (lock file active)."
-    ));
-  }
+  let _lock_file = janq::acquire_lock_file()?;
 
   println!("Starting janq daemon...");
   init_kwin().await;
@@ -291,15 +281,14 @@ pub async fn run_daemon(
   conn.request_name(activatable_bus).await?;
   let _ = conn.request_name("dev.nabaxo.janq.desktop").await;
 
-  let watcher_proxy = Proxy::new(
-    &conn,
-    "org.kde.StatusNotifierWatcher",
-    "/StatusNotifierWatcher",
-    "org.kde.StatusNotifierWatcher",
-  )
-  .await?;
-  let _ = watcher_proxy
-    .call_method("RegisterStatusNotifierItem", &(sni_name))
+  let _ = conn
+    .call_method(
+      Some(BusName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
+      "/StatusNotifierWatcher",
+      Some(InterfaceName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
+      "RegisterStatusNotifierItem",
+      &(sni_name),
+    )
     .await;
 
   // --- KDE Platform Integration ---
@@ -370,31 +359,33 @@ pub async fn run_daemon(
   let config_for_watcher = config.clone();
   let conn_for_watcher = conn.clone();
   let path_to_watch = config_path.clone();
-  let rt_handle = Handle::current();
-  crate::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
-    let (new_config, _) = match load_config(path_to_watch.clone()) {
-      Ok(c) => c,
-      Err(e) => {
-        let err_msg = format!(
-          "Config reload failed: {}\nStaying with the last known good configuration.",
-          e
-        );
-        show_error(&err_msg);
-        return;
-      }
-    };
+  janq::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
+    let path_to_watch = path_to_watch.clone();
+    let config_for_watcher = config_for_watcher.clone();
+    let conn_for_watcher = conn_for_watcher.clone();
+    async move {
+      let (new_config, _) = match load_config(path_to_watch.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+          let err_msg = format!(
+            "Config reload failed: {}\nStaying with the last known good configuration.",
+            e
+          );
+          show_error(&err_msg);
+          return;
+        }
+      };
 
-    let old_config = {
-      let mut w = config_for_watcher.write().unwrap();
-      let old = (**w).clone();
-      *w = Arc::new(new_config.clone());
-      old
-    };
+      let old_config = {
+        let mut w = config_for_watcher.write().unwrap();
+        let old = (**w).clone();
+        *w = Arc::new(new_config.clone());
+        old
+      };
 
-    let conn_in_async = conn_for_watcher.clone();
-    let new_config_in_async = new_config.clone();
+      let conn_in_async = conn_for_watcher.clone();
+      let new_config_in_async = new_config.clone();
 
-    rt_handle.block_on(async move {
       println!("Watcher: Starting/Restoring apps as needed...");
 
       // 1. Restore removed apps
@@ -459,7 +450,7 @@ pub async fn run_daemon(
       } else {
         println!("Config: No shortcut/desktop changes detected.");
       }
-    });
+    }
   });
 
   let config_for_signals = config.clone();
@@ -482,19 +473,28 @@ pub async fn run_daemon(
   Ok(())
 }
 
-pub async fn send_toggle(app_name: Option<String>) -> anyhow::Result<()> {
+pub async fn send_toggle(app_name: Option<String>) -> janq::error::Result<()> {
   let conn = Connection::session().await?;
-  let proxy = Proxy::new(
-    &conn,
-    "dev.nabaxo.janq.desktop",
-    "/dev/nabaxo/janq/daemon",
-    "dev.nabaxo.janq",
-  )
-  .await?;
   if let Some(name) = app_name {
-    proxy.call_method("ToggleApp", &(name)).await?;
+    conn
+      .call_method(
+        Some(BusName::try_from("dev.nabaxo.janq.desktop").unwrap()),
+        "/dev/nabaxo/janq/daemon",
+        Some(InterfaceName::try_from("dev.nabaxo.janq").unwrap()),
+        "ToggleApp",
+        &(name),
+      )
+      .await?;
   } else {
-    proxy.call_method("Toggle", &()).await?;
+    conn
+      .call_method(
+        Some(BusName::try_from("dev.nabaxo.janq.desktop").unwrap()),
+        "/dev/nabaxo/janq/daemon",
+        Some(InterfaceName::try_from("dev.nabaxo.janq").unwrap()),
+        "Toggle",
+        &(),
+      )
+      .await?;
   }
   Ok(())
 }

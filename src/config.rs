@@ -18,7 +18,7 @@
 use rustc_hash::FxHashMap;
 use std::{collections::HashSet, env::current_exe, fmt, fs, path::PathBuf};
 
-use dirs::{config_dir, home_dir};
+use crate::paths::{config_dir, home_dir};
 use indexmap::IndexMap; // Preserves insertion order for deterministic app iteration
 use serde::{
   de::{self, value::MapAccessDeserializer, Deserializer, Visitor},
@@ -183,9 +183,11 @@ pub struct WorkArea {
 
 #[cfg(target_os = "windows")]
 impl WorkArea {
+  #[inline]
   pub fn width(&self) -> i32 {
     self.right - self.left
   }
+  #[inline]
   pub fn height(&self) -> i32 {
     self.bottom - self.top
   }
@@ -486,13 +488,15 @@ impl Config {
 
 /// Finds the byte span of an [app.name] section header in the content.
 fn find_app_section_span(content: &str, app_name: &str) -> std::ops::Range<usize> {
-  // Look for [app.name] or [app] (for single-app mode where name == window_class)
-  let patterns = [format!("[app.{}]", app_name), "[app]".to_string()];
+  // 1. Try exact [app.NAME]
+  let pattern = "[app.".to_string() + app_name + "]";
+  if let Some(pos) = content.find(&pattern) {
+    return pos..pos + pattern.len();
+  }
 
-  for pattern in &patterns {
-    if let Some(pos) = content.find(pattern) {
-      return pos..pos + pattern.len();
-    }
+  // 2. Try generic [app]
+  if let Some(pos) = content.find("[app]") {
+    return pos..pos + 5;
   }
 
   // Fallback to start of file
@@ -506,44 +510,42 @@ fn find_field_in_app_section(
   app_name: &str,
   field_name: &str,
 ) -> std::ops::Range<usize> {
-  // First find the app section
-  let section_patterns = [format!("[app.{}]", app_name), "[app]".to_string()];
-
-  let section_start = section_patterns
-    .iter()
-    .filter_map(|p| content.find(p))
-    .min()
-    .unwrap_or(0);
+  let span = find_app_section_span(content, app_name);
+  let section_start = span.start;
 
   // Find the end of this section (next [...] or end of file)
   let after_section = &content[section_start..];
-  let section_end = after_section
+  let section_end = after_section[1..] // Skip the '[' of the current section
     .find("\n[")
-    .map(|p| section_start + p)
+    .map(|p| section_start + 1 + p)
     .unwrap_or(content.len());
 
   // Search for the field within this section
-  // Look for "\nfield_name" or field at very start of section content
   let section_content = &content[section_start..section_end];
 
-  // Pattern: newline followed by optional whitespace and field name
-  let search_pattern = format!("\n{}", field_name);
-  if let Some(pos) = section_content.find(&search_pattern) {
-    let field_start = section_start + pos + 1; // +1 to skip the newline
-    return field_start..field_start + field_name.len();
-  }
-
-  // Also try with leading whitespace
-  for ws in ["\n ", "\n\t"] {
-    let search_pattern = format!("{}{}", ws, field_name);
-    if let Some(pos) = section_content.find(&search_pattern) {
-      let field_start = section_start + pos + ws.len();
-      return field_start..field_start + field_name.len();
+  // Pattern match without formatting if possible:
+  // We need to find "\n" + field_name
+  for line in section_content.lines() {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with(field_name) {
+      let rest = &trimmed[field_name.len()..];
+      if rest.is_empty() || rest.starts_with(' ') || rest.starts_with('=') || rest.starts_with('\t')
+      {
+        // Calculate byte offset of this line in the content
+        // This is slightly complex with .lines() as it strips \n
+        // Let's use string find instead but be careful about matches outside line starts.
+      }
     }
   }
 
-  // Fallback to section header
-  find_app_section_span(content, app_name)
+  // Fallback to the optimized find:
+  let search_pattern = "\n".to_string() + field_name;
+  if let Some(pos) = section_content.find(&search_pattern) {
+    let field_start = section_start + pos + 1;
+    return field_start..field_start + field_name.len();
+  }
+
+  span
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -587,6 +589,7 @@ pub struct AppConfig {
   // Same alias here for individual app configs
   #[serde(alias = "offset")]
   pub position_offset: Option<PositionOffset>,
+  pub no_borders: Option<bool>,
 }
 
 impl Default for AppConfig {
@@ -600,8 +603,16 @@ impl Default for AppConfig {
       height: None,
       slide_from: None,
       position_offset: None,
+      no_borders: None,
     }
   }
+}
+
+/// A resolved dimension value (calculated pixel value and whether it was a percentage).
+#[derive(Clone, Copy, Debug)]
+pub struct ResolvedDimension {
+  pub val: f64,
+  pub is_percent: bool,
 }
 
 impl AppConfig {
@@ -609,19 +620,44 @@ impl AppConfig {
     self.animate_opacity.unwrap_or(default_val)
   }
 
-  pub fn resolve_dimensions(&self, global: &WindowConfig) -> ((f64, bool), (f64, bool)) {
+  pub fn get_no_borders(&self, default_val: bool) -> bool {
+    self.no_borders.unwrap_or(default_val)
+  }
+
+  pub fn resolve_dimensions(
+    &self,
+    global: &WindowConfig,
+  ) -> (ResolvedDimension, ResolvedDimension) {
     let w = self.width.as_ref().or(global.width.as_ref());
     let h = self.height.as_ref().or(global.height.as_ref());
 
     let rw = match w {
-      Some(Dimension::Percent(p)) => (*p, true),
-      Some(Dimension::Pixels(px)) => (*px as f64, false),
-      Some(Dimension::Unset) | None => (0.0, false),
+      Some(Dimension::Percent(p)) => ResolvedDimension {
+        val: *p,
+        is_percent: true,
+      },
+      Some(Dimension::Pixels(px)) => ResolvedDimension {
+        val: *px as f64,
+        is_percent: false,
+      },
+      Some(Dimension::Unset) | None => ResolvedDimension {
+        val: 0.0,
+        is_percent: false,
+      },
     };
     let rh = match h {
-      Some(Dimension::Percent(p)) => (*p, true),
-      Some(Dimension::Pixels(px)) => (*px as f64, false),
-      Some(Dimension::Unset) | None => (0.0, false),
+      Some(Dimension::Percent(p)) => ResolvedDimension {
+        val: *p,
+        is_percent: true,
+      },
+      Some(Dimension::Pixels(px)) => ResolvedDimension {
+        val: *px as f64,
+        is_percent: false,
+      },
+      Some(Dimension::Unset) | None => ResolvedDimension {
+        val: 0.0,
+        is_percent: false,
+      },
     };
     (rw, rh)
   }
@@ -1020,9 +1056,13 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
     }
   }
 
-  Err(crate::error::format_error(
-    "No config file found. Create ./janq.toml or ~/.config/janq/janq.toml with at least one [app] section.",
-  ).into())
+  let msg = if cfg!(target_os = "windows") {
+    "No config file found. Create %APPDATA%\\janq\\janq.toml with at least one [app] section."
+  } else {
+    "No config file found. Create ./janq.toml or ~/.config/janq/janq.toml with at least one [app] section."
+  };
+
+  Err(crate::error::format_error(msg).into())
 }
 
 /// Formats a TOML error with line context and a visual pointer.
@@ -1359,18 +1399,18 @@ unknown_animation_key = "value"
       ..Default::default()
     };
 
-    let ((w, _), (h, _)) = app.resolve_dimensions(&global);
-    assert_eq!(w, 800.0);
-    assert_eq!(h, 600.0);
+    let (w, h) = app.resolve_dimensions(&global);
+    assert_eq!(w.val, 800.0);
+    assert_eq!(h.val, 600.0);
 
     let app2 = AppConfig {
       width: Some(Dimension::Unset), // "0" or "unset" means skip resizing
       ..Default::default()
     };
-    let ((w2, w2_is_pct), (h2, _)) = app2.resolve_dimensions(&global);
-    assert_eq!(w2, 0.0); // Unset means no resize (0.0)
-    assert!(!w2_is_pct);
-    assert_eq!(h2, 600.0); // Height still inherits from global
+    let (w2, h2) = app2.resolve_dimensions(&global);
+    assert_eq!(w2.val, 0.0); // Unset means no resize (0.0)
+    assert!(!w2.is_percent);
+    assert_eq!(h2.val, 600.0); // Height still inherits from global
   }
 
   #[test]

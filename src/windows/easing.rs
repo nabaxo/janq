@@ -14,7 +14,7 @@
 //!
 //! Users can define custom curves: `cubic-bezier(x1, y1, x2, y2)`
 
-use crate::config::Easing;
+use janq::config::Easing;
 use std::f64::consts::PI;
 
 pub fn get_easing(progress: f64, easing: &Easing) -> f64 {

@@ -12,8 +12,8 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::config::{fuzzy_match_window, FoundWindow};
-use crate::windows::window::{get_app_cache, CachedWindow};
+use crate::windows::window::{get_app_cache, get_hidden_owner, CachedWindow};
+use janq::config::{fuzzy_match_window, FoundWindow};
 
 /// Context struct for EnumWindows callback.
 pub struct TargetSearch {
@@ -33,8 +33,13 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
 
     // 2. Instant check: Ownership (ignore child/helper windows that have an owner)
     // Most 'main' app windows are unowned (GetWindow(hwnd, GW_OWNER) == NULL)
-    if GetWindow(hwnd, GW_OWNER).map(|h| h.0 as usize).unwrap_or(0) != 0 {
-      return BOOL(1);
+    // Exception: Allow windows owned by our hidden owner (already managed by janq)
+    let owner = GetWindow(hwnd, GW_OWNER).map(|h| h.0 as usize).unwrap_or(0);
+    if owner != 0 {
+      let our_owner = get_hidden_owner().map(|h| h.0 as usize).unwrap_or(0);
+      if owner != our_owner {
+        return BOOL(1);
+      }
     }
 
     // 2. Instant check: Visibility
@@ -80,8 +85,8 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
 
   target_struct.found_data.push(FoundWindow {
     id: (hwnd.0 as usize).to_string(),
-    class_name,
-    proc_name,
+    class_lowercase: class_name,
+    proc_lowercase: proc_name,
     #[cfg(target_os = "linux")]
     pid,
     is_visible,

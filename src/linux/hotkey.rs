@@ -22,9 +22,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{Context, Result};
-
-use crate::config::Config;
+use janq::config::Config;
 
 // =============================================================================
 // Shortcut Normalization
@@ -192,7 +190,7 @@ fn map_qt_key(s: &str) -> i32 {
   }
 }
 
-fn shortcut_to_keycode(shortcut: &str) -> Result<i32> {
+fn shortcut_to_keycode(shortcut: &str) -> janq::error::Result<i32> {
   let mut total = 0;
   for part in shortcut.split('+').map(|p| p.trim()) {
     if part.is_empty() {
@@ -201,7 +199,10 @@ fn shortcut_to_keycode(shortcut: &str) -> Result<i32> {
     let p = part.to_lowercase();
     let key = map_qt_key(&p);
     if key == 0 {
-      return Err(anyhow::anyhow!("Unknown Linux key name: '{}'", part));
+      return Err(janq::format_error_boxed!(
+        "Unknown Linux key name: '{}'",
+        part
+      ));
     }
     total += key;
   }
@@ -237,7 +238,10 @@ trait KGlobalAccel {
 // D-Bus Shortcut Registration
 // =============================================================================
 
-pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> Result<()> {
+pub async fn register_via_dbus(
+  config: &Config,
+  old_config: Option<&Config>,
+) -> janq::error::Result<()> {
   let component = "dev.nabaxo.janq.desktop";
   let conn = zbus::Connection::session().await?;
   let proxy = KGlobalAccelProxy::new(&conn).await?;
@@ -359,7 +363,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
       proxy
         .do_register(action_id.clone())
         .await
-        .with_context(|| format!("do_register failed for '{}'", app_name))?;
+        .map_err(|e| janq::format_error_boxed!("do_register failed for '{}': {}", app_name, e))?;
       tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
       // Build the key sequence (up to 4 keys)
@@ -372,7 +376,7 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
       proxy
         .set_shortcut(action_id, key_seq, 3)
         .await
-        .with_context(|| format!("set_shortcut failed for '{}'", app_name))?;
+        .map_err(|e| janq::format_error_boxed!("set_shortcut failed for '{}': {}", app_name, e))?;
 
       tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
@@ -381,7 +385,10 @@ pub async fn register_via_dbus(config: &Config, old_config: Option<&Config>) -> 
   Ok(())
 }
 
-pub async fn sync_kde_shortcuts(config: &Config, old_config: Option<&Config>) -> Result<()> {
+pub async fn sync_kde_shortcuts(
+  config: &Config,
+  old_config: Option<&Config>,
+) -> janq::error::Result<()> {
   tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
   register_via_dbus(config, old_config).await
 }

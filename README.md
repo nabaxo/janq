@@ -6,7 +6,7 @@
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
-But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq on _startup_ uses like less than 2 MB RAM on Windows and 3.5 MB on my Fedora KDE system.
+But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq on _startup_ uses like less than 2.5 MB RAM on Windows and 3.2 MB on my Fedora KDE system.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
@@ -20,7 +20,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 
 ## Key Features
 
-- **Atomic Switching (Cross-Platform)**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows.
+- **Atomic Switching (Cross-Platform)**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows. (See [Sibling Animation Duration Divergence](#sibling-animation-duration-divergence))
 - **Zero-Config Hotkeys (Cross-Platform)**: janq automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu. The topmost application is the one that toggles when left-clicking the systray icon.
@@ -196,7 +196,7 @@ hotkey = "Meta+Z"
 |               | `slide_from`         | `"top"`          | Direction to slide in: `top`, `bottom`, `left`, `right`                              |   ✔️    |
 |               | `offset`             | `"center"`       | Position along edge: `center`, `50%`, `-10%`, `100px`, `-50px`                       |   ✔️    |
 |               | `keep_above`         | `false`          | Keep window above all others                                                         |   ❌    |
-|               | `no_borders`         | `false`          | Remove window borders/chrome for managed windows                                     |   ❌    |
+|               | `no_borders`         | `false`          | Remove window borders/chrome for managed windows                                     |   ✔️    |
 |               | `skip_pager`         | `false`          | Hide window from task manager, pager, and switcher (Linux: also hides from Meta+Tab) |   ❌    |
 |               | `all_desktops`       | `true`           | (Linux) Window follows you across virtual desktops                                   |   ❌    |
 |               | `force_priority`     | `false`          | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps             |   ❌    |
@@ -343,6 +343,7 @@ The `utilities/` directory contains cleanup scripts for Linux. These exist becau
 | Script                 | Description                                                           |
 | ---------------------- | --------------------------------------------------------------------- |
 | `full_cleanup.sh`      | Nuclear option. Removes all janq/legacy janq traces from your system. |
+| `hard_reset_kwin.sh`   | Aggressive recovery from KWin state corruption or script hangs.       |
 | `cleanup_shortcuts.sh` | Fixes KDE global shortcuts when they inevitably get stuck.            |
 | `cleanup_desktop.sh`   | Removes desktop entries and icons.                                    |
 | `cleanup_processes.sh` | Kills any lingering daemon processes.                                 |
@@ -370,9 +371,10 @@ janq achieves cross-platform parity by utilizing native APIs. On Windows, it use
 ### Performance Optimizations
 
 - **Velocity-Style Animations**: Both platforms use "Velocity-Style" animations where duration scales based on travel distance, ensuring constant movement speed regardless of window position.
+- **Unified Async Architecture**: Migrated to a cross-platform Tokio-based async runtime. Replaced fragmented bridge threads with a single unified event loop for IPC, animations, and heartbeats.
 - **Zero-IPC Liveness Checks**: On Linux, janq performs direct `/proc/{pid}` checks (<0.1ms) instead of querying KWin, ensuring instant response.
-- **Flattened Proxy Architecture**: Redundant internal abstraction layers were removed to minimize overhead and improve maintainability.
-- **Memory Footprint**: janq idles at <2MB RAM on Windows and ~3.5MB on Linux while managing animations at 144Hz+.
+- **Minimalist Engine**: No unnecessary dependencies including `clap`, `anyhow`, and `dirs` in favor of a minimal manual argument parser, custom error handling, and a native path resolution module, significantly reducing binary complexity and shaving ~0.15MB+ off the baseline RAM footprint.
+- **Memory Footprint**: janq idles at <2.5MB RAM on Windows and ~3.2MB on Linux while managing animations at 144Hz+.
 
 ### Physics & Logic
 

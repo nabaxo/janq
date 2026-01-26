@@ -5,47 +5,41 @@
 
 use std::{
   path::PathBuf,
-  sync::mpsc::{self, RecvTimeoutError},
   time::{Duration, Instant},
 };
 
 use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
+use std::future::Future;
+use tokio::sync::mpsc as tokio_mpsc;
 
 // =============================================================================
 // Config Watcher
 // =============================================================================
 
-/// Spawns a config watcher thread with debouncing.
-///
-/// Returns a thread handle. The `on_change` callback is called after debouncing
-/// when the config file changes. The callback runs on the watcher thread.
-///
-/// # Arguments
-/// * `config_path` - Path to watch, or None to watch `~/.janq.toml`
-/// * `on_change` - Callback invoked on debounced config change (runs on watcher thread)
-pub fn spawn_config_watcher<F>(
-  config_path: Option<PathBuf>,
-  on_change: F,
-) -> std::thread::JoinHandle<()>
+/// Spawns a config watcher as an async task with debouncing.
+pub fn spawn_config_watcher<F, Fut>(config_path: Option<PathBuf>, on_change: F)
 where
-  F: Fn() + Send + 'static,
+  F: Fn() -> Fut + Send + 'static,
+  Fut: Future<Output = ()> + Send + 'static,
 {
-  std::thread::Builder::new()
-    .name("config-watcher".to_string())
-    .stack_size(128 * 1024)
-    .spawn(move || {
-      run_watcher_loop(config_path, on_change);
-    })
-    .expect("Failed to spawn config watcher thread")
+  tokio::spawn(async move {
+    run_watcher_loop_async(config_path, on_change).await;
+  });
 }
 
-/// Core watcher loop with debouncing. Extracted for testability.
-fn run_watcher_loop<F>(config_path: Option<PathBuf>, on_change: F)
+/// Async watcher loop with debouncing.
+async fn run_watcher_loop_async<F, Fut>(config_path: Option<PathBuf>, on_change: F)
 where
-  F: Fn(),
+  F: Fn() -> Fut + Send + 'static,
+  Fut: Future<Output = ()> + Send + 'static,
 {
-  let (tx, rx) = mpsc::channel();
-  let mut watcher = match RecommendedWatcher::new(tx, NotifyConfig::default()) {
+  let (tx, mut rx) = tokio_mpsc::unbounded_channel();
+  let mut watcher = match RecommendedWatcher::new(
+    move |res| {
+      let _ = tx.send(res);
+    },
+    NotifyConfig::default(),
+  ) {
     Ok(w) => w,
     Err(e) => {
       crate::error::show_error(&format!("Failed to create config watcher: {}", e));
@@ -53,10 +47,8 @@ where
     }
   };
 
-  // Setup watch path
   setup_watch_path(&mut watcher, &config_path);
 
-  // Debounce loop
   let debounce_duration = Duration::from_millis(500);
   let mut last_event = Instant::now();
   let mut pending = false;
@@ -68,22 +60,26 @@ where
       Duration::from_secs(60)
     };
 
-    match rx.recv_timeout(timeout) {
-      Ok(Ok(event)) => {
-        if is_config_event(&event.paths, &config_path) {
-          last_event = Instant::now();
-          pending = true;
+    tokio::select! {
+      res = rx.recv() => {
+        match res {
+          Some(Ok(event)) => {
+            if is_config_event(&event.paths, &config_path) {
+              last_event = Instant::now();
+              pending = true;
+            }
+          }
+          Some(Err(e)) => crate::error::show_warning(&format!("Watcher error: {:?}", e)),
+          None => break,
         }
       }
-      Ok(Err(e)) => crate::error::show_warning(&format!("Watcher error: {:?}", e)),
-      Err(RecvTimeoutError::Timeout) => {
+      _ = tokio::time::sleep(timeout) => {
         if pending {
           pending = false;
           println!("Config change detected, reloading...");
-          on_change();
+          on_change().await;
         }
       }
-      Err(RecvTimeoutError::Disconnected) => break,
     }
   }
 }
@@ -102,27 +98,32 @@ fn setup_watch_path(watcher: &mut RecommendedWatcher, config_path: &Option<PathB
     } else {
       let _ = watcher.watch(path, RecursiveMode::NonRecursive);
     }
-  } else if let Some(home) = dirs::home_dir() {
+  } else if let Some(home) = crate::paths::home_dir() {
     let _ = watcher.watch(&home, RecursiveMode::NonRecursive);
   }
 }
 
 /// Checks if any of the event paths match the config file.
 fn is_config_event(event_paths: &[PathBuf], config_path: &Option<PathBuf>) -> bool {
-  if let Some(target_path) = config_path {
-    let target_abs = target_path.canonicalize().unwrap_or(target_path.clone());
-    for p in event_paths {
-      let p_abs = p.canonicalize().unwrap_or(p.clone());
+  let target_abs = if let Some(target_path) = config_path {
+    target_path.canonicalize().ok()
+  } else {
+    crate::paths::home_dir()
+      .map(|h| h.join(".janq.toml"))
+      .and_then(|p| p.canonicalize().ok())
+  };
+
+  let target_abs = match target_abs {
+    Some(t) => t,
+    None => return false,
+  };
+
+  for p in event_paths {
+    if let Ok(p_abs) = p.canonicalize() {
       if p_abs == target_abs {
         return true;
       }
     }
-    false
-  } else if let Some(home) = dirs::home_dir() {
-    // Default config location
-    let target = home.join(".janq.toml");
-    event_paths.iter().any(|p| p == &target)
-  } else {
-    false
   }
+  false
 }

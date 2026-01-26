@@ -27,26 +27,19 @@
 //! The daemon automatically tries Backquote then Backslash as fallbacks.
 
 use rustc_hash::FxHashMap;
-use std::io::Write;
 use std::{
-  env::temp_dir,
-  fs::File,
   path::PathBuf,
-  sync::{mpsc::channel, Arc, RwLock},
-  thread::{sleep as thread_sleep, Builder},
+  process::exit,
+  sync::{mpsc::channel, mpsc::Receiver, mpsc::Sender, Arc, RwLock},
   time::Duration,
 };
 
-use anyhow::Result;
-use fs2::FileExt;
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+use tokio::net::windows::named_pipe::ServerOptions;
 use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
   MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
-use windows::Win32::Foundation::CloseHandle;
-use windows::Win32::Storage::FileSystem::ReadFile;
-use windows::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::{
   HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
@@ -56,20 +49,18 @@ use windows::Win32::UI::{
   },
 };
 
-use crate::{
-  config::{load_config, Config},
-  hotkey::parse_hotkey,
-  shutdown::{print_shutdown_message, print_termination_complete},
-  spawn_guard::get_spawning_apps,
-  windows::{
-    show_error,
-    terminal::ensure_terminal_running,
-    window::{
-      fetch_system_windows, get_app_cache, reset_visible_app, restore_app_window,
-      restore_window_visibility, toggle_window,
-    },
+use crate::windows::hotkey::parse_hotkey;
+use crate::windows::{
+  show_error,
+  terminal::ensure_terminal_running,
+  window::{
+    fetch_system_windows, get_app_cache, init_hidden_owner, release_windows, reset_visible_app,
+    restore_window_visibility, toggle_window,
   },
 };
+use janq::config::{load_config, Config};
+use janq::shutdown::{print_shutdown_message, print_termination_complete};
+use janq::spawn_guard::get_spawning_apps;
 
 // =============================================================================
 // IPC Constants
@@ -95,90 +86,72 @@ enum DaemonEvent {
   Exit(Option<&'static str>),
 }
 
-pub fn run_daemon(
+pub async fn run_daemon(
   initial_config: Config,
   config_path: Option<PathBuf>,
   target_app: Option<String>,
-) -> Result<()> {
+) -> janq::error::Result<()> {
   println!("Starting janq daemon...");
   let main_thread_id = unsafe { GetCurrentThreadId() };
   // 0. Acquire Lock File
-  let lock_path = temp_dir().join("janq.lock");
-  let lock_file = File::create(&lock_path)?;
-  if lock_file.try_lock_exclusive().is_err() {
-    return Err(anyhow::anyhow!(
-      "janq is already running (lock file active)."
-    ));
-  }
+  let _lock_file = janq::acquire_lock_file()?;
 
   // Enable DPI Awareness
   unsafe {
     let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   }
 
+  // Initialize hidden owner window for taskbar hiding (skip_pager feature)
+  init_hidden_owner();
+
   let config = Arc::new(RwLock::new(Arc::new(initial_config)));
 
-  // 3. Setup IPC Server (Standard Thread)
-  let config_clone = config.clone();
-  Builder::new()
-    .name("ipc-server".to_string())
-    .spawn(move || loop {
-      let handle = unsafe {
-        CreateNamedPipeW(
-          windows::core::w!(r"\\.\pipe\janq"),
-          std::mem::transmute(3u32),
-          std::mem::transmute(6u32),
-          255,
-          1024,
-          1024,
-          0,
-          None,
-        )
-      };
+  // 3. Setup IPC Server (Tokio Task)
+  let config_ipc = config.clone();
+  tokio::spawn(async move {
+    let mut first = true;
+    loop {
+      let mut options = ServerOptions::new();
+      if first {
+        options.first_pipe_instance(true);
+      }
+      let server_res = options.create(PIPE_NAME);
 
-      if !handle.is_invalid() {
-        if unsafe { ConnectNamedPipe(handle, None).is_ok() } {
-          let mut buf = [0u8; 1024];
-          let mut bytes_read = 0;
-          unsafe {
-            let _ = ReadFile(handle, Some(&mut buf), Some(&mut bytes_read), None);
-          }
+      match server_res {
+        Ok(server) => {
+          first = false;
+          if server.connect().await.is_ok() {
+            let mut buf = [0u8; 1024];
+            if let Ok(bytes_read) = server.try_read(&mut buf) {
+              if bytes_read > 0 {
+                let msg = String::from_utf8_lossy(&buf[..bytes_read]);
+                let cfg = config_ipc.read().unwrap().clone();
+                let target_app = janq::resolve_target_app(&msg, &cfg);
 
-          if bytes_read > 0 {
-            let msg = String::from_utf8_lossy(&buf[..bytes_read as usize]);
-            let cfg = config_clone.read().unwrap().clone();
-            let app_name = if msg.starts_with("toggle:") {
-              msg.strip_prefix("toggle:").unwrap().trim().to_string()
-            } else {
-              cfg.app.keys().next().cloned().unwrap_or_default()
-            };
-
-            let target_app = if cfg.app.len() == 1 {
-              cfg.app.keys().next().cloned()
-            } else if cfg.app.contains_key(&app_name) {
-              Some(app_name)
-            } else {
-              None
-            };
-
-            if let Some(target_name) = target_app {
-              if let Some(app_cfg) = cfg.app.get(&target_name) {
-                ensure_terminal_running(&target_name, app_cfg, &cfg, None);
-                toggle_window(&target_name, &cfg);
-                unsafe {
-                  let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+                if let Some(target_name) = target_app {
+                  if let Some(app_cfg) = cfg.app.get(&target_name) {
+                    let app_cfg = app_cfg.clone();
+                    let cfg = cfg.clone();
+                    let target_name_c = target_name.clone();
+                    tokio::task::spawn_blocking(move || {
+                      ensure_terminal_running(&target_name_c, &app_cfg, &cfg, None);
+                      toggle_window(&target_name_c, &cfg);
+                    });
+                    unsafe {
+                      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+                    }
+                  }
                 }
               }
             }
           }
         }
-        unsafe {
-          let _ = CloseHandle(handle);
+        Err(_) => {
+          tokio::time::sleep(Duration::from_millis(500)).await;
         }
-      } else {
-        thread_sleep(Duration::from_millis(500));
       }
-    })?;
+    }
+  });
 
   // 4. Hotkey State
   let current_hotkeys = Arc::new(RwLock::new(Vec::<HotKey>::new()));
@@ -190,7 +163,7 @@ pub fn run_daemon(
 
   // We need a way to send events back to the main loop.
   // Since we don't have Winit, we'll use a manual channel and wake up the message loop.
-  let (event_tx, event_rx) = channel::<DaemonEvent>();
+  let (event_tx, event_rx): (Sender<DaemonEvent>, Receiver<DaemonEvent>) = channel();
   let event_tx_watcher = event_tx.clone();
 
   // Signal handler for graceful shutdown (Ctrl+C, Ctrl+Break, Console Close)
@@ -202,50 +175,59 @@ pub fn run_daemon(
     }
   });
 
-  crate::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
-    let (new_config, _) = match load_config(path_to_watch.clone()) {
-      Ok(c) => c,
-      Err(e) => {
-        let err_msg = format!(
-          "Config reload failed: {}\nStaying with the last known good configuration.",
-          e
-        );
-        show_error(&err_msg);
-        return;
-      }
-    };
-    {
-      let mut w = config_clone_watcher.write().unwrap();
-      let old_config = (**w).clone();
-      *w = Arc::new(new_config.clone());
-
-      // Handle removed or changed apps
-      let mut to_restore = Vec::new();
+  janq::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
+    let path_to_watch = path_to_watch.clone();
+    let config_clone_watcher = config_clone_watcher.clone();
+    let event_tx_watcher = event_tx_watcher.clone();
+    let main_thread_id = main_thread_id;
+    async move {
+      let (new_config, _) = match load_config(path_to_watch.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+          let err_msg = format!(
+            "Config reload failed: {}\nStaying with the last known good configuration.",
+            e
+          );
+          show_error(&err_msg);
+          return;
+        }
+      };
       {
-        let mut cache = get_app_cache().write().unwrap();
-        for (name, old_app_cfg) in &old_config.app {
-          match new_config.app.get(name) {
-            Some(new_app_cfg) => {
-              // App still exists, but check if class changed
-              if new_app_cfg.window_class != old_app_cfg.window_class {
-                cache.remove(name);
+        let mut w = config_clone_watcher.write().unwrap();
+        let old_config = (**w).clone();
+        *w = Arc::new(new_config.clone());
+
+        // Handle removed or changed apps
+        let mut to_restore = Vec::new();
+        {
+          let mut cache = get_app_cache().write().unwrap();
+          for (name, old_app_cfg) in &old_config.app {
+            match new_config.app.get(name) {
+              Some(new_app_cfg) => {
+                // App still exists, but check if class changed
+                if new_app_cfg.window_class != old_app_cfg.window_class {
+                  // Collect cached HWND before removing
+                  if let Some(cw) = cache.remove(name) {
+                    to_restore.push(cw);
+                  }
+                }
               }
-            }
-            None => {
-              // App removed - restore window and clear cache
-              to_restore.push(old_app_cfg.window_class.clone());
-              cache.remove(name);
+              None => {
+                // App removed - collect cached HWND and clear cache
+                if let Some(cw) = cache.remove(name) {
+                  to_restore.push(cw);
+                }
+              }
             }
           }
         }
+        // Cancel any ongoing animation before restoring
+        release_windows(to_restore);
       }
-      for class in to_restore {
-        restore_app_window(&class);
+      let _ = event_tx_watcher.send(DaemonEvent::ReloadHotkeys);
+      unsafe {
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
       }
-    }
-    let _ = event_tx_watcher.send(DaemonEvent::ReloadHotkeys);
-    unsafe {
-      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
     }
   });
 
@@ -300,9 +282,9 @@ pub fn run_daemon(
       let app_cfg = app_cfg.clone();
       let cfg_copy = cfg.clone();
       let candidates_clone = candidates.clone();
-      Builder::new().spawn(move || {
+      tokio::task::spawn_blocking(move || {
         ensure_terminal_running(&name, &app_cfg, &cfg_copy, Some(&candidates_clone));
-      })?;
+      });
     }
 
     if cfg.window.auto_show {
@@ -311,45 +293,53 @@ pub fn run_daemon(
       if !app_name.is_empty() {
         let app_name_c = app_name.clone();
         let cfg_c = cfg.clone();
-        Builder::new().spawn(move || {
-          thread_sleep(Duration::from_millis(500));
-          toggle_window(&app_name_c, &cfg_c);
+        tokio::spawn(async move {
+          tokio::time::sleep(Duration::from_millis(500)).await;
+          let app_name_c2 = app_name_c.clone();
+          let cfg_c2 = cfg_c.clone();
+          tokio::task::spawn_blocking(move || {
+            toggle_window(&app_name_c2, &cfg_c2);
+          });
           unsafe {
             let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
           }
-        })?;
+        });
       }
     }
   }
 
   // Threads to bridge receivers to DaemonEvent channel
   let event_tx_hk = event_tx.clone();
-  Builder::new().spawn(move || {
+  std::thread::spawn(move || {
     while let Ok(event) = hotkey_receiver.recv() {
       let _ = event_tx_hk.send(DaemonEvent::Hotkey(event));
       unsafe {
         let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
       }
     }
-  })?;
+  });
 
   let event_tx_tray = event_tx.clone();
-  Builder::new().spawn(move || loop {
-    thread_sleep(Duration::from_millis(100));
-    let _ = event_tx_tray.send(DaemonEvent::TrayPoll);
-    unsafe {
-      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+  tokio::spawn(async move {
+    loop {
+      tokio::time::sleep(Duration::from_millis(100)).await;
+      let _ = event_tx_tray.send(DaemonEvent::TrayPoll);
+      unsafe {
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+      }
     }
-  })?;
+  });
 
   let event_tx_heartbeat = event_tx.clone();
-  Builder::new().spawn(move || loop {
-    thread_sleep(Duration::from_secs(2));
-    let _ = event_tx_heartbeat.send(DaemonEvent::RespawnCheck);
-    unsafe {
-      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+  tokio::spawn(async move {
+    loop {
+      tokio::time::sleep(Duration::from_secs(2)).await;
+      let _ = event_tx_heartbeat.send(DaemonEvent::RespawnCheck);
+      unsafe {
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+      }
     }
-  })?;
+  });
 
   // Main Win32 Message Loop
   unsafe {
@@ -365,7 +355,7 @@ pub fn run_daemon(
             print_shutdown_message(signal.unwrap_or("Quit requested"));
             restore_window_visibility();
             print_termination_complete();
-            return Ok(());
+            exit(0);
           }
           DaemonEvent::ReloadHotkeys => {
             println!("Reloading config...");
@@ -401,14 +391,14 @@ pub fn run_daemon(
                 let _ = AllowSetForegroundWindow(ASFW_ANY);
                 let cfg = config.read().unwrap().clone();
                 let app_name = app_name.clone();
-                Builder::new().spawn(move || {
+                tokio::task::spawn_blocking(move || {
                   if let Some(app_cfg) = cfg.app.get(&app_name) {
                     if !toggle_window(&app_name, &cfg) {
                       ensure_terminal_running(&app_name, app_cfg, &cfg, None);
                       toggle_window(&app_name, &cfg);
                     }
                   }
-                })?;
+                });
               }
             }
           }
@@ -426,10 +416,10 @@ pub fn run_daemon(
                     let app_cfg = cfg.app.get(&app_name).unwrap().clone();
                     let app_name_spawn = app_name.clone();
                     let cfg_spawn = cfg.clone();
-                    Builder::new().spawn(move || {
+                    tokio::task::spawn_blocking(move || {
                       ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
                       toggle_window(&app_name_spawn, &cfg_spawn);
-                    })?;
+                    });
                   }
                 }
               }
@@ -439,17 +429,17 @@ pub fn run_daemon(
                 print_shutdown_message("Quit via tray menu");
                 restore_window_visibility();
                 print_termination_complete();
-                return Ok(());
+                exit(0);
               } else if let Some(app_name) = app_menu_items.get(&event.id) {
                 let cfg = config.read().unwrap().clone();
                 let app_name = app_name.clone();
                 let app_cfg = cfg.app.get(&app_name).unwrap().clone();
                 let app_name_spawn = app_name.clone();
                 let cfg_spawn = cfg.clone();
-                Builder::new().spawn(move || {
+                tokio::task::spawn_blocking(move || {
                   ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
                   toggle_window(&app_name_spawn, &cfg_spawn);
-                })?;
+                });
               }
             }
           }
@@ -480,7 +470,7 @@ pub fn run_daemon(
                 let cfg_spawn = cfg.clone();
                 let name_clone = name.clone();
                 let candidates_clone = candidates.clone();
-                Builder::new().spawn(move || {
+                tokio::task::spawn_blocking(move || {
                   ensure_terminal_running(
                     &name_clone,
                     &app_cfg,
@@ -488,7 +478,7 @@ pub fn run_daemon(
                     Some(&candidates_clone),
                   );
                   let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
-                })?;
+                });
               }
             }
           }
@@ -505,13 +495,16 @@ pub fn run_daemon(
 // IPC Client
 // =============================================================================
 
-pub fn send_toggle_sync(app_name: Option<String>) -> Result<()> {
-  use std::fs::OpenOptions;
-  let mut file = OpenOptions::new().write(true).open(PIPE_NAME)?;
+pub async fn send_toggle(app_name: Option<String>) -> janq::error::Result<()> {
+  use tokio::io::AsyncWriteExt;
+
+  let mut client = tokio::net::windows::named_pipe::ClientOptions::new().open(PIPE_NAME)?;
   if let Some(name) = app_name {
-    file.write_all(format!("toggle:{}", name).as_bytes())?;
+    client
+      .write_all(format!("toggle:{}", name).as_bytes())
+      .await?;
   } else {
-    file.write_all(b"toggle")?;
+    client.write_all(b"toggle").await?;
   }
   Ok(())
 }
@@ -525,7 +518,7 @@ pub fn sync_hotkeys(
   config: &Config,
   hotkey_map: &Arc<RwLock<FxHashMap<u32, String>>>,
   current_hotkeys: &Arc<RwLock<Vec<HotKey>>>,
-) -> Result<()> {
+) -> janq::error::Result<()> {
   // 1. Check if we actually need to sync
   let mut desired_map = FxHashMap::default();
   let mut desired_hks = Vec::new();
@@ -624,7 +617,7 @@ pub fn sync_hotkeys(
           }
         }
         Err(e) => {
-          return Err(anyhow::anyhow!(
+          return Err(janq::format_error_boxed!(
             "Failed to parse hotkey '{}': {}",
             hk_str,
             e

@@ -21,9 +21,9 @@ use std::{
 
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, IsWindowVisible};
 
-use crate::config::{AppConfig, Config, FoundWindow};
-use crate::spawn_guard::{get_spawning_apps, SpawnGuard};
 use crate::windows::window::{find_window_by_process, get_app_cache, park_window};
+use janq::config::{AppConfig, Config, FoundWindow};
+use janq::spawn_guard::{get_spawning_apps, SpawnGuard};
 
 pub fn ensure_terminal_running(
   app_name: &str,

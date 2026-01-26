@@ -31,7 +31,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
   - `specific` - For when you want to fight the automation.
 - **Slide directions:** `top`, `bottom`, `left`, `right`. Choice is an illusion, but we provide it anyway.
 - **Keep above** option to ensure your terminal stays on top, regardless of what you're trying to hide behind it.
-- **No borders** option now cross-platform. Remove window borders/chrome for managed windows on both Windows and Linux.
+- **No borders** option now supports per-app overrides. Remove window borders/chrome for specific managed windows or set a global default on both Windows and Linux.
 - **Pager control**: `skip_pager` option to hide managed windows from task managers, pagers, and the task switcher (now defaults to `false`).
 - **all_desktops setting (Linux)**: Choose whether managed windows follow you across virtual desktops (defaulting to `true`).
 - **Desktop-Aware Focus (Linux)**: Closing the terminal no longer snaps you back to your previous desktop if you've moved desktops while the app was open.
@@ -54,6 +54,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Linux:** Native D-Bus sync with KDE. Your hotkeys will appear in System Settings, just like the real ones.
 - **Windows:** Native Win32 registration. Instant response, unlike most things on Windows.
 - **Weighted matching** - Find windows by abbreviation or substring (e.g., `wt` → `WindowsTerminal`).
+- **Platform-Aware Path Discovery**: janq now provides helpful, platform-specific error messages when a configuration file isn't found, correctly identifying `%APPDATA%\janq\janq.toml` as the preferred location on Windows.
 - **Platform-Specific Validation**: janq now blocks startup with a hard error if you try to use Linux-specific settings on Windows, ensuring your configuration is valid for your current platform.
 
 ---
@@ -62,13 +63,15 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 
 - **Zero-Scan Logic (Linux)**: KWin scripts now perform a single-pass window discovery using cached IDs/PIDs, eliminating expensive O(n) scans during toggles.
 - **Desktop-Aware Focus Logic**: Focus restoration now respects your current virtual desktop, avoiding cross-desktop displacement calls on Linux.
-- **Deterministic Sibling Lifecycle**: Sibling windows compute their own individual paths and durations. Linux backends use precise ID/PID matching to ensure siblings always respect their own individual settings (avoiding the "half-faded sibling" bug).
+- **Synchronized Sibling Lifecycle**: Sibling windows compute their own individual paths while sharing the target window's base duration. Linux backends use precise ID/PID matching to ensure synchronized, velocity-scaled transitions. (See [Sibling Animation Inconsistency](#sibling-animation-inconsistency)).
 - **JSON Argument Consolidation (Linux)**: Refactored D-Bus script injection to pass consolidated JSON objects, replacing 26+ fragile positional arguments.
 - **Pre-calculated Geometry**: Both platforms now fully pre-compute sibling trajectories and durations before entering the high-frequency animation loop.
-- **Event-Driven Core**: Event-driven on both platforms; uses `PostThreadMessageW` on Windows to avoid the 15ms `GetMessage` sleep tax.
+- **Unified Async Architecture**: Total migration to a cross-platform Tokio-based async runtime. Replaced fragmented bridge threads with a single unified event loop for IPC, animations, and heartbeats across both platforms.
 - **Sub-millisecond liveness checks**: Native `/proc` on Linux and `IsWindow` on Windows.
-- **Memory footprint**: <2MB on Windows, ~3.4MB on Linux. Light enough to be ignored.
-- **Flattened Proxy Architecture**: Eliminated redundant layers and split the Win32 monolith into focused sub-modules.
+- **Memory footprint**: <2.5MB on Windows, ~3.5MB on Linux. Shaved ~0.15MB by removing the `clap` dependency and further reduced binary overhead by eliminating `anyhow` and `dirs`.
+- **Minimalist Argument Parsing**: Replaced `clap` with a minimal manual parser in `main.rs` to reduce binary complexity and overhead.
+- **Dependency Slimming**: Eliminated `anyhow` and `dirs` dependencies, replacing them with a lightweight custom `Result` type, local error macros, and a platform-native `paths` module.
+- **Library Split & Refactor**: Extracted shared core logic into a dedicated library crate (`src/lib.rs`), reducing binary size and eliminating platform-specific code duplication.
 
 ---
 

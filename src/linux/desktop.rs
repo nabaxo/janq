@@ -1,9 +1,8 @@
 use std::{env::current_exe, fs, os::unix::fs::symlink, path::PathBuf, process::Command};
 
-use anyhow::{Context, Result};
-use dirs::{config_dir, data_local_dir};
+use janq::paths::{config_dir, data_local_dir};
 
-use crate::config::Config;
+use janq::config::Config;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -15,7 +14,7 @@ pub fn get_desktop_path() -> PathBuf {
     .join("applications/dev.nabaxo.janq.desktop")
 }
 
-pub fn enable_autostart(config: &Config) -> Result<()> {
+pub fn enable_autostart(config: &Config) -> janq::error::Result<()> {
   let desktop = get_desktop_path();
   if !desktop.exists() {
     println!("Desktop file missing at {:?}, generating it...", desktop);
@@ -29,13 +28,14 @@ pub fn enable_autostart(config: &Config) -> Result<()> {
 
   fs::create_dir_all(&autostart)?;
   let _ = fs::remove_file(&link);
-  symlink(&desktop, &link).context("Failed to create autostart symlink")?;
+  symlink(&desktop, &link)
+    .map_err(|e| janq::format_error_boxed!("Failed to create autostart symlink: {}", e))?;
 
   println!("✓ Autostart enabled: {:?} -> {:?}", link, desktop);
   Ok(())
 }
 
-pub fn disable_autostart() -> Result<()> {
+pub fn disable_autostart() -> janq::error::Result<()> {
   let link = config_dir()
     .expect("No XDG config directory found - is $HOME set?")
     .join("autostart/dev.nabaxo.janq.desktop");
@@ -49,16 +49,16 @@ pub fn disable_autostart() -> Result<()> {
   Ok(())
 }
 
-pub fn generate_desktop_file(config: &Config) -> Result<()> {
+pub fn generate_desktop_file(config: &Config) -> janq::error::Result<()> {
   let _ = generate_desktop_file_impl(config, true)?;
   Ok(())
 }
 
-pub fn generate_desktop_file_headless(config: &Config) -> Result<bool> {
+pub fn generate_desktop_file_headless(config: &Config) -> janq::error::Result<bool> {
   generate_desktop_file_impl(config, false)
 }
 
-fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool> {
+fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> janq::error::Result<bool> {
   let current_exe = current_exe()
     .and_then(|p| p.canonicalize())
     .unwrap_or_else(|_| PathBuf::from("janq"));
@@ -134,7 +134,7 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> Result<bool>
     } else if config.app.is_empty() && existing.contains("Actions=") {
       // Safeguard: Don't overwrite a functional desktop file with one that has no apps
       // This happens if janq is run from a location with a junk/empty config.
-      crate::error::show_warning("Current config has no apps, but existing desktop file has actions. Skipping update to preserve shortcuts.");
+      janq::error::show_warning("Current config has no apps, but existing desktop file has actions. Skipping update to preserve shortcuts.");
       changed = false;
     }
   }
@@ -183,11 +183,11 @@ fn run_kbuildsycoca6() {
   {
     Ok(status) => {
       if !status.success() {
-        crate::error::show_error(&format!("kbuildsycoca6 exited with status: {}", status));
+        janq::error::show_error(&format!("kbuildsycoca6 exited with status: {}", status));
       }
     }
     Err(e) => {
-      crate::error::show_warning(&format!(
+      janq::error::show_warning(&format!(
         "Failed to run kbuildsycoca6: {} (This is normal on non-KDE)",
         e
       ));
@@ -195,7 +195,7 @@ fn run_kbuildsycoca6() {
   }
 }
 
-fn install_icon() -> Result<()> {
+pub fn install_icon() -> janq::error::Result<()> {
   let icon_data = include_bytes!("../../icon.svg");
   let icon_dir = data_local_dir()
     .expect("No XDG data directory found - is $HOME set?")

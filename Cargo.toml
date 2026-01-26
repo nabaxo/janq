@@ -6,19 +6,16 @@ edition = "2021"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
-anyhow = "1.0"
-dirs = "5.0"
 notify = { version = "6.1", default-features = false }
 fs2 = "0.4"
-clap = { version = "4.4", default-features = false, features = ["derive", "std", "help", "usage"] }
 indexmap = { version = "2.0", features = ["serde"] }
 rustc-hash = "2.1"
+tokio = { version = "1.32", default-features = false, features = ["rt", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "net", "io-util"] }
 
 [build-dependencies]
 embed-resource = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-tokio = { version = "1.32", default-features = false, features = ["rt", "macros", "sync", "time", "signal", "process"] }
 zbus = { version = "4.1", default-features = false, features = ["tokio"] }
 
 [target.'cfg(windows)'.dependencies]
@@ -34,7 +31,6 @@ windows = { version = "0.58", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
     "Win32_Security",
-    "Win32_System_LibraryLoader",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_System_Console",
 ], default-features = false }

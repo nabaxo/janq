@@ -21,13 +21,14 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::config::{
-  compute_slide_positions, Config, DisplayMode, PositionOffset, SlideDirection, WorkArea,
-};
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
   force_focus, get_animation_cancel, get_animation_state, get_app_cache, get_previous_focus,
-  get_visible_app, monitor_enum_proc, AnimationState, CachedWindow, MonitorEnumCtx,
+  get_visible_app, monitor_enum_proc, set_taskbar_hidden, AnimationState, CachedWindow,
+  MonitorEnumCtx,
+};
+use janq::config::{
+  compute_slide_positions, Config, DisplayMode, PositionOffset, SlideDirection, WorkArea,
 };
 
 /// Runs the animation loop synchronously.
@@ -38,7 +39,24 @@ use crate::windows::window::{
 /// - Sibling window coordination
 /// - Frame-by-frame interpolation with easing
 /// - Opacity animation (if enabled)
+/// Opacity animation (if enabled)
 static ANIMATION_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone)]
+struct SiblingAnimation {
+  pub hwnd: HWND,
+  pub start_x: i32,
+  pub start_y: i32,
+  pub width: i32,
+  pub height: i32,
+  pub end_x: i32,
+  pub end_y: i32,
+  pub alpha: u8,
+  pub duration_secs: f64,
+  pub easing: janq::config::Easing,
+  pub animate_opacity: bool,
+  pub no_borders: bool,
+}
 
 pub fn run_animation_task_sync(
   app_name: &str,
@@ -122,26 +140,25 @@ pub fn run_animation_task_sync(
     let screen_h = work_area.bottom - work_area.top;
 
     // --- Geometry & Current State Capture ---
-    let ((width_val, width_is_pct), (height_val, height_is_pct)) =
-      app_cfg.resolve_dimensions(&config.window);
+    let (width, height) = app_cfg.resolve_dimensions(&config.window);
 
     let mut r_target = RECT::default();
     let _ = GetWindowRect(target_hwnd.inner(), &mut r_target);
 
-    let target_w = if width_val > 0.0 {
-      (if width_is_pct {
-        screen_w as f64 * width_val
+    let target_w = if width.val > 0.0 {
+      (if width.is_percent {
+        screen_w as f64 * width.val
       } else {
-        width_val
+        width.val
       }) as i32
     } else {
       r_target.right - r_target.left
     };
-    let target_h = if height_val > 0.0 {
-      (if height_is_pct {
-        screen_h as f64 * height_val
+    let target_h = if height.val > 0.0 {
+      (if height.is_percent {
+        screen_h as f64 * height.val
       } else {
-        height_val
+        height.val
       }) as i32
     } else {
       r_target.bottom - r_target.top
@@ -271,7 +288,7 @@ pub fn run_animation_task_sync(
             );
 
             // Sibling-specific overrides
-            let (target_dur_ms, target_easing, sib_anim_op) = sib_app_name
+            let (target_dur_ms, target_easing, sib_anim_op, sib_no_brd) = sib_app_name
               .as_ref()
               .and_then(|name| config.app.get(name))
               .map(|a| {
@@ -279,9 +296,15 @@ pub fn run_animation_task_sync(
                   config.animation.hide_duration,
                   &config.animation.hide_easing,
                   a.get_animate_opacity(config.animation.animate_opacity),
+                  a.get_no_borders(config.window.no_borders),
                 )
               })
-              .unwrap_or((sib_dur_ms, sib_easing_cfg, config.animation.animate_opacity));
+              .unwrap_or((
+                sib_dur_ms,
+                sib_easing_cfg,
+                config.animation.animate_opacity,
+                config.window.no_borders,
+              ));
 
             // Siblings slide out using their hidden positions from compute_slide_positions
             let (sib_end_x, sib_end_y) = (sib_positions.hidden_x, sib_positions.hidden_y);
@@ -303,19 +326,20 @@ pub fn run_animation_task_sync(
 
             let mut sa: u8 = 255;
             let _ = GetLayeredWindowAttributes(ohwnd, None, Some(&mut sa), None);
-            siblings_data.push((
-              ohwnd,
-              r.left, // start_x
-              r.top,  // start_y
-              s_w,
-              s_h,
-              sib_end_x,
-              sib_end_y,
-              sa,
-              s_dur_ms / 1000.0,
-              target_easing.clone(),
-              sib_anim_op,
-            ));
+            siblings_data.push(SiblingAnimation {
+              hwnd: ohwnd,
+              start_x: r.left,
+              start_y: r.top,
+              width: s_w,
+              height: s_h,
+              end_x: sib_end_x,
+              end_y: sib_end_y,
+              alpha: sa,
+              duration_secs: s_dur_ms / 1000.0,
+              easing: target_easing.clone(),
+              animate_opacity: sib_anim_op,
+              no_borders: sib_no_brd,
+            });
           }
         }
       }
@@ -391,22 +415,23 @@ pub fn run_animation_task_sync(
       &TRUE as *const _ as *const _,
       4,
     );
-    for (h, _, _, _, _, _, _, _, _, _, _) in &siblings_data {
+    for sib in &siblings_data {
       let _ = DwmSetWindowAttribute(
-        *h,
+        sib.hwnd,
         DWMWA_TRANSITIONS_FORCEDISABLED,
         &TRUE as *const _ as *const _,
         4,
       );
     }
 
-    let prep_layer = |h: HWND| {
+    let prep_layer = |h: HWND, app_no_borders: bool| {
       let mut ex = GetWindowLongW(h, GWL_EXSTYLE) as u32;
       let mut changed = false;
       if (ex & WS_EX_LAYERED.0) == 0 {
         ex |= WS_EX_LAYERED.0;
         changed = true;
       }
+      // WS_EX_TOOLWINDOW hides from Alt+Tab; only use when skip_pager=true
       if config.window.skip_pager {
         if (ex & WS_EX_TOOLWINDOW.0) == 0 {
           ex |= WS_EX_TOOLWINDOW.0;
@@ -421,8 +446,11 @@ pub fn run_animation_task_sync(
         SetWindowLongW(h, GWL_EXSTYLE, ex as i32);
       }
 
+      // Always hide from taskbar via owner (keeps Alt+Tab when skip_pager=false)
+      set_taskbar_hidden(h, true);
+
       let mut style = GetWindowLongW(h, GWL_STYLE) as u32;
-      if config.window.no_borders {
+      if app_no_borders {
         if (style & (WS_CAPTION.0 | WS_THICKFRAME.0)) != 0 {
           style &= !(WS_CAPTION.0 | WS_THICKFRAME.0);
           SetWindowLongW(h, GWL_STYLE, style as i32);
@@ -446,18 +474,19 @@ pub fn run_animation_task_sync(
         );
       }
     };
+    let target_no_borders = app_cfg.get_no_borders(config.window.no_borders);
     if !should_show {
       let ex = GetWindowLongW(target_hwnd.inner(), GWL_EXSTYLE);
       if (ex & WS_EX_LAYERED.0 as i32) == 0 {
-        prep_layer(target_hwnd.inner());
+        prep_layer(target_hwnd.inner(), target_no_borders);
       }
     } else {
-      prep_layer(target_hwnd.inner());
+      prep_layer(target_hwnd.inner(), target_no_borders);
     }
-    for (h, _, _, _, _, _, _, _, _, _, _) in &siblings_data {
-      let ex = GetWindowLongW(*h, GWL_EXSTYLE);
+    for sib in &siblings_data {
+      let ex = GetWindowLongW(sib.hwnd, GWL_EXSTYLE);
       if (ex & WS_EX_LAYERED.0 as i32) == 0 {
-        prep_layer(*h);
+        prep_layer(sib.hwnd, sib.no_borders);
       }
     }
 
@@ -494,25 +523,16 @@ pub fn run_animation_task_sync(
 
     let max_dur_secs = siblings_data
       .iter()
-      .map(|(_, _, _, _, _, _, _, _, ds, _, _)| *ds)
+      .map(|s| s.duration_secs)
       .fold(dur_secs, |a, b| a.max(b));
 
     if max_dur_secs > 0.0 {
       let mut last_x = t_start_x;
       let mut last_y = t_start_y;
       let mut last_alpha = t_curr_alpha;
-      let mut last_sibling_xs: Vec<i32> = siblings_data
-        .iter()
-        .map(|(_, sx, _, _, _, _, _, _, _, _, _)| *sx)
-        .collect();
-      let mut last_sibling_ys: Vec<i32> = siblings_data
-        .iter()
-        .map(|(_, _, sy, _, _, _, _, _, _, _, _)| *sy)
-        .collect();
-      let mut last_sibling_alphas: Vec<u8> = siblings_data
-        .iter()
-        .map(|(_, _, _, _, _, _, _, sa, _, _, _)| *sa)
-        .collect();
+      let mut last_sibling_xs: Vec<i32> = siblings_data.iter().map(|s| s.start_x).collect();
+      let mut last_sibling_ys: Vec<i32> = siblings_data.iter().map(|s| s.start_y).collect();
+      let mut last_sibling_alphas: Vec<u8> = siblings_data.iter().map(|s| s.alpha).collect();
 
       let loop_start_time = Instant::now();
       loop {
@@ -569,22 +589,20 @@ pub fn run_animation_task_sync(
         }
 
         // --- Sibling Opacity ---
-        for (i, (h, _, _, _, _, _, _, _, s_dur, s_easing, s_anim_op)) in
-          siblings_data.iter().enumerate()
-        {
-          if *s_anim_op {
+        for (i, sib) in siblings_data.iter().enumerate() {
+          if sib.animate_opacity {
             let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
-            let s_progress = (elapsed_since_start / *s_dur).min(1.0);
+            let s_progress = (elapsed_since_start / sib.duration_secs).min(1.0);
             // Siblings always follow the "hide" path in synchronization with their own duration
             let s_denom = 1.0 - config.animation.hide_opacity_point;
             let raw_op_progress = ((s_progress - config.animation.hide_opacity_point)
               / if s_denom <= 0.0 { 0.0001 } else { s_denom })
             .clamp(0.0, 1.0);
-            let eased_op = get_easing(raw_op_progress, s_easing);
+            let eased_op = get_easing(raw_op_progress, &sib.easing);
             let s_target_alpha = (255.0 * (1.0 - eased_op)) as u8;
 
             if s_target_alpha != last_sibling_alphas[i] {
-              let _ = SetLayeredWindowAttributes(*h, COLORREF(0), s_target_alpha, LWA_ALPHA);
+              let _ = SetLayeredWindowAttributes(sib.hwnd, COLORREF(0), s_target_alpha, LWA_ALPHA);
               last_sibling_alphas[i] = s_target_alpha;
             }
           }
@@ -599,14 +617,12 @@ pub fn run_animation_task_sync(
         if next_x != last_x || next_y != last_y || first_frame {
           needs_pos_update = true;
         } else {
-          for (i, (_, sx, sy, _, _, ex, ey, _, s_dur, s_easing, _)) in
-            siblings_data.iter().enumerate()
-          {
+          for (i, sib) in siblings_data.iter().enumerate() {
             let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
-            let s_progress = (elapsed_since_start / *s_dur).min(1.0);
-            let s_ease_val = get_easing(s_progress, s_easing);
-            let on_x = sx + ((*ex - *sx) as f64 * s_ease_val) as i32;
-            let on_y = sy + ((*ey - *sy) as f64 * s_ease_val) as i32;
+            let s_progress = (elapsed_since_start / sib.duration_secs).min(1.0);
+            let s_ease_val = get_easing(s_progress, &sib.easing);
+            let on_x = sib.start_x + ((sib.end_x - sib.start_x) as f64 * s_ease_val) as i32;
+            let on_y = sib.start_y + ((sib.end_y - sib.start_y) as f64 * s_ease_val) as i32;
             if on_x != last_sibling_xs[i] || on_y != last_sibling_ys[i] {
               needs_pos_update = true;
               break;
@@ -648,33 +664,31 @@ pub fn run_animation_task_sync(
               _ => {}
             }
 
-            for (i, (h, sx, sy, sw, sh, ex, ey, _, s_dur, s_easing, _)) in
-              siblings_data.iter().enumerate()
-            {
+            for (i, sib) in siblings_data.iter().enumerate() {
               let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
-              let s_progress = (elapsed_since_start / *s_dur).min(1.0);
-              let s_ease_val = get_easing(s_progress, s_easing);
-              let on_x = sx + ((*ex - *sx) as f64 * s_ease_val) as i32;
-              let on_y = sy + ((*ey - *sy) as f64 * s_ease_val) as i32;
+              let s_progress = (elapsed_since_start / sib.duration_secs).min(1.0);
+              let s_ease_val = get_easing(s_progress, &sib.easing);
+              let on_x = sib.start_x + ((sib.end_x - sib.start_x) as f64 * s_ease_val) as i32;
+              let on_y = sib.start_y + ((sib.end_y - sib.start_y) as f64 * s_ease_val) as i32;
               match DeferWindowPos(
                 hdwp,
-                *h,
+                sib.hwnd,
                 HWND::default(),
                 on_x,
                 on_y,
-                *sw,
-                *sh,
+                sib.width,
+                sib.height,
                 SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOZORDER,
               ) {
                 Ok(nh) if !nh.is_invalid() => hdwp = nh,
                 _ => {
                   let _ = SetWindowPos(
-                    *h,
+                    sib.hwnd,
                     HWND::default(),
                     on_x,
                     on_y,
-                    *sw,
-                    *sh,
+                    sib.width,
+                    sib.height,
                     SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOZORDER,
                   );
                 }
@@ -757,8 +771,8 @@ pub fn run_animation_task_sync(
         }
       }
     }
-    for (h, _, _, _, _, _, _, _, _, _, _) in siblings_data {
-      let _ = ShowWindow(h, SW_HIDE);
+    for sib in siblings_data {
+      let _ = ShowWindow(sib.hwnd, SW_HIDE);
     }
   }
 }

@@ -30,12 +30,12 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::config::Config;
+use janq::config::Config;
 
 // Re-export from submodules
 pub use super::discovery::{fetch_system_windows, find_window_by_process};
 pub use super::parking::{
-  park_window, reset_visible_app, restore_app_window, restore_window_visibility,
+  park_window, release_windows, reset_visible_app, restore_window_visibility,
 };
 
 // =============================================================================
@@ -53,6 +53,57 @@ unsafe impl Sync for CachedWindow {}
 impl CachedWindow {
   pub fn inner(&self) -> HWND {
     self.hwnd
+  }
+}
+
+// =============================================================================
+// Hidden Owner Window for Taskbar Hiding
+// =============================================================================
+
+/// A hidden message-only window used as owner for managed windows.
+/// When a window has an owner, Windows doesn't show it in the taskbar,
+/// but it still appears in Alt+Tab (unlike WS_EX_TOOLWINDOW).
+static HIDDEN_OWNER: OnceLock<CachedWindow> = OnceLock::new();
+
+/// Creates a hidden message-only window to serve as owner for taskbar hiding.
+/// Should be called once at daemon startup.
+pub fn init_hidden_owner() {
+  use windows::core::w;
+
+  let hwnd = unsafe {
+    CreateWindowExW(
+      WINDOW_EX_STYLE::default(),
+      w!("STATIC"),
+      w!("janq_owner"),
+      WS_POPUP,
+      0,
+      0,
+      0,
+      0,
+      HWND_MESSAGE,
+      None,
+      None,
+      None,
+    )
+  };
+
+  if let Ok(h) = hwnd {
+    let _ = HIDDEN_OWNER.set(CachedWindow { hwnd: h });
+  }
+}
+
+/// Gets the hidden owner window handle, if initialized.
+pub fn get_hidden_owner() -> Option<HWND> {
+  HIDDEN_OWNER.get().map(|cw| cw.hwnd)
+}
+
+/// Sets a window's owner to hide it from the taskbar while keeping Alt+Tab visibility.
+pub fn set_taskbar_hidden(hwnd: HWND, hidden: bool) {
+  if let Some(owner) = get_hidden_owner() {
+    unsafe {
+      let new_owner = if hidden { owner.0 as isize } else { 0 };
+      SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, new_owner);
+    }
   }
 }
 

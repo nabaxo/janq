@@ -14,15 +14,17 @@
 
 #![windows_subsystem = "windows"]
 
+// Memory Optimization Tip: For Linux environments with glibc, setting the
+// environment variable MALLOC_ARENA_MAX=1 before starting janq can reduce
+// baseline RSS by 1-2MB.
+
 use std::process::exit;
 
-use crate::error::show_error;
-use clap::Parser;
-#[cfg(target_os = "linux")]
+use janq::config::{self, Config};
+use janq::error::show_error;
+use std::env;
 use tokio::runtime::Builder;
 
-mod config;
-mod config_watcher;
 #[cfg(target_os = "linux")]
 mod daemon {
   pub use crate::linux::daemon::*;
@@ -31,14 +33,10 @@ mod daemon {
 mod daemon {
   pub use crate::windows::daemon::*;
 }
-mod error;
-#[cfg(target_os = "windows")]
-mod hotkey;
+
 #[cfg(target_os = "linux")]
 mod linux;
-mod matching;
-mod shutdown;
-mod spawn_guard;
+
 #[cfg(target_os = "linux")]
 #[allow(unused_imports)]
 mod terminal {
@@ -49,7 +47,7 @@ mod terminal {
 mod terminal {
   pub use crate::windows::terminal::*;
 }
-mod validation;
+
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -62,29 +60,89 @@ fn attach_parent_console() {
   }
 }
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[derive(Debug, Default)]
 struct Args {
-  /// Run as a persistent process in the terminal (Server Mode)
-  #[arg(long, default_value_t = false, aliases = ["demon", "deamon"])]
   daemon: bool,
-
-  /// Name of the app to toggle (from config)
-  #[arg(long)]
   app: Option<String>,
-
-  /// Enable autostart on login (Linux only: creates symlink in ~/.config/autostart)
   #[cfg(target_os = "linux")]
-  #[arg(long)]
   enable_autostart: bool,
-
-  /// Disable autostart on login (Linux only: removes symlink from ~/.config/autostart)
   #[cfg(target_os = "linux")]
-  #[arg(long)]
   disable_autostart: bool,
 }
 
-fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Option<&str>, String> {
+fn print_help() {
+  println!(
+    "janq {} - Quake-style dropdown terminal manager
+
+USAGE:
+    janq [OPTIONS]
+
+OPTIONS:
+    --daemon            Run as a persistent process (Server Mode)
+    --app <NAME>        Name of the app to toggle (from config)
+    --help              Print help information
+    --version           Print version information",
+    env!("CARGO_PKG_VERSION")
+  );
+
+  #[cfg(target_os = "linux")]
+  {
+    println!(
+      "    --enable-autostart  Enable autostart (creates symlink in ~/.config/autostart)
+    --disable-autostart Disable autostart (removes symlink from ~/.config/autostart)"
+    );
+  }
+
+  println!("\nAliases: --demon, --deamon for --daemon");
+}
+
+fn parse_args() -> Args {
+  let mut args = Args::default();
+  let mut iter = env::args().skip(1);
+
+  while let Some(arg) = iter.next() {
+    match arg.as_str() {
+      "--help" | "-h" => {
+        print_help();
+        exit(0);
+      }
+      "--version" | "-V" => {
+        println!("janq {}", env!("CARGO_PKG_VERSION"));
+        exit(0);
+      }
+      "--daemon" | "--demon" | "--deamon" => {
+        args.daemon = true;
+      }
+      "--app" => {
+        if let Some(val) = iter.next() {
+          args.app = Some(val);
+        } else {
+          show_error("Error: --app requires a value");
+          exit(1);
+        }
+      }
+      #[cfg(target_os = "linux")]
+      "--enable-autostart" => {
+        args.enable_autostart = true;
+      }
+      #[cfg(target_os = "linux")]
+      "--disable-autostart" => {
+        args.disable_autostart = true;
+      }
+      _ => {
+        if arg.starts_with("--app=") {
+          args.app = Some(arg.trim_start_matches("--app=").to_string());
+        } else {
+          // Ignore unknown args to be more lax than clap
+          eprintln!("Warning: Unknown argument '{}'", arg);
+        }
+      }
+    }
+  }
+  args
+}
+
+fn resolve_app(config: &Config, requested: Option<String>) -> Result<Option<&str>, String> {
   let app = &config.app;
   if app.is_empty() {
     return Ok(None);
@@ -105,7 +163,7 @@ fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Opt
         // Build error message only on failure path
         let mut available: Vec<&str> = app.keys().map(|s| s.as_str()).collect();
         available.sort_unstable();
-        Err(crate::error::format_error(&format!(
+        Err(janq::error::format_error(&format!(
           "App '{}' not found in config.\nAvailable: {}",
           name,
           available.join(", ")
@@ -119,11 +177,11 @@ fn resolve_app(config: &config::Config, requested: Option<String>) -> Result<Opt
   }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> janq::error::Result<()> {
   #[cfg(target_os = "windows")]
   attach_parent_console();
 
-  let args = Args::parse();
+  let args = parse_args();
 
   let (config, config_path) = match config::load_config(None) {
     Ok(c) => c,
@@ -152,42 +210,20 @@ fn main() -> anyhow::Result<()> {
     }
   }
 
-  #[cfg(target_os = "linux")]
-  {
-    let rt = Builder::new_current_thread().enable_all().build()?;
-    rt.block_on(async {
-      let target_app = match resolve_app(&config, args.app.clone()) {
-        Ok(a) => a,
-        Err(e) => {
-          show_error(&e);
-          exit(1);
-        }
-      };
+  // Setup Tokio Runtime
+  let mut builder = if cfg!(target_os = "windows") {
+    let mut b = Builder::new_multi_thread();
+    b.worker_threads(2).thread_stack_size(256 * 1024);
+    b
+  } else {
+    let mut b = Builder::new_current_thread();
+    b.thread_stack_size(512 * 1024);
+    b
+  };
 
-      let target_app_owned = target_app.map(|s| s.to_string());
-      if args.daemon {
-        if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
-          show_error(&e.to_string());
-          exit(1);
-        }
-        return Ok(());
-      }
+  let rt = builder.enable_all().build()?;
 
-      if daemon::send_toggle(target_app_owned.clone()).await.is_ok() {
-        return Ok(());
-      }
-
-      println!("Daemon not running (or reachable). Starting new daemon instance...");
-      if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
-        show_error(&e.to_string());
-        exit(1);
-      }
-      Ok(())
-    })
-  }
-
-  #[cfg(target_os = "windows")]
-  {
+  rt.block_on(async {
     let target_app = match resolve_app(&config, args.app.clone()) {
       Ok(a) => a,
       Err(e) => {
@@ -198,23 +234,25 @@ fn main() -> anyhow::Result<()> {
 
     let target_app_owned = target_app.map(|s| s.to_string());
     if args.daemon {
-      if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned) {
+      if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
         show_error(&e.to_string());
         exit(1);
       }
       return Ok(());
     }
 
-    // Synchronous IPC check for Windows
-    if daemon::send_toggle_sync(target_app_owned.clone()).is_ok() {
+    if daemon::send_toggle(target_app_owned.clone()).await.is_ok() {
       return Ok(());
     }
 
     println!("Daemon not running (or reachable). Starting new daemon instance...");
-    if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned) {
+    if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
+      #[cfg(target_os = "windows")]
       windows::show_error(&e.to_string());
+      #[cfg(target_os = "linux")]
+      show_error(&e.to_string());
       exit(1);
     }
     Ok(())
-  }
+  })
 }

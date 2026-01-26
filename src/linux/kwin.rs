@@ -23,7 +23,8 @@
 //! - `visible_app` - Currently visible janq window (None if all hidden)
 //! - `previous_window_id` - Window to restore focus to after hide
 //! - `max_refresh_rate` - Used for smooth animation timing
-
+//!
+//! use rustc_hash::FxHashMap;
 use rustc_hash::FxHashMap;
 use std::{env::temp_dir, fs, path::Path, process::Command, sync::OnceLock};
 
@@ -31,14 +32,14 @@ use tokio::{
   sync::Mutex,
   time::{sleep, Duration},
 };
-use zbus::{Connection, Proxy, Result};
+use zbus::{names::BusName, names::InterfaceName, zvariant::ObjectPath, Connection, Result};
 
-use crate::config::{AppConfig, Config, PositionOffset, SlideDirection};
 use crate::linux::cache::{get_cached_window, remove_from_cache, update_cache};
 use crate::linux::terminal::{
   check_window_exists, check_window_exists_with_candidates, fetch_system_windows,
   get_pid_for_class, is_window_valid,
 };
+use janq::config::{AppConfig, Config, PositionOffset, SlideDirection};
 
 // =============================================================================
 // Linux Animation Logic
@@ -53,9 +54,11 @@ struct ResolvedAnimationParts {
   pub is_neg: bool,
   pub is_center: bool,
   pub animate_opacity: bool,
+  pub no_borders: bool,
   pub hide_easing: String,
 }
 
+#[inline]
 fn get_animation_parts(app_cfg: &AppConfig, global_window: &Config) -> ResolvedAnimationParts {
   let (dir, offset) = app_cfg.resolve_slide_config(&global_window.window);
   let dir_str = match dir {
@@ -71,6 +74,7 @@ fn get_animation_parts(app_cfg: &AppConfig, global_window: &Config) -> ResolvedA
   };
   let is_center = matches!(offset, PositionOffset::Center);
   let animate_opacity = app_cfg.get_animate_opacity(global_window.animation.animate_opacity);
+  let no_borders = app_cfg.get_no_borders(global_window.window.no_borders);
 
   ResolvedAnimationParts {
     dir: dir_str,
@@ -79,6 +83,7 @@ fn get_animation_parts(app_cfg: &AppConfig, global_window: &Config) -> ResolvedA
     is_neg,
     is_center,
     animate_opacity,
+    no_borders,
     hide_easing: global_window.animation.hide_easing.to_string(),
   }
 }
@@ -98,32 +103,61 @@ async fn run_kwin_script(
   script_content: &str,
   delay_before_unload: Option<Duration>,
 ) -> Result<()> {
-  let scripting_proxy =
-    Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await?;
-  let _ = scripting_proxy
-    .call_method("unloadScript", &(script_name))
+  // 1. Unload existing script if any
+  let _ = conn
+    .call_method(
+      Some(BusName::try_from("org.kde.KWin").unwrap()),
+      "/Scripting",
+      Some(InterfaceName::try_from("org.kde.kwin.Scripting").unwrap()),
+      "unloadScript",
+      &(script_name),
+    )
     .await;
 
+  // 2. Write content to temp file
   let tmp_path = temp_dir().join(format!("{}.js", script_name));
   fs::write(&tmp_path, script_content)
     .map_err(|e| zbus::Error::Failure(format!("Failed to write script: {}", e)))?;
 
   let tmp_path_str = tmp_path.to_string_lossy().to_string();
-  let reply = scripting_proxy
-    .call_method("loadScript", &(tmp_path_str, script_name))
+
+  // 3. Load script
+  let reply = conn
+    .call_method(
+      Some(BusName::try_from("org.kde.KWin").unwrap()),
+      "/Scripting",
+      Some(InterfaceName::try_from("org.kde.kwin.Scripting").unwrap()),
+      "loadScript",
+      &(tmp_path_str, script_name),
+    )
     .await?;
+
   let script_id: i32 = reply.body().deserialize()?;
 
   if script_id >= 0 {
     let script_obj_path = format!("/Scripting/Script{}", script_id);
-    let script_proxy =
-      Proxy::new(conn, "org.kde.KWin", script_obj_path, "org.kde.kwin.Script").await?;
-    script_proxy.call_method("run", &()).await?;
+
+    // 4. Run script
+    conn
+      .call_method(
+        Some(BusName::try_from("org.kde.KWin").unwrap()),
+        ObjectPath::try_from(script_obj_path).unwrap(),
+        Some(InterfaceName::try_from("org.kde.kwin.Script").unwrap()),
+        "run",
+        &(),
+      )
+      .await?;
 
     if let Some(delay) = delay_before_unload {
       sleep(delay).await;
-      let _ = scripting_proxy
-        .call_method("unloadScript", &(script_name))
+      let _ = conn
+        .call_method(
+          Some(BusName::try_from("org.kde.KWin").unwrap()),
+          "/Scripting",
+          Some(InterfaceName::try_from("org.kde.kwin.Scripting").unwrap()),
+          "unloadScript",
+          &(script_name),
+        )
         .await;
     }
     let _ = fs::remove_file(tmp_path);
@@ -215,12 +249,23 @@ const FETCH_WINDOWS_SCRIPT: &str = include_str!("js/fetch_windows.js");
 const GET_ACTIVE_WINDOW_SCRIPT: &str = include_str!("js/get_active_window.js");
 
 pub async fn trigger_fetch_windows(conn: &Connection, request_id: u64) -> Result<()> {
-  let script_body_raw = FETCH_WINDOWS_SCRIPT.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
-  let script_body_trimmed = script_body_raw.trim();
-  let script_body = script_body_trimmed
+  let mut script_content =
+    String::with_capacity(FETCH_WINDOWS_SCRIPT.len() + COMMON_KWIN_JS.len() + 32);
+  let body = FETCH_WINDOWS_SCRIPT
+    .trim()
     .strip_suffix(';')
-    .unwrap_or(script_body_trimmed);
-  let script_content = format!("{}(\"{}\");", script_body, request_id);
+    .unwrap_or(FETCH_WINDOWS_SCRIPT.trim());
+
+  if let Some(pos) = body.find("/*{{COMMON_KWIN_JS}}*/") {
+    script_content.push_str(&body[..pos]);
+    script_content.push_str(COMMON_KWIN_JS);
+    script_content.push_str(&body[pos + 22..]);
+  } else {
+    script_content.push_str(body);
+  }
+
+  use std::fmt::Write;
+  let _ = write!(script_content, "(\"{}\");", request_id);
 
   let script_name = format!("janq_fetch_{}", request_id);
   run_kwin_script(
@@ -254,15 +299,22 @@ fn get_active_window_waiters(
 }
 
 pub async fn report_active_window(payload: String) {
-  let parts: Vec<&str> = payload.splitn(3, ':').collect();
-  if parts.len() < 3 {
-    return;
-  }
-  if let Ok(request_id) = parts[0].parse::<u64>() {
-    let info = ActiveWindowInfo {
-      id: parts[1].to_string(),
-      class: parts[2].to_string(),
-    };
+  let mut parts = payload.splitn(3, ':');
+  let request_id_str = match parts.next() {
+    Some(s) => s,
+    None => return,
+  };
+  let id = match parts.next() {
+    Some(s) => s.to_string(),
+    None => return,
+  };
+  let class = match parts.next() {
+    Some(s) => s.to_string(),
+    None => return,
+  };
+
+  if let Ok(request_id) = request_id_str.parse::<u64>() {
+    let info = ActiveWindowInfo { id, class };
     let mut waiters = get_active_window_waiters().lock().unwrap();
     if let Some(tx) = waiters.remove(&request_id) {
       let _ = tx.send(info);
@@ -414,7 +466,7 @@ pub async fn toggle_quake(
   app_name: &str,
   config: &Config,
   conn: &Connection,
-) -> anyhow::Result<()> {
+) -> janq::error::Result<()> {
   let mut state = STATE.lock().await;
   let app_cfg = match config.app.get(app_name) {
     Some(c) => c,
@@ -449,8 +501,8 @@ pub async fn toggle_quake(
         let anim_parts = get_animation_parts(other_app, config);
 
         siblings_json_parts.push(format!(
-          "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, easing: \"{}\", animOp: {} }}",
-          cached.id, cached.pid, anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center, anim_parts.hide_easing, anim_parts.animate_opacity
+          "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, easing: \"{}\", animOp: {}, noBrd: {} }}",
+          cached.id, cached.pid, anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center, anim_parts.hide_easing, anim_parts.animate_opacity, anim_parts.no_borders
         ));
       }
     }
@@ -517,14 +569,19 @@ async fn run_toggle_script(
   conn: &Connection,
   params: ToggleParams<'_>,
   refresh_rate: f64,
-) -> anyhow::Result<()> {
+) -> janq::error::Result<()> {
   let duration = if params.visible {
     config.animation.show_duration
   } else {
     config.animation.hide_duration
   };
-  let ((width, is_width_percent), (height, is_height_percent)) =
-    app_cfg.resolve_dimensions(&config.window);
+  let (width_res, height_res) = app_cfg.resolve_dimensions(&config.window);
+  let (width, is_width_percent, height, is_height_percent) = (
+    width_res.val,
+    width_res.is_percent,
+    height_res.val,
+    height_res.is_percent,
+  );
   let easing = if params.visible {
     &config.animation.show_easing
   } else {
@@ -536,39 +593,46 @@ async fn run_toggle_script(
   // Resolve slide direction and position offset for the target app
   let anim_parts = get_animation_parts(app_cfg, config);
 
-  let config_json = format!(
-    "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
-    app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
-    duration, easing, params.visible, config.window.keep_above, config.window.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
-    params.prev_id, params.target_id, params.target_pid, config.window.force_priority.unwrap_or(false),
-    anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center
-  );
-
-  let script_body_raw = TOGGLE_SCRIPT_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
-  let script_body_trimmed = script_body_raw.trim();
-  let script_body = script_body_trimmed
+  let mut script_content =
+    String::with_capacity(TOGGLE_SCRIPT_TEMPLATE.len() + COMMON_KWIN_JS.len() + 1024);
+  let body = TOGGLE_SCRIPT_TEMPLATE
+    .trim()
     .strip_suffix(';')
-    .unwrap_or(script_body_trimmed);
+    .unwrap_or(TOGGLE_SCRIPT_TEMPLATE.trim());
 
-  let script_content = format!(
-    "{}(\n  {},\n  {},\n  {}\n);",
-    script_body, config_json, params.siblings_json, refresh_rate
+  if let Some(pos) = body.find("/*{{COMMON_KWIN_JS}}*/") {
+    script_content.push_str(&body[..pos]);
+    script_content.push_str(COMMON_KWIN_JS);
+    script_content.push_str(&body[pos + 22..]);
+  } else {
+    script_content.push_str(body);
+  }
+
+  use std::fmt::Write;
+  let _ = write!(
+    script_content,
+    "(\n  {{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }},\n  {},\n  {}\n);",
+    app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
+    duration, easing, params.visible, config.window.keep_above, anim_parts.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
+    params.prev_id, params.target_id, params.target_pid, config.window.force_priority.unwrap_or(false),
+    anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center,
+    params.siblings_json, refresh_rate
   );
 
   run_kwin_script(conn, "janq_toggle_engine", &script_content, None)
     .await
-    .map_err(anyhow::Error::from)
+    .map_err(|e| janq::format_error_boxed!("{}", e))
 }
 
 pub async fn ensure_grabbed(
   app_cfg: &AppConfig,
   config: &Config,
   conn: &Connection,
-) -> anyhow::Result<()> {
+) -> janq::error::Result<()> {
   grab_apps(&[(app_cfg.clone(), config.clone())], conn).await
 }
 
-pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyhow::Result<()> {
+pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> janq::error::Result<()> {
   println!("janq: Yoinking apps...");
   let all_windows = fetch_system_windows().await;
   let state = STATE.lock().await;
@@ -594,8 +658,13 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
       (String::new(), 0)
     };
 
-    let ((width, is_width_percent), (height, is_height_percent)) =
-      app_cfg.resolve_dimensions(&config.window);
+    let (width_res, height_res) = app_cfg.resolve_dimensions(&config.window);
+    let (width, is_width_percent, height, is_height_percent) = (
+      width_res.val,
+      width_res.is_percent,
+      height_res.val,
+      height_res.is_percent,
+    );
     let is_visible = state.visible_app.as_deref() == Some(app_name);
 
     // Resolve slide config for initial parking
@@ -604,18 +673,28 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
     apps_json.push(format!(
             "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
             app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
-            config.window.keep_above, config.window.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), target_id, target_pid, is_visible, config.window.force_priority.unwrap_or(false),
+            config.window.keep_above, anim_parts.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), target_id, target_pid, is_visible, config.window.force_priority.unwrap_or(false),
             anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center
         ));
   }
 
-  let script_body_raw =
-    ENSURE_GRABBED_BATCH_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
-  let script_body_trimmed = script_body_raw.trim();
-  let script_body = script_body_trimmed
+  let mut script_content =
+    String::with_capacity(ENSURE_GRABBED_BATCH_TEMPLATE.len() + COMMON_KWIN_JS.len() + 2048);
+  let body = ENSURE_GRABBED_BATCH_TEMPLATE
+    .trim()
     .strip_suffix(';')
-    .unwrap_or(script_body_trimmed);
-  let script_content = format!("{}([\n  {}\n]);", script_body, apps_json.join(",\n  "));
+    .unwrap_or(ENSURE_GRABBED_BATCH_TEMPLATE.trim());
+
+  if let Some(pos) = body.find("/*{{COMMON_KWIN_JS}}*/") {
+    script_content.push_str(&body[..pos]);
+    script_content.push_str(COMMON_KWIN_JS);
+    script_content.push_str(&body[pos + 22..]);
+  } else {
+    script_content.push_str(body);
+  }
+
+  use std::fmt::Write;
+  let _ = write!(script_content, "([\n  {}\n]);", apps_json.join(",\n  "));
 
   run_kwin_script(
     conn,
@@ -624,28 +703,40 @@ pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> anyho
     Some(Duration::ZERO),
   )
   .await
-  .map_err(anyhow::Error::from)
+  .map_err(|e| janq::format_error_boxed!("{}", e))
 }
 
 pub async fn restore_app(
   app_name: &str,
   window_class: &str,
   conn: &Connection,
-) -> anyhow::Result<()> {
+) -> janq::error::Result<()> {
   let (id, pid) = crate::linux::cache::get_cached_window(app_name)
     .map(|c| (c.id, c.pid))
     .unwrap_or((String::new(), 0));
 
-  let script_body_raw = RESTORE_TEMPLATE.replace("/*{{COMMON_KWIN_JS}}*/", COMMON_KWIN_JS);
-  let script_body_trimmed = script_body_raw.trim();
-  let script_body = script_body_trimmed
+  let mut script_content =
+    String::with_capacity(RESTORE_TEMPLATE.len() + COMMON_KWIN_JS.len() + 128);
+  let body = RESTORE_TEMPLATE
+    .trim()
     .strip_suffix(';')
-    .unwrap_or(script_body_trimmed);
+    .unwrap_or(RESTORE_TEMPLATE.trim());
 
-  let script_content = format!(
-    "{}(\"{}\", \"{}\", {});",
-    script_body, window_class, id, pid
+  if let Some(pos) = body.find("/*{{COMMON_KWIN_JS}}*/") {
+    script_content.push_str(&body[..pos]);
+    script_content.push_str(COMMON_KWIN_JS);
+    script_content.push_str(&body[pos + 22..]);
+  } else {
+    script_content.push_str(body);
+  }
+
+  use std::fmt::Write;
+  let _ = write!(
+    script_content,
+    "(\"{}\", \"{}\", {});",
+    window_class, id, pid
   );
+
   run_kwin_script(
     conn,
     "janq_restore_script",
@@ -653,10 +744,10 @@ pub async fn restore_app(
     Some(Duration::from_millis(300)),
   )
   .await
-  .map_err(anyhow::Error::from)
+  .map_err(|e| janq::format_error_boxed!("{}", e))
 }
 
-pub async fn restore_quake(config: &Config, conn: &Connection) -> anyhow::Result<()> {
+pub async fn restore_quake(config: &Config, conn: &Connection) -> janq::error::Result<()> {
   for (name, app_cfg) in &config.app {
     let _ = restore_app(name, &app_cfg.window_class, conn).await;
   }

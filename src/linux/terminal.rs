@@ -25,7 +25,7 @@ use std::{
   fmt::Write,
   fs,
   path::Path,
-  process::{id, Command, Stdio},
+  process::{id, Stdio},
   sync::{Mutex, OnceLock},
   time::Duration,
 };
@@ -34,10 +34,10 @@ use tokio::sync::oneshot;
 use tokio::time::sleep;
 use zbus::Connection;
 
-use crate::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
-use crate::error::show_error;
 use crate::linux::cache::{get_cache, get_cached_window, remove_from_cache, update_cache};
-use crate::spawn_guard::{get_spawning_apps, SpawnGuard};
+use janq::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
+use janq::error::show_error;
+use janq::spawn_guard::{get_spawning_apps, SpawnGuard};
 
 // =============================================================================
 // D-Bus Connection Cache (shared for window discovery)
@@ -176,8 +176,8 @@ pub async fn ensure_terminal_running_with_candidates(
 
   println!("Starting terminal: {}", full_cmd);
 
-  // Use std::process with a background reaper to avoid "killing on close" regression
-  match Command::new("sh")
+  // Use tokio::process::Command to avoid blocking threads for reaping
+  match tokio::process::Command::new("sh")
     .arg("-c")
     .arg(&full_cmd)
     .stdin(Stdio::null())
@@ -186,8 +186,8 @@ pub async fn ensure_terminal_running_with_candidates(
     .spawn()
   {
     Ok(mut child) => {
-      tokio::task::spawn_blocking(move || {
-        let _ = child.wait();
+      tokio::spawn(async move {
+        let _ = child.wait().await;
       });
     }
     Err(e) => {
@@ -286,7 +286,7 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
   let request_id = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap_or_default()
-    .as_nanos() as u64;
+    .as_millis() as u64;
   let (tx, rx) = oneshot::channel();
   {
     let mut waiters = get_metadata_waiters().lock().unwrap();
@@ -324,26 +324,29 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
     if line.is_empty() {
       continue;
     }
-    let parts: Vec<&str> = line.split('|').collect();
-    if parts.len() < 4 {
-      continue;
-    }
-
-    let id = parts[0];
-    let class = parts[1].to_lowercase();
-    let pid = parts[2].parse::<u32>().unwrap_or(0);
-    let is_visible = parts[3] == "1";
+    let mut parts = line.split('|');
+    let id = match parts.next() {
+      Some(s) => s,
+      None => continue,
+    };
+    let class = match parts.next() {
+      Some(s) => s.to_lowercase(),
+      None => continue,
+    };
+    let pid_str = parts.next().unwrap_or("0");
+    let pid = pid_str.parse::<u32>().unwrap_or(0);
+    let is_visible = parts.next() == Some("1");
 
     if class.is_empty() || class == "plasmashell" || class == "kwin_x11" || class == "kwin_wayland"
     {
       continue;
     }
 
-    let mut proc_name = String::new();
+    let mut proc_lowercase = String::new();
     if pid > 0 {
       if let Ok(cmdline) = fs::read(format!("/proc/{}/cmdline", pid)) {
         if let Some(part) = cmdline.split(|&b| b == 0).next() {
-          proc_name = String::from_utf8_lossy(part)
+          proc_lowercase = String::from_utf8_lossy(part)
             .split('/')
             .last()
             .unwrap_or_default()
@@ -354,8 +357,8 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
 
     windows.push(FoundWindow {
       id: id.to_string(),
-      class_name: class,
-      proc_name,
+      class_lowercase: class,
+      proc_lowercase,
       pid,
       is_visible,
     });

@@ -1,3 +1,6 @@
+# Optimization: Setting MALLOC_ARENA_MAX=1 reduces glibc allocator overhead in janq.
+RUN_CMD := MALLOC_ARENA_MAX=1
+
 DIST_DIR := dist
 
 build: format lint build-linux-musl build-windows-static
