@@ -37,7 +37,7 @@ pub fn ensure_terminal_running(
     if let Some(cw) = cache.get(app_name) {
       // Check window liveness via IsWindow
       unsafe {
-        if IsWindow(cw.hwnd).as_bool() {
+        if IsWindow(Some(cw.hwnd)).as_bool() {
           return false; // Already managed and running
         }
       }

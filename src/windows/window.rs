@@ -23,8 +23,9 @@
 use rustc_hash::FxHashMap;
 use std::sync::{Mutex, OnceLock, RwLock};
 
+use windows::core::BOOL;
 use windows::Win32::{
-  Foundation::{BOOL, HWND, LPARAM, RECT},
+  Foundation::{HWND, LPARAM, RECT},
   Graphics::Gdi::{HDC, HMONITOR},
   System::Threading::AttachThreadInput,
   UI::WindowsAndMessaging::*,
@@ -80,7 +81,7 @@ pub fn init_hidden_owner() {
       0,
       0,
       0,
-      HWND_MESSAGE,
+      Some(HWND_MESSAGE),
       None,
       None,
       None,
@@ -150,7 +151,7 @@ pub fn get_animation_state() -> &'static Mutex<Option<AnimationState>> {
 /// doesn't have focus. Uses the "AttachThreadInput" trick to bypass locks.
 pub fn force_focus(hwnd: HWND) {
   unsafe {
-    if hwnd.is_invalid() || !IsWindow(hwnd).as_bool() {
+    if hwnd.0.is_null() || !IsWindow(Some(hwnd)).as_bool() {
       return;
     }
 
@@ -165,7 +166,7 @@ pub fn force_focus(hwnd: HWND) {
 
     // 3. Robust attempt: Attach to the current foreground thread
     let fg_window = GetForegroundWindow();
-    if !fg_window.is_invalid() && fg_window != hwnd {
+    if !fg_window.0.is_null() && fg_window != hwnd {
       let target_thread_id = GetWindowThreadProcessId(hwnd, None);
       let current_fg_thread_id = GetWindowThreadProcessId(fg_window, None);
 
@@ -217,7 +218,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   {
     let cache = get_app_cache().read().unwrap();
     if let Some(cw) = cache.get(app_name) {
-      let is_alive = unsafe { IsWindow(cw.hwnd).as_bool() };
+      let is_alive = unsafe { IsWindow(Some(cw.hwnd)).as_bool() };
       if is_alive {
         cached_hwnd = Some(*cw);
       }
@@ -251,7 +252,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
         continue;
       }
       unsafe {
-        if IsWindow(cw.hwnd).as_bool() && IsWindowVisible(cw.hwnd).as_bool() {
+        if IsWindow(Some(cw.hwnd)).as_bool() && IsWindowVisible(cw.hwnd).as_bool() {
           siblings.push(*cw);
         }
       }
@@ -281,7 +282,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
 
   unsafe {
     let fg_window = GetForegroundWindow();
-    if !fg_window.is_invalid() && fg_window != target_hwnd.inner() {
+    if !fg_window.0.is_null() && fg_window != target_hwnd.inner() {
       // Don't "save" desktop/taskbar as previous focus for restoration, as it's janky
       let mut class_buf = [0u16; 256];
       let len = GetClassNameW(fg_window, &mut class_buf);

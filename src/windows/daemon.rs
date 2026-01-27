@@ -38,8 +38,9 @@ use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotK
 use tokio::net::windows::named_pipe::ServerOptions;
 use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
-  MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+  TrayIcon, TrayIconBuilder,
 };
+use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::{
   HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
@@ -138,7 +139,7 @@ pub async fn run_daemon(
                       toggle_window(&target_name_c, &cfg);
                     });
                     unsafe {
-                      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+                      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
                     }
                   }
                 }
@@ -166,12 +167,24 @@ pub async fn run_daemon(
   let (event_tx, event_rx): (Sender<DaemonEvent>, Receiver<DaemonEvent>) = channel();
   let event_tx_watcher = event_tx.clone();
 
-  // Signal handler for graceful shutdown (Ctrl+C, Ctrl+Break, Console Close)
+  // 6. Signal Handling (Graceful shutdown: Ctrl+C, Ctrl+Break, Console Close)
   let event_tx_signal = event_tx.clone();
-  let _ = ctrlc::set_handler(move || {
-    let _ = event_tx_signal.send(DaemonEvent::Exit(Some("SIGINT/Ctrl+C")));
+  tokio::spawn(async move {
+    use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close};
+
+    let mut sig_c = ctrl_c().expect("Failed to listen for Ctrl+C");
+    let mut sig_break = ctrl_break().expect("Failed to listen for Ctrl+Break");
+    let mut sig_close = ctrl_close().expect("Failed to listen for Ctrl+Close");
+
+    let signal_name = tokio::select! {
+        _ = sig_c.recv() => "Ctrl+C",
+        _ = sig_break.recv() => "Ctrl+Break",
+        _ = sig_close.recv() => "Console Close",
+    };
+
+    let _ = event_tx_signal.send(DaemonEvent::Exit(Some(signal_name)));
     unsafe {
-      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
     }
   });
 
@@ -226,7 +239,7 @@ pub async fn run_daemon(
       }
       let _ = event_tx_watcher.send(DaemonEvent::ReloadHotkeys);
       unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
       }
     }
   });
@@ -234,7 +247,6 @@ pub async fn run_daemon(
   // 6. Event Loop (Main Thread)
   let hotkey_receiver = GlobalHotKeyEvent::receiver();
   let menu_receiver = MenuEvent::receiver();
-  let tray_receiver = TrayIconEvent::receiver();
 
   let manager_arc = Arc::new(GlobalHotKeyManager::new().expect("Failed to create HotKeyManager"));
   sync_hotkeys(
@@ -301,7 +313,7 @@ pub async fn run_daemon(
             toggle_window(&app_name_c2, &cfg_c2);
           });
           unsafe {
-            let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+            let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
           }
         });
       }
@@ -314,7 +326,7 @@ pub async fn run_daemon(
     while let Ok(event) = hotkey_receiver.recv() {
       let _ = event_tx_hk.send(DaemonEvent::Hotkey(event));
       unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
       }
     }
   });
@@ -325,7 +337,7 @@ pub async fn run_daemon(
       tokio::time::sleep(Duration::from_millis(100)).await;
       let _ = event_tx_tray.send(DaemonEvent::TrayPoll);
       unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
       }
     }
   });
@@ -336,7 +348,7 @@ pub async fn run_daemon(
       tokio::time::sleep(Duration::from_secs(2)).await;
       let _ = event_tx_heartbeat.send(DaemonEvent::RespawnCheck);
       unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
       }
     }
   });
@@ -403,27 +415,6 @@ pub async fn run_daemon(
             }
           }
           DaemonEvent::TrayPoll => {
-            while let Ok(event) = tray_receiver.try_recv() {
-              if let TrayIconEvent::Click {
-                button,
-                button_state,
-                ..
-              } = event
-              {
-                if button_state == MouseButtonState::Up && button == MouseButton::Left {
-                  let cfg = config.read().unwrap().clone();
-                  if let Some(app_name) = cfg.app.keys().next().cloned() {
-                    let app_cfg = cfg.app.get(&app_name).unwrap().clone();
-                    let app_name_spawn = app_name.clone();
-                    let cfg_spawn = cfg.clone();
-                    tokio::task::spawn_blocking(move || {
-                      ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
-                      toggle_window(&app_name_spawn, &cfg_spawn);
-                    });
-                  }
-                }
-              }
-            }
             while let Ok(event) = menu_receiver.try_recv() {
               if event.id == quit_item_id {
                 print_shutdown_message("Quit via tray menu");
@@ -457,7 +448,7 @@ pub async fn run_daemon(
                 if already_spawning {
                   false
                 } else if let Some(hwnd) = cache.get(name) {
-                  !IsWindow(hwnd.hwnd).as_bool()
+                  !IsWindow(Some(hwnd.hwnd)).as_bool()
                 } else {
                   true
                 }
@@ -477,7 +468,7 @@ pub async fn run_daemon(
                     &cfg_spawn,
                     Some(&candidates_clone),
                   );
-                  let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, None, None);
+                  let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
                 });
               }
             }

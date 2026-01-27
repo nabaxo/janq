@@ -227,7 +227,10 @@ pub async fn run_daemon(
   println!("Starting janq daemon...");
   init_kwin().await;
   let config = Arc::new(RwLock::new(Arc::new(initial_config)));
-  let conn = Connection::session().await?;
+  let conn = zbus::connection::Builder::session()?
+    .internal_executor(false)
+    .build()
+    .await?;
 
   let pid = id();
   let sni_name = format!("org.kde.StatusNotifierItem-janq-{}", pid);
@@ -474,7 +477,10 @@ pub async fn run_daemon(
 }
 
 pub async fn send_toggle(app_name: Option<String>) -> janq::error::Result<()> {
-  let conn = Connection::session().await?;
+  let conn = zbus::connection::Builder::session()?
+    .internal_executor(false)
+    .build()
+    .await?;
   if let Some(name) = app_name {
     conn
       .call_method(

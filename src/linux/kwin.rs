@@ -132,7 +132,7 @@ async fn run_kwin_script(
     )
     .await?;
 
-  let script_id: i32 = reply.body().deserialize()?;
+  let script_id: i32 = reply.body().deserialize::<i32>()?;
 
   if script_id >= 0 {
     let script_obj_path = format!("/Scripting/Script{}", script_id);
@@ -201,9 +201,9 @@ fn get_max_refresh_rate() -> f64 {
         .filter(|w| w.contains('*'))
         .filter_map(|w| {
           w.split('@')
-            .last()?
+            .next_back()?
             .chars()
-            .take_while(|c| c.is_digit(10) || *c == '.')
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
             .collect::<String>()
             .parse::<f64>()
             .ok()

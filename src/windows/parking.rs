@@ -50,7 +50,7 @@ pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
 
     let _ = SetWindowPos(
       hwnd,
-      HWND::default(),
+      Some(HWND::default()),
       0,
       0,
       0,
@@ -109,7 +109,7 @@ pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
       );
       let (tx, ty) = (positions.hidden_x, positions.hidden_y);
 
-      let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, tx, ty, tw, th, SWP_NOACTIVATE);
+      let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), tx, ty, tw, th, SWP_NOACTIVATE);
     }
   }
 }
@@ -133,7 +133,7 @@ pub fn restore_hwnd(hwnd: HWND) {
 
     let _ = SetWindowPos(
       hwnd,
-      HWND::default(),
+      Some(HWND::default()),
       0,
       0,
       0,
@@ -142,7 +142,7 @@ pub fn restore_hwnd(hwnd: HWND) {
     );
     let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
     let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
-    let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, 0, 0, flags);
+    let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), x, y, 0, 0, flags);
     if IsIconic(hwnd).as_bool() {
       let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     } else {

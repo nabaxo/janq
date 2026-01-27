@@ -51,9 +51,11 @@ async fn get_discovery_conn() -> Option<Connection> {
   if let Some(conn) = DISCOVERY_CONN.get() {
     return Some(conn.clone());
   }
-  if let Ok(conn) = Connection::session().await {
-    let _ = DISCOVERY_CONN.set(conn.clone());
-    return Some(conn);
+  if let Ok(builder) = zbus::connection::Builder::session() {
+    if let Ok(conn) = builder.internal_executor(false).build().await {
+      let _ = DISCOVERY_CONN.set(conn.clone());
+      return Some(conn);
+    }
   }
   None
 }
@@ -348,7 +350,7 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
         if let Some(part) = cmdline.split(|&b| b == 0).next() {
           proc_lowercase = String::from_utf8_lossy(part)
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or_default()
             .to_lowercase();
         }
@@ -434,10 +436,11 @@ fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
     let parts: Vec<&[u8]> = cmdline.split(|&b| b == 0).collect();
     for (i, part) in parts.iter().enumerate() {
       let s = String::from_utf8_lossy(part);
-      if s == "--class" && i + 1 < parts.len() {
-        if String::from_utf8_lossy(parts[i + 1]).eq_ignore_ascii_case(target_class) {
-          return true;
-        }
+      if s == "--class"
+        && i + 1 < parts.len()
+        && String::from_utf8_lossy(parts[i + 1]).eq_ignore_ascii_case(target_class)
+      {
+        return true;
       }
       if s.to_lowercase().starts_with("--class=") && s[8..].eq_ignore_ascii_case(target_class) {
         return true;

@@ -3,8 +3,9 @@
 //! Uses `EnumWindows` with process inspection to find windows matching
 //! user-configured `window_class` values via fuzzy matching.
 
+use windows::core::BOOL;
 use windows::Win32::{
-  Foundation::{BOOL, HWND, LPARAM},
+  Foundation::{HWND, LPARAM},
   System::{
     ProcessStatus::GetModuleBaseNameW,
     Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},

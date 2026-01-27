@@ -58,6 +58,9 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Robust Hot-Reloading**: Daemon gracefully discards invalid configs and remains running on the last good state.
 - **Desktop-Aware Focus**: Optimized window focus restoration on Linux to be virtual-desktop aware. janq now avoids "snapping" you back to your previous desktop if you've moved desktops while the managed app was open.
 - **Platform-Specific Validation**: Added strict configuration validation that blocks startup with an error if Linux-only settings (`all_desktops`, `force_priority`) are present on Windows, regardless of their value.
+- **Major Ecosystem Jump (0.62 Windows/8.2 Notify)**: Systematically refactored the entire Windows backend to comply with the strict handle requirements of `windows` 0.62. Migrated `config_watcher.rs` to the `notify` 8.2 API.
+- **Dependency Jumps**: Updated `windows` (0.62), `notify` (8.2), `zbus` (5.0), `toml` (0.9), `tokio` (1.49), and `indexmap` (2.7).
+- **Architecture Efficiency**: Switched to `FxHash` via `rustc-hash` for performance, replaced `ctrlc` with native `tokio::signal`, and migrated from `fs2` to `fs4`.
 - **Flattened internals**: Eliminated proxy modules; consolidated the 1,200-line Win32 monolith into focused sub-modules.
 
 ### Utilities

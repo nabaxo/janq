@@ -351,7 +351,7 @@ pub fn run_animation_task_sync(
       let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 0, LWA_ALPHA);
       let _ = SetWindowPos(
         target_hwnd.inner(),
-        HWND::default(),
+        Some(HWND::default()),
         hidden_x,
         hidden_y,
         target_w,
@@ -465,7 +465,7 @@ pub fn run_animation_task_sync(
       if changed {
         let _ = SetWindowPos(
           h,
-          HWND::default(),
+          Some(HWND::default()),
           0,
           0,
           0,
@@ -650,7 +650,7 @@ pub fn run_animation_task_sync(
             match DeferWindowPos(
               hdwp,
               target_hwnd.inner(),
-              t_z,
+              Some(t_z),
               next_x,
               next_y,
               target_w,
@@ -673,7 +673,7 @@ pub fn run_animation_task_sync(
               match DeferWindowPos(
                 hdwp,
                 sib.hwnd,
-                HWND::default(),
+                Some(HWND::default()),
                 on_x,
                 on_y,
                 sib.width,
@@ -684,7 +684,7 @@ pub fn run_animation_task_sync(
                 _ => {
                   let _ = SetWindowPos(
                     sib.hwnd,
-                    HWND::default(),
+                    Some(HWND::default()),
                     on_x,
                     on_y,
                     sib.width,
@@ -700,7 +700,7 @@ pub fn run_animation_task_sync(
             if !t_ok {
               let _ = SetWindowPos(
                 target_hwnd.inner(),
-                t_z,
+                Some(t_z),
                 next_x,
                 next_y,
                 target_w,
@@ -734,7 +734,7 @@ pub fn run_animation_task_sync(
       let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
       let _ = SetWindowPos(
         target_hwnd.inner(),
-        z_order,
+        Some(z_order),
         final_target_x,
         final_target_y,
         target_w,
@@ -749,7 +749,7 @@ pub fn run_animation_task_sync(
       if restore_focus {
         let mut next = GetWindow(target_hwnd.inner(), GW_HWNDNEXT);
         while let Ok(valid_next) = next {
-          if valid_next.is_invalid() {
+          if valid_next.0.is_null() {
             break;
           }
           if IsWindowVisible(valid_next).as_bool() {

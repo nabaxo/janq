@@ -243,7 +243,10 @@ pub async fn register_via_dbus(
   old_config: Option<&Config>,
 ) -> janq::error::Result<()> {
   let component = "dev.nabaxo.janq.desktop";
-  let conn = zbus::Connection::session().await?;
+  let conn = zbus::connection::Builder::session()?
+    .internal_executor(false)
+    .build()
+    .await?;
   let proxy = KGlobalAccelProxy::new(&conn).await?;
 
   // 1. FAST PATH: Return immediately if state is correct

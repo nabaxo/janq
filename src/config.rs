@@ -15,11 +15,14 @@
 //! For backward compatibility, `FoundWindow` and `fuzzy_match_window` are
 //! re-exported from the [`crate::matching`] module.
 
-use rustc_hash::FxHashMap;
-use std::{collections::HashSet, env::current_exe, fmt, fs, path::PathBuf};
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::{env::current_exe, fmt, fs, path::PathBuf};
 
 use crate::paths::{config_dir, home_dir};
 use indexmap::IndexMap; // Preserves insertion order for deterministic app iteration
+
+/// Specialized IndexMap that uses FxHash for maximum performance.
+type FxIndexMap<K, V> = IndexMap<K, V, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
 use serde::{
   de::{self, value::MapAccessDeserializer, Deserializer, Visitor},
   Deserialize,
@@ -331,7 +334,7 @@ pub struct Config {
     alias = "general",
     deserialize_with = "deserialize_app"
   )]
-  pub app: IndexMap<String, AppConfig>,
+  pub app: FxIndexMap<String, AppConfig>,
   /// Global window positioning and display settings.
   #[serde(default)]
   pub window: WindowConfig,
@@ -527,8 +530,7 @@ fn find_field_in_app_section(
   // We need to find "\n" + field_name
   for line in section_content.lines() {
     let trimmed = line.trim_start();
-    if trimmed.starts_with(field_name) {
-      let rest = &trimmed[field_name.len()..];
+    if let Some(rest) = trimmed.strip_prefix(field_name) {
       if rest.is_empty() || rest.starts_with(' ') || rest.starts_with('=') || rest.starts_with('\t')
       {
         // Calculate byte offset of this line in the content
@@ -576,7 +578,7 @@ impl HotkeyConfig {
   }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields, default)]
 pub struct AppConfig {
   pub window_class: String,
@@ -590,22 +592,6 @@ pub struct AppConfig {
   #[serde(alias = "offset")]
   pub position_offset: Option<PositionOffset>,
   pub no_borders: Option<bool>,
-}
-
-impl Default for AppConfig {
-  fn default() -> Self {
-    Self {
-      window_class: String::new(),
-      start_command: String::new(),
-      hotkey: HotkeyConfig::default(),
-      animate_opacity: None,
-      width: None,
-      height: None,
-      slide_from: None,
-      position_offset: None,
-      no_borders: None,
-    }
-  }
 }
 
 /// A resolved dimension value (calculated pixel value and whether it was a percentage).
@@ -765,9 +751,10 @@ impl Default for WindowConfig {
 /// sine, sine-in, sine-out, cubic, cubic-in, cubic-out,
 /// quart, quart-in, quart-out, back, back-in, back-out,
 /// expo, expo-in, expo-out, impulse, or cubic-bezier(x1,y1,x2,y2)
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum Easing {
   Linear,
+  #[default]
   Ease,
   EaseIn,
   EaseOut,
@@ -816,12 +803,6 @@ impl Easing {
     "expo-out",
     "impulse",
   ];
-}
-
-impl Default for Easing {
-  fn default() -> Self {
-    Easing::Ease
-  }
 }
 
 impl std::fmt::Display for Easing {
@@ -940,7 +921,7 @@ impl<'de> Deserialize<'de> for AnimationConfig {
     Ok(AnimationConfig {
       show_duration: s.show_duration.or(s.duration).unwrap_or(d.show_duration),
       hide_duration: s.hide_duration.or(s.duration).unwrap_or(d.hide_duration),
-      show_easing: s.show_easing.or(s.easing.clone()).unwrap_or(d.show_easing),
+      show_easing: s.show_easing.or(s.easing).unwrap_or(d.show_easing),
       hide_easing: s.hide_easing.or(s.easing).unwrap_or(d.hide_easing),
       animate_opacity: s.animate_opacity,
       show_opacity_point: s.show_opacity_point,
@@ -1025,7 +1006,7 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
 
   // De-duplicate while preserving order
   let mut unique_paths = Vec::new();
-  let mut seen = HashSet::new();
+  let mut seen = FxHashSet::default();
   for path in config_paths {
     if seen.insert(path.clone()) {
       unique_paths.push(path);
@@ -1129,8 +1110,7 @@ fn find_field_near_span(
     let trimmed = line.trim_start();
     let leading_ws = line.len() - trimmed.len();
 
-    if trimmed.starts_with(field) {
-      let after_field = &trimmed[field.len()..];
+    if let Some(after_field) = trimmed.strip_prefix(field) {
       if after_field.is_empty()
         || after_field.starts_with(' ')
         || after_field.starts_with('=')
@@ -1165,14 +1145,14 @@ fn find_field_near_span(
 // Custom Deserialization
 // =============================================================================
 
-fn deserialize_app<'de, D>(deserializer: D) -> Result<IndexMap<String, AppConfig>, D::Error>
+fn deserialize_app<'de, D>(deserializer: D) -> Result<FxIndexMap<String, AppConfig>, D::Error>
 where
   D: Deserializer<'de>,
 {
   struct AppVisitor;
 
   impl<'de> Visitor<'de> for AppVisitor {
-    type Value = IndexMap<String, AppConfig>;
+    type Value = FxIndexMap<String, AppConfig>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
       formatter.write_str("a map of apps or a single app configuration")
@@ -1186,10 +1166,11 @@ where
       // A simple trick: try to deserialize as HashMap<String, AppConfig>.
       // If it has keys like "window_class", it will fail if AppConfig doesn't match a map value.
 
-      let raw_map = IndexMap::<String, toml::Value>::deserialize(MapAccessDeserializer::new(map))?;
+      let raw_map =
+        FxIndexMap::<String, toml::Value>::deserialize(MapAccessDeserializer::new(map))?;
 
       if raw_map.is_empty() {
-        return Ok(IndexMap::new());
+        return Ok(FxIndexMap::default());
       }
 
       // Heuristic: Check if the map contains sub-tables (Objects), which implies a multi-app config.
@@ -1202,7 +1183,7 @@ where
           return Err(de::Error::custom("Config section '[app]' contains both app definitions (sub-tables like [app.myapp]) and direct keys (window_class). Choose one style."));
         }
         // Treat as a map of apps
-        let mut result = IndexMap::new();
+        let mut result = FxIndexMap::default();
         for (name, value) in raw_map {
           if value.is_table() {
             let config = AppConfig::deserialize(value).map_err(de::Error::custom)?;
@@ -1213,7 +1194,7 @@ where
       } else if has_flat_keys {
         let table = toml::Value::Table(raw_map.into_iter().collect());
         let config = AppConfig::deserialize(table).map_err(de::Error::custom)?;
-        let mut result = IndexMap::new();
+        let mut result = FxIndexMap::default();
 
         // Require window_class for single-app mode
         if config.window_class.is_empty() {
@@ -1227,7 +1208,7 @@ where
         Ok(result)
       } else {
         // Empty or unknown structure, default to empty map
-        Ok(IndexMap::new())
+        Ok(FxIndexMap::default())
       }
     }
 
@@ -1235,7 +1216,7 @@ where
     where
       A: de::SeqAccess<'de>,
     {
-      let mut result = IndexMap::new();
+      let mut result = FxIndexMap::default();
       let mut i = 1;
       while let Some(value) = seq.next_element::<toml::Value>()? {
         let config = AppConfig::deserialize(value).map_err(de::Error::custom)?;

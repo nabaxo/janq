@@ -8,7 +8,7 @@ pub mod spawn_guard;
 pub mod validation;
 
 use crate::config::Config;
-use fs2::FileExt;
+use fs4::fs_std::FileExt;
 use std::env::temp_dir;
 use std::fs::File;
 

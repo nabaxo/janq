@@ -71,6 +71,10 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Memory footprint**: <2.5MB on Windows, ~3.5MB on Linux. Shaved ~0.15MB by removing the `clap` dependency and further reduced binary overhead by eliminating `anyhow` and `dirs`.
 - **Minimalist Argument Parsing**: Replaced `clap` with a minimal manual parser in `main.rs` to reduce binary complexity and overhead.
 - **Dependency Slimming**: Eliminated `anyhow` and `dirs` dependencies, replacing them with a lightweight custom `Result` type, local error macros, and a platform-native `paths` module.
+- **Major Ecosystem Modernization**:
+  - **Windows 0.62 Conversion**: Deep refactor of all Win32 API calls to match strict `Option<Handle>` type requirements.
+  - **Notify 8.2 & TOML 0.9**: Modernized file watching and serialization stacks.
+  - **Performance Optimization**: Integrated `FxHash` and `tokio::signal`, and migrated to `fs4` for better file locking.
 - **Library Split & Refactor**: Extracted shared core logic into a dedicated library crate (`src/lib.rs`), reducing binary size and eliminating platform-specific code duplication.
 
 ---
