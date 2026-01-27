@@ -1,4 +1,4 @@
-# janq - A Somewhat Janky Quake-Style Terminal Manager
+# janq - A Fairly Solid Quake-Style Terminal Manager
 
 ## janq is 100%, unadulterated vibe coded slop. User discretion is advised.
 
@@ -6,7 +6,7 @@
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
-But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq on _startup_ uses like less than 2.5 MB RAM on Windows and 3.2 MB on my Fedora KDE system.
+But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq on _startup_ uses like ~2 MB RAM on Windows and ~3.2 MB on my Fedora KDE system.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
@@ -115,7 +115,7 @@ start_command = 'C:\Program Files\Terminal\wt.exe'
 
 ## Configuration
 
-### Search Priorityjanq.tomljanq.toml
+### Search Priority for configuration file
 
 janq searches for a configuration file _(janq.toml or .janq.toml)_ in the following order:
 
@@ -357,8 +357,13 @@ _(Sloperator note: Just use `full_cleanup.sh`)._
 
 ## Related Projects
 
-- **zbus**: Facilitating D-Bus communication.
-- **KWin Scripting API**: Direct integration for Wayland window management on Linux.
+(Sloperator: Shit that the AI used to cobble together this mess).
+- **[tokio](https://tokio.rs/)**: The asynchronous runtime powering the unified event loop.
+- **[zbus](https://github.com/dbus2/zbus)**: Facilitating D-Bus communication.
+- **[KWin Scripting API](https://develop.kde.org/docs/plasma/kwin/)**: Direct integration for Wayland window management on Linux.
+- **[windows-rs](https://github.com/microsoft/windows-rs)**: Native Windows API bindings for window management and positioning.
+- **[tray-icon](https://github.com/tauri-apps/tray-icon)** & **[global-hotkey](https://github.com/tauri-apps/global-hotkey)**: Managing the system tray and global shortcuts on Windows.
+- **[notify](https://github.com/notify-rs/notify)**: Powering the configuration hot-reloading feature.
 
 ## Technical Implementation
 
@@ -371,10 +376,10 @@ janq achieves cross-platform parity by utilizing native APIs. On Windows, it use
 ### Performance Optimizations
 
 - **Velocity-Style Animations**: Both platforms use "Velocity-Style" animations where duration scales based on travel distance, ensuring constant movement speed regardless of window position.
-- **Unified Async Architecture**: Migrated to a cross-platform Tokio-based async runtime. Replaced fragmented bridge threads with a single unified event loop for IPC, animations, and heartbeats.
+- **Unified Async Architecture**: Uses a cross-platform Tokio-based async runtime. Initial versions used to have fragmented bridge threads, but now uses a single unified event loop for IPC, animations, and heartbeats.
 - **Zero-IPC Liveness Checks**: On Linux, janq performs direct `/proc/{pid}` checks (<0.1ms) instead of querying KWin, ensuring instant response.
-- **Minimalist Engine**: No unnecessary dependencies including `clap`, `anyhow`, and `dirs` in favor of a minimal manual argument parser, custom error handling, and a native path resolution module, significantly reducing binary complexity and shaving ~0.15MB+ off the baseline RAM footprint.
-- **Memory Footprint**: janq idles at <2.5MB RAM on Windows and ~3.2MB on Linux while managing animations at 144Hz+.
+- **Minimalist Engine**: No unnecessary dependencies including `clap`, `anyhow`, and `dirs` in favor of a minimal manual argument parser, simple custom error handling, and a native path resolution module, significantly reducing binary complexity and optimized the baseline RAM footprint.
+- **Memory Footprint**: janq idles at ~2MB RAM on Windows and ~3.2MB on Linux while managing animations at 144Hz+.
 
 ### Physics & Logic
 
