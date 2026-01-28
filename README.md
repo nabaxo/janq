@@ -1,4 +1,4 @@
-# janq - A Fairly Solid Quake-Style Terminal Manager
+# janq - A Fairly Solid Quake-Style Terminal (or App) Manager
 
 ## janq is 100%, unadulterated vibe coded slop. User discretion is advised.
 
@@ -6,9 +6,12 @@
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
-But in the end I managed to wrangle the Wondrous Machine enough so that while running, janq on _startup_ uses like ~2 MB RAM on Windows and ~3 MB on my Fedora KDE system.
+But in the end I managed to wrangle the Wondrous Machine enough so that janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~3 MB RAM on Windows and on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~3MB on Linux.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
+
+> [!WARNING]
+> Seriously, I don't know how to program in Rust. I have no idea if the code is good or not. On a quick glance, it doesn't appear to do stupid shit; I have no idea about the specifics of Rust, I'm just a (bad) webdev.
 
 > [!CAUTION]
 > I have only tested this on two machines, your mileage may vary and all that.
