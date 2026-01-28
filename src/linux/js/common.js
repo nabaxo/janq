@@ -285,12 +285,13 @@ const computeSlidePosition = (direction, offsetVal, isPercent, isNegative, isCen
     }
     hiddenX = shownX;
 
+    // Add 10px margin so parked windows can't be grabbed at screen edges
     if (direction === "top") {
       shownY = workArea.y;
-      hiddenY = fullArea.y - winH;
+      hiddenY = fullArea.y - winH - 10;
     } else {
       shownY = workArea.y + workArea.height - winH;
-      hiddenY = fullArea.y + fullArea.height;
+      hiddenY = fullArea.y + fullArea.height + 10;
     }
   } else {
     // Fixed axis: Y (Lock to workArea center/offset)
@@ -308,12 +309,13 @@ const computeSlidePosition = (direction, offsetVal, isPercent, isNegative, isCen
     }
     hiddenY = shownY;
 
+    // Add 10px margin so parked windows can't be grabbed at screen edges
     if (direction === "left") {
       shownX = workArea.x;
-      hiddenX = fullArea.x - winW;
+      hiddenX = fullArea.x - winW - 10;
     } else {
       shownX = workArea.x + workArea.width - winW;
-      hiddenX = fullArea.x + fullArea.width;
+      hiddenX = fullArea.x + fullArea.width + 10;
     }
   }
 

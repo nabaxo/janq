@@ -1,4 +1,4 @@
-//! Window parking and restoration for Windows.
+//! Window parking and restoration for managed windows.
 //!
 //! Handles positioning windows offscreen when "parked" and restoring them
 //! to visible positions on daemon exit.
