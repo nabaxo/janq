@@ -84,6 +84,7 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> janq::error:
   desktop_content.push_str("Icon=janq\n");
   desktop_content.push_str("Terminal=false\n");
   desktop_content.push_str("Type=Application\n");
+  desktop_content.push_str("StartupWMClass=janq\n");
   desktop_content.push_str("DBusActivatable=true\n");
   desktop_content.push_str("Categories=System;TerminalEmulator;\n");
   desktop_content.push_str("X-KDE-StartupNotify=false\n");

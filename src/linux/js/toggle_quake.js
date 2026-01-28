@@ -273,9 +273,11 @@
           for (const data of siblingDatas) {
             if (data.blurActive) setForceBlur(data.client, false);
             data.client.opacity = 0.0;
+            data.client.skipPager = true;
+            if (data.client.skipSwitcher !== undefined) data.client.skipSwitcher = true;
             data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
           }
-          if (!config.shouldShow && KWin.callDBus) KWin.callDBus("org.kde.KWin", "/KWin", "org.kde.KWin", "reconfigure");
+          // Removed: KWin.reconfigure() was resetting skipSwitcher on all windows
         }
       });
       setForceBlur(target, true);
