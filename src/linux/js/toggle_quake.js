@@ -48,7 +48,7 @@
   if (!target) return;
 
   // Resolve areas for the target
-  const context = resolveAreaContext(target, config.displayMode, config.displayIndex);
+  const context = resolveAreaContext(target, config.displayMode, config.displayIndex, config.shouldShow);
   const workArea = context.work;
   const fullArea = context.full;
 

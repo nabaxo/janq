@@ -209,7 +209,7 @@ const focusKick = (target, restoreOriginal) => {
   }
 };
 
-const resolveAreaContext = (target, displayMode, displayIndex) => {
+const resolveAreaContext = (target, displayMode, displayIndex, ignoreSticky) => {
   const screens = workspace.screens || [];
   let screen = workspace.activeScreen;
 
@@ -222,7 +222,7 @@ const resolveAreaContext = (target, displayMode, displayIndex) => {
     const targetArea = workspace.clientArea(KWin.PlacementArea, target);
     const isVisible = (targetArea && target.opacity > 0.05 && target.frameGeometry.y + target.frameGeometry.height > targetArea.y + 5);
 
-    if (isVisible) {
+    if (isVisible && !ignoreSticky) {
       screen = target;
     } else if (displayMode === "active") {
       // 3. Active Window Logic (only if Janq isn't already visible)
