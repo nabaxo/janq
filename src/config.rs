@@ -718,7 +718,7 @@ impl<'de> serde::Deserialize<'de> for DisplayMode {
 #[serde(deny_unknown_fields, default)]
 pub struct WindowConfig {
   pub display_mode: DisplayMode,
-  pub display_index: i32,
+  pub display_index: u8,
   pub width: Option<Dimension>,
   pub height: Option<Dimension>,
   pub keep_above: bool,
@@ -930,8 +930,8 @@ impl TryFrom<FramerateRaw> for Framerate {
 
 #[derive(Clone, Debug)]
 pub struct AnimationConfig {
-  pub show_duration: i32,
-  pub hide_duration: i32,
+  pub show_duration: u16,
+  pub hide_duration: u16,
   pub show_easing: Easing,
   pub hide_easing: Easing,
   pub animate_opacity: bool,
@@ -948,9 +948,9 @@ impl<'de> Deserialize<'de> for AnimationConfig {
     #[derive(Deserialize, Default)]
     #[serde(deny_unknown_fields, default)]
     struct Shadow {
-      duration: Option<i32>,
-      show_duration: Option<i32>,
-      hide_duration: Option<i32>,
+      duration: Option<u16>,
+      show_duration: Option<u16>,
+      hide_duration: Option<u16>,
       easing: Option<Easing>,
       show_easing: Option<Easing>,
       hide_easing: Option<Easing>,

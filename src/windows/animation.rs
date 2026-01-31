@@ -7,7 +7,7 @@
 //! - Multi-window coordination (siblings)
 //! - Monitor-aware positioning
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use windows::Win32::{
@@ -41,7 +41,7 @@ use janq::config::{
 /// - Frame-by-frame interpolation with easing
 /// - Opacity animation (if enabled)
 /// Opacity animation (if enabled)
-static ANIMATION_GENERATION: AtomicU64 = AtomicU64::new(0);
+static ANIMATION_GENERATION: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Clone)]
 struct SiblingAnimation {
@@ -316,8 +316,8 @@ pub fn run_animation_task_sync(
               SlideDirection::Left | SlideDirection::Right => (sib_end_x - r.left).abs(),
             } as f64;
             let s_max_dist = match sib_dir {
-              SlideDirection::Top | SlideDirection::Bottom => s_h,
-              SlideDirection::Left | SlideDirection::Right => s_w,
+              SlideDirection::Top | SlideDirection::Bottom => s_h as f64,
+              SlideDirection::Left | SlideDirection::Right => s_w as f64,
             } as f64;
             let s_dur_ms = if s_max_dist > 0.0 {
               (target_dur_ms as f64 * (s_dist_total / s_max_dist)).min(target_dur_ms as f64)

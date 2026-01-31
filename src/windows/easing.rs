@@ -72,7 +72,7 @@ pub fn get_easing(progress: f64, easing: &Easing) -> f64 {
     Easing::ExpoInOut => {
       if progress == 0.0 {
         0.0
-      } else if progress == 1.0 {
+      } else if (progress - 1.0).abs() < f64::EPSILON {
         1.0
       } else if progress < 0.5 {
         2.0f64.powf(20.0 * progress - 10.0) / 2.0
