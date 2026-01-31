@@ -38,7 +38,7 @@ use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotK
 use tokio::net::windows::named_pipe::ServerOptions;
 use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
-  TrayIcon, TrayIconBuilder,
+  TrayIconBuilder,
 };
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
@@ -256,33 +256,18 @@ pub async fn run_daemon(
     &current_hotkeys,
   )?;
 
-  let tray_icon: Option<TrayIcon>;
-  let mut app_menu_items = FxHashMap::default();
-  let mut quit_item_id;
+  // Consolidated Initialization
+  let (initial_menu, mut app_menu_items, mut quit_item_id) =
+    build_tray_menu(&config.read().unwrap());
 
-  // Initial Tray Setup
-  {
-    let tray_menu = Menu::new();
-    let cfg = config.read().unwrap();
-    for name in cfg.app.keys() {
-      let item = MenuItem::new(name, true, None);
-      let _ = tray_menu.append(&item);
-      app_menu_items.insert(item.id().clone(), name.clone());
-    }
-    let _ = tray_menu.append(&PredefinedMenuItem::separator());
-    let quit_i = MenuItem::new("Quit", true, None);
-    quit_item_id = quit_i.id().clone();
-    let _ = tray_menu.append(&quit_i);
-
-    // Optimization 4: Native Resource Loading
-    let icon = tray_icon::Icon::from_resource(1, None).expect("Failed to load icon from resource");
-    let ti = TrayIconBuilder::new()
-      .with_menu(Box::new(tray_menu))
+  let icon = tray_icon::Icon::from_resource(1, None).expect("Failed to load icon from resource");
+  let tray_icon = Some(
+    TrayIconBuilder::new()
+      .with_menu(Box::new(initial_menu))
       .with_tooltip("janq")
       .with_icon(icon)
-      .build()?;
-    tray_icon = Some(ti);
-  }
+      .build()?,
+  );
 
   // Initial app spawning
   {
@@ -370,7 +355,6 @@ pub async fn run_daemon(
             exit(0);
           }
           DaemonEvent::ReloadHotkeys => {
-            println!("Reloading config...");
             let cfg = config.read().unwrap().clone();
             let _ = sync_hotkeys(
               Arc::clone(&manager_arc),
@@ -379,20 +363,13 @@ pub async fn run_daemon(
               &current_hotkeys,
             );
 
-            // Refresh Tray
-            let tray_menu = Menu::new();
-            app_menu_items.clear();
-            for name in cfg.app.keys() {
-              let item = MenuItem::new(name, true, None);
-              let _ = tray_menu.append(&item);
-              app_menu_items.insert(item.id().clone(), name.clone());
-            }
-            let _ = tray_menu.append(&PredefinedMenuItem::separator());
-            let quit_i = MenuItem::new("Quit", true, None);
-            quit_item_id = quit_i.id().clone();
-            let _ = tray_menu.append(&quit_i);
+            // Rebuild and update the tray menu
+            let (new_menu, items, q_id) = build_tray_menu(&cfg);
+            app_menu_items = items;
+            quit_item_id = q_id;
+
             if let Some(ti) = &tray_icon {
-              let _ = ti.set_menu(Some(Box::new(tray_menu)));
+              let _ = ti.set_menu(Some(Box::new(new_menu)));
             }
           }
           DaemonEvent::Hotkey(event) => {
@@ -629,4 +606,43 @@ pub fn sync_hotkeys(
   }
 
   Ok(())
+}
+
+fn build_tray_menu(
+  cfg: &janq::config::Config,
+) -> (
+  Menu,
+  FxHashMap<tray_icon::menu::MenuId, String>,
+  tray_icon::menu::MenuId,
+) {
+  let tray_menu = Menu::new();
+  let mut app_items = FxHashMap::default();
+
+  for name in cfg.app.keys() {
+    let hks = cfg.app[name].hotkey.as_vec();
+    let hk_str = hks.first().cloned().unwrap_or_default();
+
+    // Create the label with a Tab separator: "App Name\tCtrl+`"
+    let label = if !hk_str.is_empty() {
+      format!(
+        "{}\t{}",
+        name,
+        crate::windows::hotkey::normalize_for_win(&hk_str)
+      )
+    } else {
+      name.clone()
+    };
+
+    // We pass None for the accelerator because we've manually added it to the label
+    let item = MenuItem::new(label, true, None);
+    let _ = tray_menu.append(&item);
+    app_items.insert(item.id().clone(), name.clone());
+  }
+
+  let _ = tray_menu.append(&PredefinedMenuItem::separator());
+  let quit_i = MenuItem::new("Quit", true, None);
+  let quit_id = quit_i.id().clone();
+  let _ = tray_menu.append(&quit_i);
+
+  (tray_menu, app_items, quit_id)
 }

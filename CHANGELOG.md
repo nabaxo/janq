@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-01-31
 
 ### Added
+- **Systray menu on Linux**: Add tray functionality via `ksni` to linux with full menu and shortcut display
+
+### Fixed
+- **Shortcut display in tray**: Windows now displays shortcut on context menu in systray.
+
+### Changed
+- **Change opt-level**: Change opt-level to `"s"` for even harder memory optimization.
+
+### Added
 - **Animation Framerate Control**: New `framerate` option for the `[animation]` block.
   - Supports `"auto"` (VSync/Platform default), a specific number (e.g., `60`, `120`), or `0` to disable animations entirely (instant transitions).
   - Cross-platform implementation using `DwmFlush` on Windows and frequency-clamped timers on Linux.

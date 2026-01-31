@@ -34,6 +34,7 @@ embed-resource = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.0", default-features = false, features = ["tokio"] }
+ksni = { version = "0.3.3", default-features = false, features = ["tokio"] }
 
 [target.'cfg(windows)'.dependencies]
 # Windows needs multi-threaded runtime and named pipe support
@@ -52,7 +53,7 @@ tray-icon = "0.21"
 global-hotkey = "0.7"
 
 [profile.release]
-opt-level = 3
+opt-level = "s"
 lto = true
 codegen-units = 1
 panic = 'abort'

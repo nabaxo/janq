@@ -144,3 +144,20 @@ fn parse_code(s: &str) -> Option<Code> {
     _ => None,
   }
 }
+
+/// Normalizes a shortcut for the Windows tray accelerator parser.
+pub fn normalize_for_win(shortcut: &str) -> String {
+  shortcut
+    .to_lowercase()
+    .replace("control", "ctrl")
+    .replace("meta", "win")
+    .replace("super", "win")
+    .replace("cmd", "win")
+    .replace("grave", "`")
+    .replace("section", "§")
+    .replace("ctrl", "Ctrl")
+    .replace("alt", "Alt")
+    .replace("shift", "Shift")
+    .replace("win", "Win")
+    .replace(" ", "") // Remove any accidental spaces
+}
