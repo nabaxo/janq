@@ -284,11 +284,33 @@
       for (const data of siblingDatas) setForceBlur(data.client, true);
       timer.start();
     } else {
-      // Instant transition
-      target.opacity = config.shouldShow ? 1.0 : 0.0;
-      target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+      // --- Instant Transition (duration = 0) ---
+      if (config.shouldShow) {
+        if (config.forcePriority) target.fullScreen = true;
+        target.opacity = 1.0;
+        target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+        focusKick(target, false);
+      } else {
+        target.opacity = 0.0;
+        target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+        target.fullScreen = false;
+        target.skipPager = true;
+        if (target.skipSwitcher !== undefined) target.skipSwitcher = true;
+
+        if (config.prevWindowId && config.prevWindowId !== "") {
+          const allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
+          for (const c of allClients) {
+            if (c.internalId && normalizeId(c.internalId) === normalizeId(config.prevWindowId)) {
+              focusKick(c, false);
+              break;
+            }
+          }
+        }
+      }
       for (const data of siblingDatas) {
         data.client.opacity = 0.0;
+        data.client.skipPager = true;
+        if (data.client.skipSwitcher !== undefined) data.client.skipSwitcher = true;
         data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
       }
     }

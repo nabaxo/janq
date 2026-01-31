@@ -1,14 +1,15 @@
 //! Animation engine for Windows slide-in/out effects.
 //!
 //! Handles the core animation loop with:
-//! - VSync-aligned frame timing via `DwmFlush`
+//! - VSync-aligned frame timing via `DwmFlush` or fixed framerate
 //! - Easing curves for smooth motion
 //! - Opacity transitions
 //! - Multi-window coordination (siblings)
 //! - Monitor-aware positioning
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 use windows::Win32::{
   Foundation::{COLORREF, HWND, LPARAM, RECT, TRUE},
   Graphics::{
@@ -28,7 +29,7 @@ use crate::windows::window::{
   MonitorEnumCtx,
 };
 use janq::config::{
-  compute_slide_positions, Config, DisplayMode, PositionOffset, SlideDirection, WorkArea,
+  compute_slide_positions, Config, DisplayMode, Framerate, PositionOffset, SlideDirection, WorkArea,
 };
 
 /// Runs the animation loop synchronously.
@@ -76,7 +77,7 @@ pub fn run_animation_task_sync(
   unsafe {
     let monitor = if should_show {
       match &config.window.display_mode {
-        DisplayMode::Specific(_) => {
+        DisplayMode::Specific => {
           let mut ctx = MonitorEnumCtx {
             monitors: Vec::new(),
           };
@@ -379,7 +380,11 @@ pub fn run_animation_task_sync(
       SlideDirection::Left | SlideDirection::Right => target_w,
     } as f64;
 
-    let animate_opacity = app_cfg.get_animate_opacity(config.animation.animate_opacity);
+    let animate_opacity = if matches!(config.animation.framerate, Framerate::Specific(0)) {
+      false
+    } else {
+      app_cfg.get_animate_opacity(config.animation.animate_opacity)
+    };
     let base_dur_ms = if should_show {
       config.animation.show_duration
     } else {
@@ -521,10 +526,14 @@ pub fn run_animation_task_sync(
       });
     }
 
-    let max_dur_secs = siblings_data
-      .iter()
-      .map(|s| s.duration_secs)
-      .fold(dur_secs, |a, b| a.max(b));
+    let max_dur_secs = if matches!(config.animation.framerate, Framerate::Specific(0)) {
+      0.0
+    } else {
+      siblings_data
+        .iter()
+        .map(|s| s.duration_secs)
+        .fold(dur_secs, |a, b| a.max(b))
+    };
 
     if max_dur_secs > 0.0 {
       let mut last_x = t_start_x;
@@ -535,6 +544,7 @@ pub fn run_animation_task_sync(
       let mut last_sibling_alphas: Vec<u8> = siblings_data.iter().map(|s| s.alpha).collect();
 
       let loop_start_time = Instant::now();
+      let mut last_frame_time = Instant::now();
       loop {
         // 1. Bail Check
         {
@@ -720,8 +730,21 @@ pub fn run_animation_task_sync(
 
         first_frame = false;
 
-        // Sync with monitor refresh
-        let _ = DwmFlush();
+        // --- Loop Timing ---
+        match config.animation.framerate {
+          Framerate::Auto => {
+            let _ = DwmFlush();
+          }
+          Framerate::Specific(fps) if fps > 0 => {
+            let target_frame_time = Duration::from_secs_f64(1.0 / fps as f64);
+            let elapsed_since_last = last_frame_time.elapsed();
+            if elapsed_since_last < target_frame_time {
+              thread::sleep(target_frame_time - elapsed_since_last);
+            }
+            last_frame_time = Instant::now();
+          }
+          _ => {}
+        }
 
         if elapsed >= max_dur_secs {
           break;
@@ -741,6 +764,7 @@ pub fn run_animation_task_sync(
         target_h,
         SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOZORDER,
       );
+      let _ = ShowWindow(target_hwnd.inner(), SW_SHOW);
       force_focus(target_hwnd.inner());
     } else {
       if IsWindowVisible(target_hwnd.inner()).as_bool() {

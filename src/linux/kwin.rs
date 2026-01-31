@@ -22,7 +22,7 @@
 //! Global `KWinState` tracks:
 //! - `visible_app` - Currently visible janq window (None if all hidden)
 //! - `previous_window_id` - Window to restore focus to after hide
-//! - `max_refresh_rate` - Used for smooth animation timing
+//! - `max_refresh_rate` - Detected system refresh rate, used when `framerate = "auto"`
 //!
 //! use rustc_hash::FxHashMap;
 use rustc_hash::FxHashMap;
@@ -39,7 +39,7 @@ use crate::linux::terminal::{
   check_window_exists, check_window_exists_with_candidates, fetch_system_windows,
   get_pid_for_class, is_window_valid,
 };
-use janq::config::{AppConfig, Config, PositionOffset, SlideDirection};
+use janq::config::{AppConfig, Config, Framerate, PositionOffset, SlideDirection};
 
 // =============================================================================
 // Linux Animation Logic
@@ -73,7 +73,11 @@ fn get_animation_parts(app_cfg: &AppConfig, global_window: &Config) -> ResolvedA
     PositionOffset::Percent(pct) => (pct.abs() * 100.0, true, pct < 0.0),
   };
   let is_center = matches!(offset, PositionOffset::Center);
-  let animate_opacity = app_cfg.get_animate_opacity(global_window.animation.animate_opacity);
+  let animate_opacity = if matches!(global_window.animation.framerate, Framerate::Specific(0)) {
+    false
+  } else {
+    app_cfg.get_animate_opacity(global_window.animation.animate_opacity)
+  };
   let no_borders = app_cfg.get_no_borders(global_window.window.no_borders);
 
   ResolvedAnimationParts {
@@ -522,6 +526,11 @@ pub async fn toggle_quake(
       .await
       .unwrap_or((String::new(), 0));
 
+    let effective_hz = match config.animation.framerate {
+      Framerate::Auto => state.max_refresh_rate,
+      Framerate::Specific(fps) => fps as f64,
+    };
+
     run_toggle_script(
       app_cfg,
       config,
@@ -533,7 +542,7 @@ pub async fn toggle_quake(
         target_pid,
         siblings_json: siblings_json.clone(),
       },
-      state.max_refresh_rate,
+      effective_hz,
     )
     .await?;
     state.visible_app = Some(app_name.to_string());
@@ -543,6 +552,11 @@ pub async fn toggle_quake(
       .unwrap_or((String::new(), 0));
 
     let prev_id = state.previous_window_id.clone();
+
+    let effective_hz = match config.animation.framerate {
+      Framerate::Auto => state.max_refresh_rate,
+      Framerate::Specific(fps) => fps as f64,
+    };
 
     run_toggle_script(
       app_cfg,
@@ -555,7 +569,7 @@ pub async fn toggle_quake(
         target_pid,
         siblings_json,
       },
-      state.max_refresh_rate,
+      effective_hz,
     )
     .await?;
     state.visible_app = None;
@@ -570,7 +584,9 @@ async fn run_toggle_script(
   params: ToggleParams<'_>,
   refresh_rate: f64,
 ) -> janq::error::Result<()> {
-  let duration = if params.visible {
+  let duration = if matches!(config.animation.framerate, Framerate::Specific(0)) {
+    0
+  } else if params.visible {
     config.animation.show_duration
   } else {
     config.animation.hide_duration

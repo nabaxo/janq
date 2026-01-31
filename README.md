@@ -156,7 +156,8 @@ auto_show = false       # Show window on daemon startup
 duration = 350           # Sets both show and hide duration
 easing = "ease"         # Sets both show and hide easing
 animate_opacity = true
-```
+framerate = "auto"       # "auto", 0 (disable), or 1-1000 FPS
+```,oldString:
 
 #### Single App configuration
 
@@ -213,6 +214,7 @@ hotkey = "Meta+Z"
 |               | `animate_opacity`    | `false`          | Fade opacity during animations                                                       |   ✔️    |
 |               | `show_opacity_point` | `0.2`            | Animation progress (0-1) by which the window becomes fully opaque                    |   ❌    |
 |               | `hide_opacity_point` | `0.8`            | Animation progress (0-1) when fade-out starts                                        |   ❌    |
+|               | `framerate`          | `"auto"`         | Animation framerate: `auto`, `0` (disable), or `1-1000` (FPS)                        |   ❌    |
 
 \*`duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined. **Note: Durations are scaled based on distance to ensure a constant movement velocity.**
 

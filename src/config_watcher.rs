@@ -8,7 +8,9 @@ use std::{
   time::{Duration, Instant},
 };
 
-use notify::{Config as NotifyConfig, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+  Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use std::future::Future;
 use tokio::sync::mpsc as tokio_mpsc;
 
@@ -33,6 +35,14 @@ where
   F: Fn() -> Fut + Send + 'static,
   Fut: Future<Output = ()> + Send + 'static,
 {
+  let target_abs = if let Some(ref target_path) = config_path {
+    target_path.canonicalize().ok()
+  } else {
+    crate::paths::home_dir()
+      .map(|h| h.join(".janq.toml"))
+      .and_then(|p| p.canonicalize().ok())
+  };
+
   let (tx, mut rx) = tokio_mpsc::unbounded_channel();
   let mut watcher = match RecommendedWatcher::new(
     move |res| {
@@ -64,7 +74,7 @@ where
       res = rx.recv() => {
         match res {
           Some(Ok(event)) => {
-            if is_config_event(&event.paths, &config_path) {
+            if is_interesting_event(&event) && is_config_event(&event.paths, &target_abs) {
               last_event = Instant::now();
               pending = true;
             }
@@ -103,24 +113,24 @@ fn setup_watch_path(watcher: &mut RecommendedWatcher, config_path: &Option<PathB
   }
 }
 
-/// Checks if any of the event paths match the config file.
-fn is_config_event(event_paths: &[PathBuf], config_path: &Option<PathBuf>) -> bool {
-  let target_abs = if let Some(target_path) = config_path {
-    target_path.canonicalize().ok()
-  } else {
-    crate::paths::home_dir()
-      .map(|h| h.join(".janq.toml"))
-      .and_then(|p| p.canonicalize().ok())
-  };
+/// Checks if the event is a modification we care about (ignores access/metadata)
+fn is_interesting_event(event: &Event) -> bool {
+  match event.kind {
+    EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => true,
+    _ => false,
+  }
+}
 
-  let target_abs = match target_abs {
+/// Checks if any of the event paths match the config file.
+fn is_config_event(event_paths: &[PathBuf], target_abs: &Option<PathBuf>) -> bool {
+  let target = match target_abs {
     Some(t) => t,
     None => return false,
   };
 
   for p in event_paths {
     if let Ok(p_abs) = p.canonicalize() {
-      if p_abs == target_abs {
+      if p_abs == *target {
         return true;
       }
     }

@@ -94,3 +94,9 @@ animate_opacity = true
 # Can be omitted to use the defaults.
 show_opacity_point = 0.2
 hide_opacity_point = 0.8
+
+# Animation framerate (0-1000 or "auto"). (Default: "auto")
+# "auto" uses the monitor's refresh rate (recommended).
+# 0 disables animations entirely (instant transition).
+# Use a specific number like 60 or 120 to cap the FPS. (Default: "auto")
+framerate = "auto"

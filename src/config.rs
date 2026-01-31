@@ -57,26 +57,18 @@ impl<'de> serde::Deserialize<'de> for Dimension {
     D: serde::Deserializer<'de>,
   {
     let s = String::deserialize(deserializer)?;
-    let s = s.trim().to_lowercase();
-    if let Some(rest) = s.strip_suffix('%') {
-      let val = rest
-        .trim()
-        .parse::<f64>()
-        .map_err(serde::de::Error::custom)?;
-      Ok(Dimension::Percent(val / 100.0))
-    } else if let Some(rest) = s.strip_suffix("px") {
-      let val = rest
-        .trim()
-        .parse::<i32>()
-        .map_err(serde::de::Error::custom)?;
-      Ok(Dimension::Pixels(val))
-    } else if s == "0" || s == "unset" {
-      Ok(Dimension::Unset)
-    } else {
-      Err(serde::de::Error::custom(format!(
-        "Invalid dimension format: '{}'. Must end with '%' or 'px'.",
-        s
-      )))
+    let lower = s.trim().to_lowercase();
+    if lower == "0" || lower == "unset" {
+      return Ok(Dimension::Unset);
+    }
+
+    match parse_unit_value(&s) {
+      Ok((val, true)) => Ok(Dimension::Percent(val)),
+      Ok((val, false)) => Ok(Dimension::Pixels(val as i32)),
+      Err(e) => Err(serde::de::Error::custom(format!(
+        "Invalid dimension format: {}",
+        e
+      ))),
     }
   }
 }
@@ -145,31 +137,25 @@ impl<'de> serde::Deserialize<'de> for PositionOffset {
     D: serde::Deserializer<'de>,
   {
     let s = String::deserialize(deserializer)?;
-    let s = s.trim().to_lowercase();
-    if s == "center" || s == "0" {
-      Ok(PositionOffset::Center)
-    } else if let Some(rest) = s.strip_suffix('%') {
-      let val = rest
-        .trim()
-        .parse::<f64>()
-        .map_err(serde::de::Error::custom)?;
-      Ok(PositionOffset::Percent(val / 100.0))
-    } else if let Some(rest) = s.strip_suffix("px") {
-      let val = rest
-        .trim()
-        .parse::<i32>()
-        .map_err(serde::de::Error::custom)?;
-      Ok(PositionOffset::Pixels(val))
-    } else {
-      let hint = if s.chars().all(|c| c.is_alphabetic()) && !s.is_empty() {
-        " Did you mean 'center'?"
-      } else {
-        " Must be either 'center', or a number followed by '%' or 'px'."
-      };
-      Err(serde::de::Error::custom(format!(
-        "Invalid position_offset format: '{}'.{}",
-        s, hint
-      )))
+    let lower = s.trim().to_lowercase();
+    if lower == "center" || lower == "0" {
+      return Ok(PositionOffset::Center);
+    }
+
+    match parse_unit_value(&s) {
+      Ok((val, true)) => Ok(PositionOffset::Percent(val)),
+      Ok((val, false)) => Ok(PositionOffset::Pixels(val as i32)),
+      Err(e) => {
+        let hint = if lower.chars().all(|c| c.is_alphabetic()) && !lower.is_empty() {
+          " Did you mean 'center'?"
+        } else {
+          ""
+        };
+        Err(serde::de::Error::custom(format!(
+          "Invalid position_offset format: {}{}",
+          e, hint
+        )))
+      }
     }
   }
 }
@@ -306,8 +292,29 @@ pub fn compute_slide_positions(
 }
 
 // =============================================================================
-// Configuration Structs
+// Helper Functions for Parsing
 // =============================================================================
+
+fn parse_unit_value(s: &str) -> Result<(f64, bool), String> {
+  let s = s.trim().to_lowercase();
+  if let Some(rest) = s.strip_suffix('%') {
+    let val = rest
+      .trim()
+      .parse::<f64>()
+      .map_err(|e| format!("Invalid percentage: {}", e))?;
+    Ok((val / 100.0, true))
+  } else if let Some(rest) = s.strip_suffix("px") {
+    let val = rest
+      .trim()
+      .parse::<f64>() // Use f64 for parsing to handle potential decimals even for px
+      .map_err(|e| format!("Invalid pixels: {}", e))?;
+    Ok((val, false))
+  } else {
+    Err(format!("'{}' must end with '%' or 'px'.", s))
+  }
+}
+
+/// A dimension value that can be specified as percent, pixels, or unset.
 
 /// Root configuration structure loaded from janq.toml.
 ///
@@ -665,7 +672,7 @@ pub enum DisplayMode {
   #[default]
   FollowMouse,
   Active,
-  Specific(i32),
+  Specific,
 }
 
 impl DisplayMode {
@@ -678,7 +685,7 @@ impl std::fmt::Display for DisplayMode {
     match self {
       DisplayMode::FollowMouse => write!(f, "follow-mouse"),
       DisplayMode::Active => write!(f, "active"),
-      DisplayMode::Specific(idx) => write!(f, "specific:{}", idx),
+      DisplayMode::Specific => write!(f, "specific"),
     }
   }
 }
@@ -693,7 +700,7 @@ impl<'de> serde::Deserialize<'de> for DisplayMode {
     match s.as_str() {
       "follow-mouse" => Ok(DisplayMode::FollowMouse),
       "active" => Ok(DisplayMode::Active),
-      "specific" => Ok(DisplayMode::Specific(0)), // Will use display_index
+      "specific" => Ok(DisplayMode::Specific),
       other => {
         let hint = crate::matching::suggest_similar(other, Self::VALID_VALUES)
           .map(|s| format!(" Did you mean '{}'?", s))
@@ -885,6 +892,42 @@ impl<'de> serde::Deserialize<'de> for Easing {
   }
 }
 
+/// Control the framerate of animations.
+///
+/// Can be:
+/// - `"auto"` (default) - Uses VSync timing via `DwmFlush`
+/// - A number `0-1000` - Fixed framerate (0 = disable animations)
+#[derive(Clone, Debug, PartialEq, Default, Deserialize)]
+#[serde(try_from = "FramerateRaw")]
+pub enum Framerate {
+  #[default]
+  Auto,
+  Specific(u32),
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum FramerateRaw {
+  Num(i64),
+  Str(String),
+}
+
+impl TryFrom<FramerateRaw> for Framerate {
+  type Error = String;
+
+  fn try_from(raw: FramerateRaw) -> Result<Self, Self::Error> {
+    match raw {
+      FramerateRaw::Num(n) if n >= 0 && n <= 1000 => Ok(Framerate::Specific(n as u32)),
+      FramerateRaw::Num(n) => Err(format!("Invalid framerate: {}. Must be between 0-1000.", n)),
+      FramerateRaw::Str(s) if s.trim().to_lowercase() == "auto" => Ok(Framerate::Auto),
+      FramerateRaw::Str(s) => Err(format!(
+        "Invalid framerate: '{}'. Must be a number between 0-1000 or the string 'auto'.",
+        s
+      )),
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct AnimationConfig {
   pub show_duration: i32,
@@ -894,6 +937,7 @@ pub struct AnimationConfig {
   pub animate_opacity: bool,
   pub show_opacity_point: f64,
   pub hide_opacity_point: f64,
+  pub framerate: Framerate,
 }
 
 impl<'de> Deserialize<'de> for AnimationConfig {
@@ -913,6 +957,7 @@ impl<'de> Deserialize<'de> for AnimationConfig {
       animate_opacity: bool,
       show_opacity_point: f64,
       hide_opacity_point: f64,
+      framerate: Option<Framerate>,
     }
 
     let s = Shadow::deserialize(deserializer)?;
@@ -926,6 +971,7 @@ impl<'de> Deserialize<'de> for AnimationConfig {
       animate_opacity: s.animate_opacity,
       show_opacity_point: s.show_opacity_point,
       hide_opacity_point: s.hide_opacity_point,
+      framerate: s.framerate.unwrap_or(d.framerate),
     })
   }
 }
@@ -940,6 +986,7 @@ impl Default for AnimationConfig {
       animate_opacity: false,
       show_opacity_point: 0.2,
       hide_opacity_point: 0.8,
+      framerate: Framerate::Auto,
     }
   }
 }

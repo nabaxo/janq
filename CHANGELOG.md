@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-01-31
+
+### Added
+- **Animation Framerate Control**: New `framerate` option for the `[animation]` block.
+  - Supports `"auto"` (VSync/Platform default), a specific number (e.g., `60`, `120`), or `0` to disable animations entirely (instant transitions).
+  - Cross-platform implementation using `DwmFlush` on Windows and frequency-clamped timers on Linux.
+- **Strict Validation**: Configuration parsing now strictly enforces numeric framerates (no quoted numbers) and validates ranges (0-1000).
+
+### Fixed
+- **Instant Focus**: Resolved issue on both Windows and Linux where `framerate = 0` (instant mode) would fail to grab focus correctly.
+- **Opacity Sync**: Opacity animations are now automatically bypassed if animations are disabled (`framerate = 0`), preventing windows from appearing invisible.
+- **Config Watcher Loop**: Fixed an infinite reload loop on Linux caused by the file watcher triggering on "Access" events.
+- **Windows Polish**: Fixed a race condition where Win32 focus calls could fail during near-instant transitions.
+
+### Changed
+- **Config Refactoring**: Internal simplification of `Dimension`, `PositionOffset`, and `DisplayMode` deserialization to reduce code duplication and improve maintainability.
+
 ## [1.0.0] - 2026-01-24
 
 ### The Inaugural Release
