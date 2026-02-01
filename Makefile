@@ -3,6 +3,10 @@ RUN_CMD := MALLOC_ARENA_MAX=1
 
 DIST_DIR := dist
 
+# Flags for the two optimization levels
+OPT_Z := RUSTFLAGS="-C opt-level=z"
+OPT_S := RUSTFLAGS="-C opt-level=s"
+
 build: format lint build-linux-musl build-windows-static
 
 lint:
@@ -15,26 +19,38 @@ prepare-dist:
 	mkdir -p $(DIST_DIR)
 
 build-linux-glibc: prepare-dist
-	cargo build --release
+	$(OPT_Z) cargo build --release
 	cp target/release/janq $(DIST_DIR)/janq-glibc
 
 build-linux-musl: prepare-dist
-	cargo build --release --target x86_64-unknown-linux-musl
+	$(OPT_Z) cargo build --release --target x86_64-unknown-linux-musl
 	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq
 
 build-linux: build-linux-musl build-linux-glibc
 
 build-windows-nonstatic: prepare-dist
-	cargo build --release --target x86_64-pc-windows-gnu
+	$(OPT_Z) cargo build --release --target x86_64-pc-windows-gnu
 	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq-nonstatic.exe
 
 build-windows-static: prepare-dist
-	RUSTFLAGS="-C link-arg=-static" cargo build --release --target x86_64-pc-windows-gnu
+	RUSTFLAGS="-C opt-level=z -C link-arg=-static" cargo build --release --target x86_64-pc-windows-gnu
 	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq.exe
 
 build-windows: build-windows-static build-windows-nonstatic
 
 build-all: format lint build-linux build-windows
+
+build-all-s: format lint prepare-dist
+	# Build opt-level s versions of everything
+	$(OPT_S) cargo build --release
+	cp target/release/janq $(DIST_DIR)/janq-glibc-s
+	$(OPT_S) cargo build --release --target x86_64-unknown-linux-musl
+	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-s
+	$(OPT_S) cargo build --release --target x86_64-pc-windows-gnu
+	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq-nonstatic-s.exe
+	# Build s version (janq-s.exe)
+	RUSTFLAGS="-C opt-level=s -C link-arg=-static" cargo build --release --target x86_64-pc-windows-gnu
+	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq-s.exe
 
 check:
 	cargo check --target x86_64-unknown-linux-gnu
@@ -42,6 +58,11 @@ check:
 
 install:
 	cargo install --path .
+
+size-compare:
+	@echo "--- Binary Size Comparison ---"
+	@ls -lh $(DIST_DIR)/janq $(DIST_DIR)/janq-s || true
+	@ls -lh $(DIST_DIR)/janq.exe $(DIST_DIR)/janq-s.exe || true
 
 clean:
 	cargo clean

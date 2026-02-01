@@ -6,7 +6,7 @@
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
-But in the end I managed to wrangle the Wondrous Machine enough so that janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~3 MB RAM on Windows and on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~3MB on Linux.
+But in the end I managed to wrangle the Wondrous Machine enough so that janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~2.5MB on Linux.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
@@ -385,7 +385,7 @@ janq achieves cross-platform parity by utilizing native APIs. On Windows, it use
 - **Unified Async Architecture**: Uses a cross-platform Tokio-based async runtime. Initial versions used to have fragmented bridge threads, but now uses a single unified event loop for IPC, animations, and heartbeats.
 - **Zero-IPC Liveness Checks**: On Linux, janq performs direct `/proc/{pid}` checks (<0.1ms) instead of querying KWin, ensuring instant response.
 - **Minimalist Engine**: No unnecessary dependencies including `clap`, `anyhow`, and `dirs` in favor of a minimal manual argument parser, simple custom error handling, and a native path resolution module, significantly reducing binary complexity and optimized the baseline RAM footprint.
-- **Memory Footprint**: janq idles at ~2MB RAM on Windows and ~3MB on Linux while managing animations at 144Hz+.
+- **Memory Footprint**: janq idles at ~2MB RAM on Windows and ~2.5MB on Linux while managing animations at 144Hz+.
 
 ### Physics & Logic
 
