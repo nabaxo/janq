@@ -368,6 +368,7 @@ _(Sloperator note: Just use `full_cleanup.sh`)._
 - **[KWin Scripting API](https://develop.kde.org/docs/plasma/kwin/)**: Direct integration for Wayland window management on Linux.
 - **[windows-rs](https://github.com/microsoft/windows-rs)**: Native Windows API bindings for window management and positioning.
 - **[tray-icon](https://github.com/tauri-apps/tray-icon)** & **[global-hotkey](https://github.com/tauri-apps/global-hotkey)**: Managing the system tray and global shortcuts on Windows.
+- **[ksni](https://github.com/iovxw/ksni)**: Minimal systray management on Linux.
 - **[notify](https://github.com/notify-rs/notify)**: Powering the configuration hot-reloading feature.
 
 ## Technical Implementation
