@@ -44,8 +44,12 @@ use tokio::{
 };
 use zbus::{interface, names::BusName, names::InterfaceName, zvariant::OwnedValue, Connection};
 
+#[cfg(feature = "systray")]
 use ksni::menu::*;
+#[cfg(feature = "systray")]
 use ksni::{self, MenuItem, Tray, TrayMethods};
+#[cfg(not(feature = "systray"))]
+use std::process::id;
 
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
 use crate::linux::hotkey::sync_kde_shortcuts;
@@ -157,11 +161,78 @@ impl QuakeDaemon {
   }
 }
 
+#[cfg(not(feature = "systray"))]
+struct StatusNotifierItem {
+  config: Arc<RwLock<Arc<Config>>>,
+  icon_cache: IconPixmap,
+  conn: Connection,
+}
+
+#[cfg(not(feature = "systray"))]
+type IconPixmap = Vec<(i32, i32, Vec<u8>)>;
+
+#[cfg(not(feature = "systray"))]
+#[interface(name = "org.kde.StatusNotifierItem")]
+impl StatusNotifierItem {
+  fn activate(&self, _x: i32, _y: i32) {
+    let config = { self.config.read().unwrap().clone() };
+    let conn = self.conn.clone();
+    tokio::spawn(async move {
+      let app_name = config.app.keys().next();
+      if let Some(name) = app_name {
+        let _ = toggle_quake(name, &config, &conn).await;
+      }
+    });
+  }
+
+  fn secondary_activate(&self, _x: i32, _y: i32) {
+    let config = { self.config.read().unwrap().clone() };
+    let conn = self.conn.clone();
+    tokio::spawn(async move {
+      print_shutdown_message("Quit via systray");
+      let _ = restore_quake(&config, &conn).await;
+      print_termination_complete();
+      exit(0);
+    });
+  }
+
+  #[zbus(property)]
+  fn category(&self) -> String {
+    "ApplicationStatus".to_string()
+  }
+  #[zbus(property)]
+  fn id(&self) -> String {
+    "janq".to_string()
+  }
+  #[zbus(property)]
+  fn title(&self) -> String {
+    "janq".to_string()
+  }
+  #[zbus(property)]
+  fn status(&self) -> String {
+    "Active".to_string()
+  }
+  #[zbus(property)]
+  fn icon_name(&self) -> String {
+    "janq".to_string()
+  }
+  #[zbus(property)]
+  fn icon_pixmap(&self) -> IconPixmap {
+    self.icon_cache.clone()
+  }
+  #[zbus(property)]
+  fn item_is_menu(&self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "systray")]
 struct JanqTray {
   config: Arc<RwLock<Arc<Config>>>,
   conn: Connection,
 }
 
+#[cfg(feature = "systray")]
 impl Tray for JanqTray {
   fn activate(&mut self, _x: i32, _y: i32) {
     let config = { self.config.read().unwrap().clone() };
@@ -293,6 +364,27 @@ pub async fn run_daemon(
     .build()
     .await?;
 
+  #[cfg(not(feature = "systray"))]
+  let pid = id();
+  #[cfg(not(feature = "systray"))]
+  let sni_name = format!("org.kde.StatusNotifierItem-janq-{}", pid);
+  #[cfg(not(feature = "systray"))]
+  conn.request_name(sni_name.clone()).await?;
+
+  #[cfg(not(feature = "systray"))]
+  // Empty pixmap forces KDE to use icon_name (SVG from icon theme)
+  let icon_cache: IconPixmap = vec![];
+
+  #[cfg(not(feature = "systray"))]
+  let sni = StatusNotifierItem {
+    config: config.clone(),
+    icon_cache,
+    conn: conn.clone(),
+  };
+  #[cfg(not(feature = "systray"))]
+  conn.object_server().at("/StatusNotifierItem", sni).await?;
+
+  #[cfg(feature = "systray")]
   let tray_handle = JanqTray {
     config: config.clone(),
     conn: conn.clone(),
@@ -338,6 +430,17 @@ pub async fn run_daemon(
 
   conn.request_name(activatable_bus).await?;
   let _ = conn.request_name("dev.nabaxo.janq.desktop").await;
+
+  #[cfg(not(feature = "systray"))]
+  let _ = conn
+    .call_method(
+      Some(BusName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
+      "/StatusNotifierWatcher",
+      Some(InterfaceName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
+      "RegisterStatusNotifierItem",
+      &(sni_name),
+    )
+    .await;
 
   // --- KDE Platform Integration ---
   {
@@ -407,12 +510,14 @@ pub async fn run_daemon(
   let config_for_watcher = config.clone();
   let conn_for_watcher = conn.clone();
   let path_to_watch = config_path.clone();
+  #[cfg(feature = "systray")]
   let tray_handle_for_watcher = tray_handle.clone();
 
   janq::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
     let path_to_watch = path_to_watch.clone();
     let config_for_watcher = config_for_watcher.clone();
     let conn_for_watcher = conn_for_watcher.clone();
+    #[cfg(feature = "systray")]
     let tray_handle = tray_handle_for_watcher.clone();
 
     async move {
@@ -436,6 +541,7 @@ pub async fn run_daemon(
       };
 
       // Notify tray immediately that config state changed
+      #[cfg(feature = "systray")]
       let _ = tray_handle.update(|_| {}).await;
 
       let conn_in_async = conn_for_watcher.clone();
