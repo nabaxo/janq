@@ -10,6 +10,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
+use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::{
   Foundation::{COLORREF, HWND, LPARAM, RECT, TRUE},
   Graphics::{
@@ -543,7 +544,7 @@ pub fn run_animation_task_sync(
       let mut last_sibling_ys: Vec<i32> = siblings_data.iter().map(|s| s.start_y).collect();
       let mut last_sibling_alphas: Vec<u8> = siblings_data.iter().map(|s| s.alpha).collect();
 
-      let loop_start_time = Instant::now();
+      let _ = timeBeginPeriod(1);
       let mut last_frame_time = Instant::now();
       loop {
         // 1. Bail Check
@@ -558,6 +559,7 @@ pub fn run_animation_task_sync(
             || get_animation_cancel().load(Ordering::SeqCst)
             || ANIMATION_GENERATION.load(Ordering::SeqCst) != my_gen
           {
+            let _ = timeEndPeriod(1);
             return;
           }
         }
@@ -601,8 +603,7 @@ pub fn run_animation_task_sync(
         // --- Sibling Opacity ---
         for (i, sib) in siblings_data.iter().enumerate() {
           if sib.animate_opacity {
-            let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
-            let s_progress = (elapsed_since_start / sib.duration_secs).min(1.0);
+            let s_progress = (elapsed / sib.duration_secs).min(1.0);
             // Siblings always follow the "hide" path in synchronization with their own duration
             let s_denom = 1.0 - config.animation.hide_opacity_point;
             let raw_op_progress = ((s_progress - config.animation.hide_opacity_point)
@@ -618,25 +619,32 @@ pub fn run_animation_task_sync(
           }
         }
 
-        // --- Position Update ---
-        let t_dist_x_anim = final_target_x - t_start_x;
-        let t_dist_y_anim = final_target_y - t_start_y;
-        let next_x = t_start_x + (t_dist_x_anim as f64 * target_ease_val) as i32;
-        let next_y = t_start_y + (t_dist_y_anim as f64 * target_ease_val) as i32;
+        // --- Position Update Calculations ---
+        let next_x = t_start_x + ((final_target_x - t_start_x) as f64 * target_ease_val) as i32;
+        let next_y = t_start_y + ((final_target_y - t_start_y) as f64 * target_ease_val) as i32;
+
+        let mut sibling_next_pos = Vec::with_capacity(siblings_data.len());
+        let mut sib_needs_move = false;
+
+        for sib in &siblings_data {
+          let s_progress = (elapsed / sib.duration_secs).min(1.0);
+          let s_ease_val = get_easing(s_progress, &sib.easing);
+          let on_x = sib.start_x + ((sib.end_x - sib.start_x) as f64 * s_ease_val) as i32;
+          let on_y = sib.start_y + ((sib.end_y - sib.start_y) as f64 * s_ease_val) as i32;
+          sibling_next_pos.push((on_x, on_y));
+        }
 
         if next_x != last_x || next_y != last_y || first_frame {
           needs_pos_update = true;
         } else {
-          for (i, sib) in siblings_data.iter().enumerate() {
-            let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
-            let s_progress = (elapsed_since_start / sib.duration_secs).min(1.0);
-            let s_ease_val = get_easing(s_progress, &sib.easing);
-            let on_x = sib.start_x + ((sib.end_x - sib.start_x) as f64 * s_ease_val) as i32;
-            let on_y = sib.start_y + ((sib.end_y - sib.start_y) as f64 * s_ease_val) as i32;
-            if on_x != last_sibling_xs[i] || on_y != last_sibling_ys[i] {
-              needs_pos_update = true;
+          for (i, (on_x, on_y)) in sibling_next_pos.iter().enumerate() {
+            if *on_x != last_sibling_xs[i] || *on_y != last_sibling_ys[i] {
+              sib_needs_move = true;
               break;
             }
+          }
+          if sib_needs_move {
+            needs_pos_update = true;
           }
         }
 
@@ -675,11 +683,7 @@ pub fn run_animation_task_sync(
             }
 
             for (i, sib) in siblings_data.iter().enumerate() {
-              let elapsed_since_start = loop_start_time.elapsed().as_secs_f64();
-              let s_progress = (elapsed_since_start / sib.duration_secs).min(1.0);
-              let s_ease_val = get_easing(s_progress, &sib.easing);
-              let on_x = sib.start_x + ((sib.end_x - sib.start_x) as f64 * s_ease_val) as i32;
-              let on_y = sib.start_y + ((sib.end_y - sib.start_y) as f64 * s_ease_val) as i32;
+              let (on_x, on_y) = sibling_next_pos[i];
               match DeferWindowPos(
                 hdwp,
                 sib.hwnd,
@@ -750,6 +754,7 @@ pub fn run_animation_task_sync(
           break;
         }
       }
+      let _ = timeEndPeriod(1);
     }
 
     // --- Finalize ---
@@ -796,6 +801,19 @@ pub fn run_animation_task_sync(
       }
     }
     for sib in siblings_data {
+      // Snap to final state before hiding
+      let _ = SetWindowPos(
+        sib.hwnd,
+        Some(HWND::default()),
+        sib.end_x,
+        sib.end_y,
+        sib.width,
+        sib.height,
+        SWP_NOACTIVATE | SWP_NOZORDER,
+      );
+      if sib.animate_opacity {
+        let _ = SetLayeredWindowAttributes(sib.hwnd, COLORREF(0), 0, LWA_ALPHA);
+      }
       let _ = ShowWindow(sib.hwnd, SW_HIDE);
     }
   }

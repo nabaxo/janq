@@ -278,6 +278,15 @@ The `display_mode` setting in the `[window]` section determines which monitor **
 > [!NOTE]
 > When using `display_mode = "specific"`, you must also set `display_index` (0-indexed) to the desired monitor.
 
+### Animation Framerate & VSync (Windows)
+
+For the smoothest experience on Windows, we recommend setting `framerate = "auto"`. This synchronizes janq's animation loop with the **Desktop Window Manager (DWM)** and your monitor's actual refresh rate via `DwmFlush`.
+
+> [!IMPORTANT]
+> **High Refresh Rates vs. Fixed FPS**: If you manually set a high framerate (e.g., `120`) on a monitor with a lower native refresh rate (e.g., `60Hz`), you may encounter visual "beat patterns" or choppiness. This is because the DWM only samples window updates once per hardware refresh. Setting a fixed framerate higher than your monitor's refresh rate increases CPU overhead without improving smoothness.
+
+When using a numeric framerate (e.g., `60`), janq automatically engages high-resolution system timers (`timeBeginPeriod(1)`) for the duration of the animation to ensure timing accuracy, returning the system to its power-saving default immediately afterward.
+
 #### Keycodes
 
 janq supports a wide range of keycodes for defining hotkeys. Keys are case-insensitive.
