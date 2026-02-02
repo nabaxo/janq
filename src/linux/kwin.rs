@@ -23,8 +23,6 @@
 //! - `visible_app` - Currently visible janq window (None if all hidden)
 //! - `previous_window_id` - Window to restore focus to after hide
 //! - `max_refresh_rate` - Detected system refresh rate, used when `framerate = "auto"`
-//!
-//! use rustc_hash::FxHashMap;
 use rustc_hash::FxHashMap;
 use std::{env::temp_dir, fs, path::Path, process::Command, sync::OnceLock};
 
@@ -230,7 +228,9 @@ pub async fn init() {
 
 /// Parameters for toggle script execution
 struct ToggleParams<'a> {
+  app_name: &'a str,
   visible: bool,
+  auto_hide: bool,
   prev_id: &'a str,
   target_id: &'a str,
   target_pid: u32,
@@ -472,6 +472,7 @@ pub async fn toggle_quake(
   conn: &Connection,
 ) -> janq::error::Result<()> {
   let mut state = STATE.lock().await;
+
   let app_cfg = match config.app.get(app_name) {
     Some(c) => c,
     None => return Ok(()),
@@ -536,7 +537,9 @@ pub async fn toggle_quake(
       config,
       conn,
       ToggleParams {
+        app_name,
         visible: true,
+        auto_hide: config.window.auto_hide,
         prev_id: "",
         target_id: &target_id,
         target_pid,
@@ -563,7 +566,9 @@ pub async fn toggle_quake(
       config,
       conn,
       ToggleParams {
+        app_name,
         visible: false,
+        auto_hide: false,
         prev_id: &prev_id,
         target_id: &target_id,
         target_pid,
@@ -627,9 +632,9 @@ async fn run_toggle_script(
   use std::fmt::Write;
   let _ = write!(
     script_content,
-    "(\n  {{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }},\n  {},\n  {}\n);",
-    app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
-    duration, easing, params.visible, config.window.keep_above, anim_parts.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
+    "(\n  {{ appName: \"{}\", windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, autoHide: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }},\n  {},\n  {}\n);",
+    params.app_name, app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
+    duration, easing, params.visible, params.auto_hide, config.window.keep_above, anim_parts.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
     params.prev_id, params.target_id, params.target_pid, config.window.force_priority.unwrap_or(false),
     anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center,
     params.siblings_json, refresh_rate

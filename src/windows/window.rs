@@ -26,7 +26,7 @@ use std::sync::{Mutex, OnceLock, RwLock};
 
 use windows::core::BOOL;
 use windows::Win32::{
-  Foundation::{HWND, LPARAM, RECT},
+  Foundation::{HWND, LPARAM, RECT, WPARAM},
   Graphics::Gdi::{HDC, HMONITOR},
   System::Threading::AttachThreadInput,
   UI::{Accessibility::*, WindowsAndMessaging::*},
@@ -139,6 +139,7 @@ static APP_CACHE: OnceLock<RwLock<FxHashMap<String, CachedWindow>>> = OnceLock::
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
 static LAST_EXTERNAL_FOCUS: AtomicIsize = AtomicIsize::new(0);
 static MANAGED_APP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
+pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
 
 pub fn get_last_external_focus() -> HWND {
   HWND(LAST_EXTERNAL_FOCUS.load(Ordering::Relaxed) as *mut _)
@@ -171,6 +172,11 @@ pub unsafe extern "system" fn focus_hook_proc(
     } else if !is_shell_window(hwnd) {
       MANAGED_APP_HAS_FOCUS.store(false, Ordering::Relaxed);
       LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
+
+      // Trigger FocusLost event for auto-hide
+      if let Some(id) = MAIN_THREAD_ID.get() {
+        let _ = PostThreadMessageW(*id, WM_USER + 2, WPARAM(0), LPARAM(0));
+      }
     }
   }
 }

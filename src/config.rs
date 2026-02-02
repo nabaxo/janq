@@ -727,6 +727,7 @@ pub struct WindowConfig {
   pub all_desktops: Option<bool>,
   pub force_priority: Option<bool>,
   pub auto_show: bool,
+  pub auto_hide: bool,
   pub slide_from: SlideDirection,
   // This allows both "position_offset" and "offset" in TOML
   #[serde(alias = "offset")]
@@ -746,6 +747,7 @@ impl Default for WindowConfig {
       all_desktops: None,
       force_priority: None,
       auto_show: false,
+      auto_hide: false,
       slide_from: SlideDirection::default(),
       position_offset: PositionOffset::default(),
     }

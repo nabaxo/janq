@@ -27,6 +27,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 - **Zero-Config Hotkeys (Cross-Platform)**: janq automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu. The topmost application is the one that toggles when left-clicking the systray icon.
+- **Auto-Hide (Cross-Platform)**: Automatically hides the managed window when it loses focus, allowing for a more seamless "pull-down/auto-up" experience.
 - **Robust Identification (Cross-Platform)**: Advanced weighted scoring system (Exact > Substring > Boundary > Subsequence) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
 - **High-Performance Linux Engine**: Zero-IPC liveness checks and batched window retrieval for near-instant toggling response.
 - **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves including the "premium" `impulse` curve).
@@ -218,6 +219,7 @@ hotkey = "Meta+Z"
 |               | `all_desktops`       | `true`           | (Linux) Window follows you across virtual desktops                                   |   ❌    |
 |               | `force_priority`     | `false`          | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps             |   ❌    |
 |               | `auto_show`          | `false`          | Show window on daemon startup                                                        |   ❌    |
+|               | `auto_hide`          | `false`          | Hide window when it loses focus                                                      |   ❌    |
 | `[animation]` | `duration`\*         | —                | Set both show/hide duration at once                                                  |   ❌    |
 |               | `show_duration`      | `350` (ms)       | Duration of the show animation                                                       |   ❌    |
 |               | `hide_duration`      | `350` (ms)       | Duration of the hide animation                                                       |   ❌    |

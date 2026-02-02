@@ -136,6 +136,24 @@
     s.duration = (groupMaxDist > 0) ? Math.min(config.duration, (config.duration * s.dist) / groupMaxDist) : config.duration;
   }
 
+  const connectFocusWatcher = () => {
+    if (!config.autoHide || !config.shouldShow || !target) return;
+    const tid = normalizeId(target.internalId), tpid = target.pid || 0, tcls = (target.resourceClass || "").toLowerCase();
+    const checkSelf = (c) => {
+      if (!c) return false;
+      const cid = normalizeId(c.internalId), cpid = c.pid || 0, ccls = (c.resourceClass || "").toLowerCase();
+      return (cid === tid || (tpid > 0 && cpid === tpid) || ccls === tcls);
+    };
+    const focusWatcher = function (c) {
+      if (!checkSelf(c)) {
+        const otherClass = (c && c.resourceClass) ? c.resourceClass : "unknown";
+        workspace.windowActivated.disconnect(focusWatcher);
+        callDBus("dev.nabaxo.janq", "/dev/nabaxo/janq", "dev.nabaxo.janq", "ToggleApp", config.appName.toString());
+      }
+    };
+    workspace.windowActivated.connect(focusWatcher);
+  };
+
   const startAnimation = () => {
     if (config.duration > 0) {
       const startTime = Date.now();
@@ -227,6 +245,7 @@
             target.opacity = 1.0;
             target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
             focusKick(target, false);
+            connectFocusWatcher();
           } else {
             target.opacity = 0.0;
             target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
@@ -290,6 +309,7 @@
         target.opacity = 1.0;
         target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
         focusKick(target, false);
+        connectFocusWatcher();
       } else {
         target.opacity = 0.0;
         target.frameGeometry = { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
@@ -335,4 +355,5 @@
   } else {
     startAnimation();
   }
-});
+}
+);

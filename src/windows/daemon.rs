@@ -85,6 +85,7 @@ enum DaemonEvent {
   Tray(TrayIconEvent),
   ReloadHotkeys,
   RespawnCheck,
+  FocusLost,
   Exit(Option<&'static str>),
 }
 
@@ -95,6 +96,9 @@ pub async fn run_daemon(
 ) -> janq::error::Result<()> {
   println!("Starting janq daemon...");
   let main_thread_id = unsafe { GetCurrentThreadId() };
+  crate::windows::window::MAIN_THREAD_ID
+    .set(main_thread_id)
+    .unwrap();
   // 0. Acquire Lock File
   let _lock_file = janq::acquire_lock_file()?;
 
@@ -374,6 +378,9 @@ pub async fn run_daemon(
   unsafe {
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+      if msg.message == WM_USER + 2 {
+        let _ = event_tx.send(DaemonEvent::FocusLost);
+      }
       let _ = TranslateMessage(&msg);
       DispatchMessageW(&msg);
 
@@ -402,6 +409,22 @@ pub async fn run_daemon(
 
             if let Some(ti) = &tray_icon {
               let _ = ti.set_menu(Some(Box::new(new_menu)));
+            }
+          }
+          DaemonEvent::FocusLost => {
+            let cfg = config.read().unwrap().clone();
+            if cfg.window.auto_hide {
+              if let Some(visible_app) = crate::windows::window::get_visible_app()
+                .read()
+                .unwrap()
+                .clone()
+              {
+                println!("Focus Lost: Auto-hiding '{}'", visible_app);
+                let _ = AllowSetForegroundWindow(ASFW_ANY);
+                tokio::task::spawn_blocking(move || {
+                  toggle_window(&visible_app, &cfg);
+                });
+              }
             }
           }
           DaemonEvent::Hotkey(event) => {

@@ -339,8 +339,7 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
     let pid = pid_str.parse::<u32>().unwrap_or(0);
     let is_visible = parts.next() == Some("1");
 
-    if class.is_empty() || class == "plasmashell" || class == "kwin_x11" || class == "kwin_wayland"
-    {
+    if class.is_empty() || class == "plasmashell" || class == "kwin_wayland" {
       continue;
     }
 

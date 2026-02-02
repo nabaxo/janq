@@ -29,6 +29,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
   - `follow-mouse` - Window appears where your cursor is (default).
   - `active` - Window appears on the monitor with keyboard focus.
   - `specific` - For when you want to fight the automation.
+- **Auto-Hide focus watcher**: Automatically hide the managed window when focus is lost to another application (configurable per-window via `auto_hide = true`).
 - **Slide directions:** `top`, `bottom`, `left`, `right`. Choice is an illusion, but we provide it anyway.
 - **Keep above** option to ensure your terminal stays on top, regardless of what you're trying to hide behind it.
 - **No borders** option now supports per-app overrides. Remove window borders/chrome for specific managed windows or set a global default on both Windows and Linux.
