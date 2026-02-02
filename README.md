@@ -116,6 +116,19 @@ start_command = 'C:\Program Files\Terminal\wt.exe'
 > [!TIP]
 > **Pro Tip:** For most modern terminals (Windows Terminal, WezTerm, etc.), using the simple executable name (e.g., `start_command = "wt"` or `"wezterm"`) is preferred if they are in your system PATH.
 
+## Systray Behavior
+
+janq lives in your system tray (notification area) and provides a context menu for quick actions.
+
+- **Left Click**: Toggles the **first** application defined in your configuration file.
+- **Right Click**: Opens the menu to toggle specific applications, reload the configuration, or exit.
+- **Middle Click**: (Linux) Instantly exits the daemon.
+- **Menu Order**: The application list in the tray menu follows the exact order of the `[app]` blocks in your `janq.toml`.
+- **Shortcut Display**: If multiple `hotkeys` are configured for an application, only the first one is displayed in the menu (all remain functional).
+
+> [!TIP]
+> **Hot Reloading**: You don't need to restart janq when you change your config. Simply save your `janq.toml`, and the daemon will instantly reload your settings and update the systray menu.
+
 ## Configuration
 
 ### Search Priority for configuration file

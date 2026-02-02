@@ -38,7 +38,7 @@ use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotK
 use tokio::net::windows::named_pipe::ServerOptions;
 use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
-  TrayIconBuilder,
+  MouseButton, TrayIconBuilder, TrayIconEvent,
 };
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
@@ -247,6 +247,7 @@ pub async fn run_daemon(
   // 6. Event Loop (Main Thread)
   let hotkey_receiver = GlobalHotKeyEvent::receiver();
   let menu_receiver = MenuEvent::receiver();
+  let tray_icon_receiver = TrayIconEvent::receiver();
 
   let manager_arc = Arc::new(GlobalHotKeyManager::new().expect("Failed to create HotKeyManager"));
   sync_hotkeys(
@@ -264,6 +265,7 @@ pub async fn run_daemon(
   let tray_icon = Some(
     TrayIconBuilder::new()
       .with_menu(Box::new(initial_menu))
+      .with_menu_on_left_click(false)
       .with_tooltip("janq")
       .with_icon(icon)
       .build()?,
@@ -408,6 +410,25 @@ pub async fn run_daemon(
                   ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
                   toggle_window(&app_name_spawn, &cfg_spawn);
                 });
+              }
+            }
+
+            while let Ok(event) = tray_icon_receiver.try_recv() {
+              if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                ..
+              } = event
+              {
+                let cfg = config.read().unwrap().clone();
+                if let Some(app_name) = cfg.app.keys().next() {
+                  let app_name = app_name.clone();
+                  let app_cfg = cfg.app.get(&app_name).unwrap().clone();
+                  let cfg_spawn = cfg.clone();
+                  tokio::task::spawn_blocking(move || {
+                    ensure_terminal_running(&app_name, &app_cfg, &cfg_spawn, None);
+                    toggle_window(&app_name, &cfg_spawn);
+                  });
+                }
               }
             }
           }
