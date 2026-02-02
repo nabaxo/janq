@@ -25,9 +25,9 @@ use windows::Win32::{
 
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
-  force_focus, get_animation_cancel, get_animation_state, get_app_cache, get_previous_focus,
-  get_visible_app, monitor_enum_proc, set_taskbar_hidden, AnimationState, CachedWindow,
-  MonitorEnumCtx,
+  force_focus, get_animation_cancel, get_animation_state, get_app_cache, get_last_external_focus,
+  get_visible_app, is_shell_window, monitor_enum_proc, set_taskbar_hidden, AnimationState,
+  CachedWindow, MonitorEnumCtx,
 };
 use janq::config::{
   compute_slide_positions, Config, DisplayMode, Framerate, PositionOffset, SlideDirection, WorkArea,
@@ -98,16 +98,7 @@ pub fn run_animation_task_sync(
         }
         DisplayMode::Active => {
           let fg = GetForegroundWindow();
-          let mut use_fallback = fg.is_invalid() || fg == target_hwnd.inner();
-
-          if !use_fallback {
-            let mut class_buf = [0u16; 256];
-            let len = GetClassNameW(fg, &mut class_buf);
-            let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
-            if class_name == "progman" || class_name == "workerw" || class_name == "shell_traywnd" {
-              use_fallback = true;
-            }
-          }
+          let use_fallback = fg.is_invalid() || fg == target_hwnd.inner() || is_shell_window(fg);
 
           if !use_fallback {
             MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST)
@@ -776,27 +767,9 @@ pub fn run_animation_task_sync(
         let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
       }
       if restore_focus {
-        let mut next = GetWindow(target_hwnd.inner(), GW_HWNDNEXT);
-        while let Ok(valid_next) = next {
-          if valid_next.0.is_null() {
-            break;
-          }
-          if IsWindowVisible(valid_next).as_bool() {
-            let style = GetWindowLongW(valid_next, GWL_EXSTYLE) as u32;
-            if (style & WS_EX_TOOLWINDOW.0) == 0 {
-              let mut prev = get_previous_focus().lock().unwrap();
-              *prev = Some(CachedWindow { hwnd: valid_next });
-              break;
-            }
-          }
-          next = GetWindow(valid_next, GW_HWNDNEXT);
-        }
-
-        let prev_lock = get_previous_focus().lock().unwrap();
-        if let Some(cw) = *prev_lock {
-          if IsWindowVisible(cw.hwnd).as_bool() {
-            force_focus(cw.hwnd);
-          }
+        let last_focus = get_last_external_focus();
+        if !last_focus.0.is_null() && IsWindowVisible(last_focus).as_bool() {
+          force_focus(last_focus);
         }
       }
     }

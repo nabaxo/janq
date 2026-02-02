@@ -31,7 +31,7 @@ use std::{
   path::PathBuf,
   process::exit,
   sync::{mpsc::channel, mpsc::Receiver, mpsc::Sender, Arc, RwLock},
-  time::Duration,
+  time::{Duration, Instant},
 };
 
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
@@ -55,8 +55,8 @@ use crate::windows::{
   show_error,
   terminal::ensure_terminal_running,
   window::{
-    fetch_system_windows, get_app_cache, init_hidden_owner, release_windows, reset_visible_app,
-    restore_window_visibility, toggle_window,
+    fetch_system_windows, get_app_cache, init_focus_hook, init_hidden_owner, release_windows,
+    reset_visible_app, restore_window_visibility, toggle_window,
   },
 };
 use janq::config::{load_config, Config};
@@ -81,7 +81,8 @@ const PIPE_NAME: &str = r"\\.\pipe\janq";
 #[derive(Debug)]
 enum DaemonEvent {
   Hotkey(GlobalHotKeyEvent),
-  TrayPoll,
+  Menu(MenuEvent),
+  Tray(TrayIconEvent),
   ReloadHotkeys,
   RespawnCheck,
   Exit(Option<&'static str>),
@@ -101,6 +102,9 @@ pub async fn run_daemon(
   unsafe {
     let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   }
+
+  // Initialize focus tracking hook
+  let _focus_hook = init_focus_hook();
 
   // Initialize hidden owner window for taskbar hiding (skip_pager feature)
   init_hidden_owner();
@@ -318,11 +322,36 @@ pub async fn run_daemon(
     }
   });
 
-  let event_tx_tray = event_tx.clone();
-  tokio::spawn(async move {
-    loop {
-      tokio::time::sleep(Duration::from_millis(100)).await;
-      let _ = event_tx_tray.send(DaemonEvent::TrayPoll);
+  let event_tx_menu = event_tx.clone();
+  std::thread::spawn(move || {
+    while let Ok(event) = menu_receiver.recv() {
+      let _ = event_tx_menu.send(DaemonEvent::Menu(event));
+      unsafe {
+        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
+      }
+    }
+  });
+
+  let event_tx_tray_icon = event_tx.clone();
+  std::thread::spawn(move || {
+    while let Ok(event) = tray_icon_receiver.recv() {
+      // For left-clicks, claim foreground permission ASAP
+      if matches!(
+        event,
+        TrayIconEvent::Click {
+          button: MouseButton::Left,
+          ..
+        } | TrayIconEvent::DoubleClick {
+          button: MouseButton::Left,
+          ..
+        }
+      ) {
+        unsafe {
+          let _ = AllowSetForegroundWindow(ASFW_ANY);
+        }
+      }
+
+      let _ = event_tx_tray_icon.send(DaemonEvent::Tray(event));
       unsafe {
         let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
       }
@@ -341,6 +370,7 @@ pub async fn run_daemon(
   });
 
   // Main Win32 Message Loop
+  let mut last_tray_toggle = Instant::now() - Duration::from_secs(1);
   unsafe {
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -393,42 +423,51 @@ pub async fn run_daemon(
               }
             }
           }
-          DaemonEvent::TrayPoll => {
-            while let Ok(event) = menu_receiver.try_recv() {
-              if event.id == quit_item_id {
-                print_shutdown_message("Quit via tray menu");
-                restore_window_visibility();
-                print_termination_complete();
-                exit(0);
-              } else if let Some(app_name) = app_menu_items.get(&event.id) {
-                let cfg = config.read().unwrap().clone();
-                let app_name = app_name.clone();
-                let app_cfg = cfg.app.get(&app_name).unwrap().clone();
-                let app_name_spawn = app_name.clone();
-                let cfg_spawn = cfg.clone();
-                tokio::task::spawn_blocking(move || {
-                  ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
-                  toggle_window(&app_name_spawn, &cfg_spawn);
-                });
-              }
+          DaemonEvent::Menu(event) => {
+            if event.id == quit_item_id {
+              print_shutdown_message("Quit via tray menu");
+              restore_window_visibility();
+              print_termination_complete();
+              exit(0);
+            } else if let Some(app_name) = app_menu_items.get(&event.id) {
+              let _ = AllowSetForegroundWindow(ASFW_ANY);
+              let cfg = config.read().unwrap().clone();
+              let app_name = app_name.clone();
+              let app_cfg = cfg.app.get(&app_name).unwrap().clone();
+              let app_name_spawn = app_name.clone();
+              let cfg_spawn = cfg.clone();
+              tokio::task::spawn_blocking(move || {
+                ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
+                toggle_window(&app_name_spawn, &cfg_spawn);
+              });
             }
-
-            while let Ok(event) = tray_icon_receiver.try_recv() {
-              if let TrayIconEvent::Click {
+          }
+          DaemonEvent::Tray(event) => {
+            if matches!(
+              event,
+              TrayIconEvent::Click {
                 button: MouseButton::Left,
                 ..
-              } = event
-              {
-                let cfg = config.read().unwrap().clone();
-                if let Some(app_name) = cfg.app.keys().next() {
-                  let app_name = app_name.clone();
-                  let app_cfg = cfg.app.get(&app_name).unwrap().clone();
-                  let cfg_spawn = cfg.clone();
-                  tokio::task::spawn_blocking(move || {
-                    ensure_terminal_running(&app_name, &app_cfg, &cfg_spawn, None);
-                    toggle_window(&app_name, &cfg_spawn);
-                  });
-                }
+              } | TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
+              }
+            ) {
+              if last_tray_toggle.elapsed() < Duration::from_millis(100) {
+                continue;
+              }
+              last_tray_toggle = Instant::now();
+
+              let _ = AllowSetForegroundWindow(ASFW_ANY);
+              let cfg = config.read().unwrap().clone();
+              if let Some(app_name) = cfg.app.keys().next() {
+                let app_name = app_name.clone();
+                let app_cfg = cfg.app.get(&app_name).unwrap().clone();
+                let cfg_spawn = cfg.clone();
+                tokio::task::spawn_blocking(move || {
+                  ensure_terminal_running(&app_name, &app_cfg, &cfg_spawn, None);
+                  toggle_window(&app_name, &cfg_spawn);
+                });
               }
             }
           }

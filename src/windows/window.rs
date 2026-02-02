@@ -21,6 +21,7 @@
 //! and restoration on daemon exit.
 
 use rustc_hash::FxHashMap;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use windows::core::BOOL;
@@ -28,7 +29,7 @@ use windows::Win32::{
   Foundation::{HWND, LPARAM, RECT},
   Graphics::Gdi::{HDC, HMONITOR},
   System::Threading::AttachThreadInput,
-  UI::WindowsAndMessaging::*,
+  UI::{Accessibility::*, WindowsAndMessaging::*},
 };
 
 use janq::config::Config;
@@ -54,6 +55,21 @@ unsafe impl Sync for CachedWindow {}
 impl CachedWindow {
   pub fn inner(&self) -> HWND {
     self.hwnd
+  }
+}
+
+pub fn is_shell_window(hwnd: HWND) -> bool {
+  if hwnd.0.is_null() {
+    return true;
+  }
+  unsafe {
+    let mut class_buf = [0u16; 256];
+    let len = GetClassNameW(hwnd, &mut class_buf);
+    if len == 0 {
+      return false;
+    }
+    let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
+    class_name == "progman" || class_name == "workerw" || class_name == "shell_traywnd"
   }
 }
 
@@ -119,9 +135,64 @@ pub struct AnimationState {
 static ANIMATION_TASK_CANCEL: OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
   OnceLock::new();
 static VISIBLE_APP: OnceLock<RwLock<Option<String>>> = OnceLock::new();
-static PREVIOUS_FOCUS: OnceLock<Mutex<Option<CachedWindow>>> = OnceLock::new();
 static APP_CACHE: OnceLock<RwLock<FxHashMap<String, CachedWindow>>> = OnceLock::new();
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
+static LAST_EXTERNAL_FOCUS: AtomicIsize = AtomicIsize::new(0);
+static MANAGED_APP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
+
+pub fn get_last_external_focus() -> HWND {
+  HWND(LAST_EXTERNAL_FOCUS.load(Ordering::Relaxed) as *mut _)
+}
+
+pub fn get_managed_app_has_focus() -> bool {
+  MANAGED_APP_HAS_FOCUS.load(Ordering::Relaxed)
+}
+
+pub fn is_managed_window(hwnd: HWND) -> bool {
+  if hwnd.0.is_null() {
+    return false;
+  }
+  let cache = get_app_cache().read().unwrap();
+  cache.values().any(|cw| cw.hwnd == hwnd)
+}
+
+pub unsafe extern "system" fn focus_hook_proc(
+  _hwineventhook: HWINEVENTHOOK,
+  event: u32,
+  hwnd: HWND,
+  _idobject: i32,
+  _idchild: i32,
+  _ideventthread: u32,
+  _dwmseventtime: u32,
+) {
+  if event == EVENT_SYSTEM_FOREGROUND && !hwnd.0.is_null() {
+    if is_managed_window(hwnd) {
+      MANAGED_APP_HAS_FOCUS.store(true, Ordering::Relaxed);
+    } else if !is_shell_window(hwnd) {
+      MANAGED_APP_HAS_FOCUS.store(false, Ordering::Relaxed);
+      LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
+    }
+  }
+}
+
+pub fn init_focus_hook() -> Option<HWINEVENTHOOK> {
+  unsafe {
+    let hook = SetWinEventHook(
+      EVENT_SYSTEM_FOREGROUND,
+      EVENT_SYSTEM_FOREGROUND,
+      None,
+      Some(focus_hook_proc),
+      0,
+      0,
+      WINEVENT_OUTOFCONTEXT,
+    );
+    if hook.is_invalid() {
+      None
+    } else {
+      Some(hook)
+    }
+  }
+}
 
 pub fn get_animation_cancel() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
   ANIMATION_TASK_CANCEL
@@ -131,10 +202,6 @@ pub fn get_animation_cancel() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
 
 pub fn get_visible_app() -> &'static RwLock<Option<String>> {
   VISIBLE_APP.get_or_init(|| RwLock::new(None))
-}
-
-pub fn get_previous_focus() -> &'static Mutex<Option<CachedWindow>> {
-  PREVIOUS_FOCUS.get_or_init(|| Mutex::new(None))
 }
 
 pub fn get_app_cache() -> &'static RwLock<FxHashMap<String, CachedWindow>> {
@@ -271,28 +338,19 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       *v = Some(app_name.to_string());
     } else {
       *v = None;
-      unsafe {
-        let fg_window = GetForegroundWindow();
-        if fg_window == target_hwnd.inner() {
-          restore_focus = true;
-        }
+      let fg_window = unsafe { GetForegroundWindow() };
+      // Only restore focus if WE currently have focus, or if the shell
+      // just stole it from us (e.g. user clicked the system tray).
+      if fg_window == target_hwnd.inner()
+        || (is_shell_window(fg_window) && get_managed_app_has_focus())
+      {
+        restore_focus = true;
       }
     }
   }
 
-  unsafe {
-    let fg_window = GetForegroundWindow();
-    if !fg_window.0.is_null() && fg_window != target_hwnd.inner() {
-      // Don't "save" desktop/taskbar as previous focus for restoration, as it's janky
-      let mut class_buf = [0u16; 256];
-      let len = GetClassNameW(fg_window, &mut class_buf);
-      let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
-      if class_name != "progman" && class_name != "workerw" && class_name != "shell_traywnd" {
-        let mut prev = get_previous_focus().lock().unwrap();
-        *prev = Some(CachedWindow { hwnd: fg_window });
-      }
-    }
-  }
+  // We no longer need to manually capture focus here, the WinEventHook does it for us constantly.
+  // The animation task will use get_last_external_focus() to know where to return.
 
   let config_clone = config.clone();
   let app_name_clone = app_name.to_string();
