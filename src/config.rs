@@ -904,13 +904,13 @@ impl<'de> serde::Deserialize<'de> for Easing {
 pub enum Framerate {
   #[default]
   Auto,
-  Specific(u32),
+  Specific(u16),
 }
 
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum FramerateRaw {
-  Num(i64),
+  Num(i16),
   Str(String),
 }
 
@@ -919,7 +919,7 @@ impl TryFrom<FramerateRaw> for Framerate {
 
   fn try_from(raw: FramerateRaw) -> Result<Self, Self::Error> {
     match raw {
-      FramerateRaw::Num(n) if n >= 0 && n <= 1000 => Ok(Framerate::Specific(n as u32)),
+      FramerateRaw::Num(n) if n >= 0 && n <= 1000 => Ok(Framerate::Specific(n as u16)),
       FramerateRaw::Num(n) => Err(format!("Invalid framerate: {}. Must be between 0-1000.", n)),
       FramerateRaw::Str(s) if s.trim().to_lowercase() == "auto" => Ok(Framerate::Auto),
       FramerateRaw::Str(s) => Err(format!(
