@@ -11,7 +11,7 @@ But in the end I managed to wrangle the Wondrous Machine enough so that janq, on
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
 > [!WARNING]
-> Seriously, I don't know how to program in Rust. I have no idea if the code is good or not. On a quick glance, it doesn't appear to do stupid shit; I have no idea about the specifics of Rust, I'm just a (bad) webdev.
+> Seriously, I don't know how to program in Rust. I have no idea if the code is good or not. On a quick glance, it doesn't appear to do stupid shit; I have no idea about the specifics of Rust, I'm just a mediocre webdev.
 
 > [!CAUTION]
 > I have only tested this on two machines, your mileage may vary and all that.
@@ -23,12 +23,12 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 
 ## Key Features
 
-- **Atomic Switching (Cross-Platform)**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows. (See [Sibling Animation Duration Divergence](#sibling-animation-duration-divergence))
-- **Zero-Config Hotkeys (Cross-Platform)**: janq automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
+- **Atomic Switching**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows. (See [Sibling Animation Duration Divergence](#sibling-animation-duration-divergence))
+- **Zero-Config Hotkeys**: janq automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu. The topmost application is the one that toggles when left-clicking the systray icon.
-- **Auto-Hide (Cross-Platform)**: Automatically hides the managed window when it loses focus, allowing for a more seamless "pull-down/auto-up" experience.
-- **Robust Identification (Cross-Platform)**: Advanced weighted scoring system (Exact > Substring > Boundary > Subsequence) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
+- **Auto-Hide**: Automatically hides the managed window when it loses focus, allowing for a more seamless "pull-down/auto-up" experience.
+- **Robust Identification**: Advanced weighted scoring system (Exact > Substring > Boundary > Subsequence) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
 - **High-Performance Linux Engine**: Zero-IPC liveness checks and batched window retrieval for near-instant toggling response.
 - **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves including the "premium" `impulse` curve).
 - **Focus Restoration**: Remembers your previous window and restores focus instantly.
