@@ -1,4 +1,4 @@
-# janq - A Fairly Solid Quake-Style Terminal (or App) Manager
+# janq - A Fairly Solid Quake-Style Terminal/App Manager
 
 ## janq is 100%, unadulterated vibe coded slop. User discretion is advised.
 
@@ -229,11 +229,13 @@ hotkey = "Meta+Z"
 |               | `animate_opacity`    | `false`          | Fade opacity during animations                                                       |   ✔️    |
 |               | `show_opacity_point` | `0.2`            | Animation progress (0-1) by which the window becomes fully opaque                    |   ❌    |
 |               | `hide_opacity_point` | `0.8`            | Animation progress (0-1) when fade-out starts                                        |   ❌    |
-|               | `framerate`          | `"auto"`         | Animation framerate: `auto`, `0` (disable), or `1-1000` (FPS)                        |   ❌    |
+|               | `framerate`\*\*      | `"auto"`         | Animation framerate: `auto`, `0` (disable), or `1-1000` (FPS)                        |   ❌    |
 
 \*`duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined. **Note: Durations are scaled based on distance to ensure a constant movement velocity.**
 
 (Sloperator: For your own sanity, just use the single `duration` and `easing` keys, check [here](#sibling-animation-duration-divergence)).
+
+\*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit).
 
 #### Slide Direction
 

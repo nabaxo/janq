@@ -40,8 +40,7 @@ use janq::config::{
 /// - Position calculation with slide_from/position_offset
 /// - Sibling window coordination
 /// - Frame-by-frame interpolation with easing
-/// - Opacity animation (if enabled)
-/// Opacity animation (if enabled)
+/// - Final window state enforcement
 static ANIMATION_GENERATION: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Clone)]
@@ -73,9 +72,11 @@ pub fn run_animation_task_sync(
     None => return,
   };
 
+  // Generation check to cancel old animations
   let my_gen = ANIMATION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
   unsafe {
+    // 1. Determine target monitor
     let monitor = if should_show {
       match &config.window.display_mode {
         DisplayMode::Specific => {
@@ -103,6 +104,7 @@ pub fn run_animation_task_sync(
           if !use_fallback {
             MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST)
           } else {
+            // If already visible, use its current monitor, otherwise fallback to cursor
             if IsWindowVisible(target_hwnd.inner()).as_bool() {
               MonitorFromWindow(target_hwnd.inner(), MONITOR_DEFAULTTONEAREST)
             } else {
@@ -132,7 +134,7 @@ pub fn run_animation_task_sync(
     let screen_w = work_area.right - work_area.left;
     let screen_h = work_area.bottom - work_area.top;
 
-    // --- Geometry & Current State Capture ---
+    // 2. Resolve dimensions
     let (width, height) = app_cfg.resolve_dimensions(&config.window);
 
     let mut r_target = RECT::default();
@@ -157,10 +159,9 @@ pub fn run_animation_task_sync(
       r_target.bottom - r_target.top
     };
 
-    // Resolve slide direction and position offset
+    // 3. Resolve positioning & slide
     let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
 
-    // Compute shown/hidden positions using shared logic
     let work_area_rect = WorkArea {
       left: work_area.left,
       top: work_area.top,
@@ -187,6 +188,7 @@ pub fn run_animation_task_sync(
       (hidden_x, hidden_y)
     };
 
+    // Current state for delta calculation
     let mut t_curr_alpha: u8 = 255;
     let _ = GetLayeredWindowAttributes(target_hwnd.inner(), None, Some(&mut t_curr_alpha), None);
 
@@ -195,7 +197,7 @@ pub fn run_animation_task_sync(
     let t_on_correct_monitor =
       MonitorFromWindow(target_hwnd.inner(), MONITOR_DEFAULTTONEAREST) == monitor;
 
-    // Check if window needs repositioning (monitor change OR config change)
+    // If showing, check if we need to "teleport" to start position
     // Similar to Linux needsReposition logic - detects if window is far from expected position
     let needs_reposition = if should_show {
       let tolerance = 50; // Same as Linux
@@ -203,7 +205,6 @@ pub fn run_animation_task_sync(
 
       !t_on_correct_monitor
         || if is_horizontal {
-          // For top/bottom slides, check if Y is outside expected range
           match slide_from {
             SlideDirection::Top => {
               t_curr_y < hidden_y - tolerance || t_curr_y > shown_y + tolerance
@@ -214,7 +215,6 @@ pub fn run_animation_task_sync(
             _ => false,
           }
         } else {
-          // For left/right slides, check if X is outside expected range
           match slide_from {
             SlideDirection::Left => {
               t_curr_x < hidden_x - tolerance || t_curr_x > shown_x + tolerance
@@ -229,7 +229,7 @@ pub fn run_animation_task_sync(
       false
     };
 
-    // --- Sibling Data: (hwnd, start_x, start_y, width, height, end_x, end_y, alpha, duration_secs, easing_cfg) ---
+    // 4. Gather Sibling Animations
     let mut siblings_data = Vec::new();
     for ocw in siblings {
       let ohwnd = ocw.hwnd;
@@ -248,7 +248,6 @@ pub fn run_animation_task_sync(
             let s_w = r.right - r.left;
             let s_h = r.bottom - r.top;
 
-            // Look up sibling's app name from APP_CACHE, then get its config
             let sib_app_name = {
               let cache = get_app_cache().read().unwrap();
               cache
@@ -265,7 +264,6 @@ pub fn run_animation_task_sync(
             let sib_dir = &sib_slide.0;
             let sib_offset = &sib_slide.1;
 
-            // Use shared position calculation for sibling
             let sib_work_area = WorkArea {
               left: s_work.left,
               top: s_work.top,
@@ -280,7 +278,6 @@ pub fn run_animation_task_sync(
               config.animation.hide_duration,
             );
 
-            // Sibling-specific overrides
             let (target_dur_ms, target_easing, sib_anim_op, sib_no_brd) = sib_app_name
               .as_ref()
               .and_then(|name| config.app.get(name))
@@ -299,10 +296,8 @@ pub fn run_animation_task_sync(
                 config.window.no_borders,
               ));
 
-            // Siblings slide out using their hidden positions from compute_slide_positions
             let (sib_end_x, sib_end_y) = (sib_positions.hidden_x, sib_positions.hidden_y);
 
-            // Distance scaling for sibling hide
             let s_dist_total = match sib_dir {
               SlideDirection::Top | SlideDirection::Bottom => (sib_end_y - r.top).abs(),
               SlideDirection::Left | SlideDirection::Right => (sib_end_x - r.left).abs(),
@@ -338,8 +333,7 @@ pub fn run_animation_task_sync(
       }
     }
 
-    // --- Target Catching & Teleport ---
-    // Teleport if on wrong monitor OR if config changed (position mismatch)
+    // Prepare target window start state
     let (t_start_x, t_start_y) = if should_show && needs_reposition {
       let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 0, LWA_ALPHA);
       let _ = SetWindowPos(
@@ -352,8 +346,6 @@ pub fn run_animation_task_sync(
         SWP_NOACTIVATE | SWP_NOZORDER,
       );
       (hidden_x, hidden_y)
-    } else if should_show {
-      (t_curr_x, t_curr_y)
     } else {
       (t_curr_x, t_curr_y)
     };
@@ -364,6 +356,7 @@ pub fn run_animation_task_sync(
       t_curr_alpha
     };
 
+    // 5. Setup Animation Params
     let t_dist_x = (final_target_x - t_start_x).abs();
     let t_dist_y = (final_target_y - t_start_y).abs();
     let t_dist_total = (t_dist_x.max(t_dist_y)) as f64;
@@ -405,7 +398,7 @@ pub fn run_animation_task_sync(
     }
     .clamp(0.0, 1.0);
 
-    // --- Style & Layering Prep ---
+    // Disable DWM transitions for cleaner movement
     let _ = DwmSetWindowAttribute(
       target_hwnd.inner(),
       DWMWA_TRANSITIONS_FORCEDISABLED,
@@ -421,6 +414,7 @@ pub fn run_animation_task_sync(
       );
     }
 
+    // Prep Layering and Borders
     let prep_layer = |h: HWND, app_no_borders: bool| {
       let mut ex = GetWindowLongW(h, GWL_EXSTYLE) as u32;
       let mut changed = false;
@@ -504,10 +498,6 @@ pub fn run_animation_task_sync(
       }
     };
 
-    let start_time = Instant::now();
-    let mut first_frame = true;
-
-    // Store animation state
     {
       let mut state = get_animation_state().lock().unwrap();
       *state = Some(AnimationState {
@@ -518,6 +508,7 @@ pub fn run_animation_task_sync(
       });
     }
 
+    // 6. Animation Loop
     let max_dur_secs = if matches!(config.animation.framerate, Framerate::Specific(0)) {
       0.0
     } else {
@@ -535,10 +526,17 @@ pub fn run_animation_task_sync(
       let mut last_sibling_ys: Vec<i32> = siblings_data.iter().map(|s| s.start_y).collect();
       let mut last_sibling_alphas: Vec<u8> = siblings_data.iter().map(|s| s.alpha).collect();
 
+      // Fix: Pre-allocate outside the loop to prevent heap allocation jitter
+      let mut sibling_next_pos = vec![(0i32, 0i32); siblings_data.len()];
+
       let _ = timeBeginPeriod(1);
+      // Fix: Reset start_time RIGHT BEFORE the loop so 'elapsed' starts at 0.0
+      let start_time = Instant::now();
       let mut last_frame_time = Instant::now();
+      let mut first_frame = true;
+
       loop {
-        // 1. Bail Check
+        // Exit checks
         {
           let v = get_visible_app().read().unwrap();
           let still_target = if should_show {
@@ -563,6 +561,7 @@ pub fn run_animation_task_sync(
         };
         let target_ease_val = get_easing(target_progress, easing);
 
+        // Update target opacity
         let mut needs_pos_update = false;
         if animate_opacity {
           let t_alpha = {
@@ -591,7 +590,7 @@ pub fn run_animation_task_sync(
           last_alpha = 255;
         }
 
-        // --- Sibling Opacity ---
+        // Update siblings opacity
         for (i, sib) in siblings_data.iter().enumerate() {
           if sib.animate_opacity {
             let s_progress = (elapsed / sib.duration_secs).min(1.0);
@@ -610,35 +609,31 @@ pub fn run_animation_task_sync(
           }
         }
 
-        // --- Position Update Calculations ---
+        // Target interpolation
         let next_x = t_start_x + ((final_target_x - t_start_x) as f64 * target_ease_val) as i32;
         let next_y = t_start_y + ((final_target_y - t_start_y) as f64 * target_ease_val) as i32;
 
-        let mut sibling_next_pos = Vec::with_capacity(siblings_data.len());
+        // Siblings interpolation
         let mut sib_needs_move = false;
 
-        for sib in &siblings_data {
+        for (i, sib) in siblings_data.iter().enumerate() {
           let s_progress = (elapsed / sib.duration_secs).min(1.0);
           let s_ease_val = get_easing(s_progress, &sib.easing);
           let on_x = sib.start_x + ((sib.end_x - sib.start_x) as f64 * s_ease_val) as i32;
           let on_y = sib.start_y + ((sib.end_y - sib.start_y) as f64 * s_ease_val) as i32;
-          sibling_next_pos.push((on_x, on_y));
+
+          sibling_next_pos[i] = (on_x, on_y);
+          if on_x != last_sibling_xs[i] || on_y != last_sibling_ys[i] {
+            sib_needs_move = true;
+          }
         }
 
-        if next_x != last_x || next_y != last_y || first_frame {
+        // Change check
+        if next_x != last_x || next_y != last_y || first_frame || sib_needs_move {
           needs_pos_update = true;
-        } else {
-          for (i, (on_x, on_y)) in sibling_next_pos.iter().enumerate() {
-            if *on_x != last_sibling_xs[i] || *on_y != last_sibling_ys[i] {
-              sib_needs_move = true;
-              break;
-            }
-          }
-          if sib_needs_move {
-            needs_pos_update = true;
-          }
         }
 
+        // Commit frame via DeferWindowPos
         if needs_pos_update {
           if let Ok(mut hdwp) = BeginDeferWindowPos((1 + siblings_data.len()) as i32) {
             let mut t_flags = SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_DEFERERASE;
@@ -719,26 +714,29 @@ pub fn run_animation_task_sync(
         }
 
         if first_frame && should_show {
-          let _ = ShowWindow(target_hwnd.inner(), SW_SHOW);
           force_focus(target_hwnd.inner());
         }
 
         first_frame = false;
 
-        // --- Loop Timing ---
+        // Regulate framerate
         match config.animation.framerate {
           Framerate::Auto => {
             let _ = DwmFlush();
           }
           Framerate::Specific(fps) if fps > 0 => {
-            let target_frame_time = Duration::from_secs_f64(1.0 / fps as f64);
-            let elapsed_since_last = last_frame_time.elapsed();
-            if elapsed_since_last < target_frame_time {
-              thread::sleep(target_frame_time - elapsed_since_last);
+            // Cast u16 to u64 for the nanosecond calculation
+            let target_ns = 1_000_000_000u64 / fps as u64;
+            let frame_elapsed = last_frame_time.elapsed().as_nanos() as u64;
+
+            if frame_elapsed < target_ns {
+              thread::sleep(Duration::from_nanos(target_ns - frame_elapsed));
             }
             last_frame_time = Instant::now();
           }
-          _ => {}
+          _ => {
+            let _ = DwmFlush();
+          }
         }
 
         if elapsed >= max_dur_secs {
