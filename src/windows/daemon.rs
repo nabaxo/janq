@@ -44,6 +44,7 @@ use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::{
   HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
+  Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT},
   WindowsAndMessaging::{
     AllowSetForegroundWindow, DispatchMessageW, GetMessageW, IsWindow, PostThreadMessageW,
     TranslateMessage, ASFW_ANY, MSG, WM_USER,
@@ -481,16 +482,30 @@ pub async fn run_daemon(
               }
               last_tray_toggle = Instant::now();
 
+              let is_shift_pressed = {
+                let shift_state = GetKeyState(VK_SHIFT.0 as i32);
+                (shift_state as u16 & 0x8000) != 0
+              };
+
               let _ = AllowSetForegroundWindow(ASFW_ANY);
               let cfg = config.read().unwrap().clone();
-              if let Some(app_name) = cfg.app.keys().next() {
-                let app_name = app_name.clone();
-                let app_cfg = cfg.app.get(&app_name).unwrap().clone();
-                let cfg_spawn = cfg.clone();
-                tokio::task::spawn_blocking(move || {
-                  ensure_terminal_running(&app_name, &app_cfg, &cfg_spawn, None);
-                  toggle_window(&app_name, &cfg_spawn);
-                });
+
+              if is_shift_pressed {
+                print_shutdown_message("Quit via Shift + Left-click");
+                restore_window_visibility();
+                print_termination_complete();
+                exit(0);
+              } else {
+                // --- STANDARD LEFT CLICK: Toggle first app (Current behavior) ---
+                if let Some(app_name) = cfg.app.keys().next() {
+                  let app_name = app_name.clone();
+                  let app_cfg = cfg.app.get(&app_name).unwrap().clone();
+                  let cfg_spawn = cfg.clone();
+                  tokio::task::spawn_blocking(move || {
+                    ensure_terminal_running(&app_name, &app_cfg, &cfg_spawn, None);
+                    toggle_window(&app_name, &cfg_spawn);
+                  });
+                }
               }
             }
           }

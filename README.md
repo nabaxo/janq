@@ -61,9 +61,6 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 
 janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
 
-> [!TIP]
-> Left-click the tray icon to toggle the first defined app in your config, or middle-click to quit.
-
 #### Linux Startup (Automatic)
 
 To make janq start automatically on login:
@@ -123,7 +120,8 @@ janq lives in your system tray (notification area) and provides a context menu f
 
 - **Left Click**: Toggles the **first** application defined in your configuration file.
 - **Right Click**: Opens the menu to toggle specific applications, reload the configuration, or exit.
-- **Middle Click**: (Linux) Instantly exits the daemon.
+- (Linux) **Middle Click**: Instantly exits the daemon.
+- (Windows) **Shift+Left Click**: Instantly exits the daemon.
 - **Menu Order**: The application list in the tray menu follows the exact order of the `[app]` blocks in your `janq.toml`.
 - **Shortcut Display**: If multiple `hotkeys` are configured for an application, only the first one is displayed in the menu (all remain functional).
 
@@ -428,6 +426,10 @@ When toggling between two different apps rapidly (while one is mid-animation), t
 ### Linux: Hotkey registration delay
 
 On KDE Plasma, there's a small intentional delay (~500ms) when registering or updating hotkeys. This is a workaround for a race condition in KWin's `GlobalShortcutsRegistry` that can cause crashes with rapid D-Bus operations. The delay only affects startup and config reloads, not toggle performance.
+
+### Windows: Middle click tray icon
+
+(Sloperator: There's some bug/feature in Windows 11 that messes up middle clicking tray icons, hence shift-left click on tray icon to close on windows).
 
 ### App Compatibility: Opacity Animations
 
