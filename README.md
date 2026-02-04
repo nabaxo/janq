@@ -1,6 +1,6 @@
 # janq - A Fairly Solid Quake-Style Terminal/App Manager
 
-## janq is 100%, unadulterated vibe coded slop. User discretion is advised.
+### *janq is 100%, unadulterated vibe coded slop. User discretion is advised.*
 
 <img src="icon.svg" width="190" height="190" align="left">
 
