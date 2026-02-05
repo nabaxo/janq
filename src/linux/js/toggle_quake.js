@@ -27,7 +27,6 @@
     if (c !== target && c.opacity > 0.01) {
       let managedData = null;
       if (cId !== "") managedData = incomingSiblings.find(s => normalizeId(s.id) === cId);
-      if (!managedData && cPid > 0) managedData = incomingSiblings.find(s => s.pid === cPid);
 
       if (managedData) {
         // Use pre-calculated data from Rust

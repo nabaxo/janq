@@ -244,9 +244,14 @@ pub async fn check_window_exists_with_candidates(
   target_class: &str,
   candidates: Option<&[FoundWindow]>,
 ) -> Option<String> {
+  let managed_ids: std::collections::HashSet<String> = {
+    let cache = get_cache().lock().unwrap();
+    cache.values().map(|c| c.id.clone()).collect()
+  };
+
   // 1. If candidates are provided (batch search), use them immediately
   if let Some(list) = candidates {
-    return fuzzy_match_window(target_class, list, &std::collections::HashSet::new()).map(|w| w.id);
+    return fuzzy_match_window(target_class, list, &managed_ids).map(|w| w.id);
   }
 
   // 2. Hot path: Check cache and verify liveness via /proc (no expensive script call)
@@ -263,10 +268,6 @@ pub async fn check_window_exists_with_candidates(
 
   // 3. Fallback: Full system fetch and fuzzy match
   let all_windows = fetch_system_windows_async().await;
-  let managed_ids: std::collections::HashSet<String> = {
-    let cache = get_cache().lock().unwrap();
-    cache.values().map(|c| c.id.clone()).collect()
-  };
 
   if let Some(best) = fuzzy_match_window(target_class, &all_windows, &managed_ids) {
     // Update cache

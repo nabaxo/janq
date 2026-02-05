@@ -9,6 +9,16 @@ const findTarget = (windowClass, targetWindowId, targetPid) => {
   const safeTargetPid = targetPid || 0;
   const lowerClass = (windowClass || "").toLowerCase();
 
+  // 1. If we have a specific ID, try to find it first (Absolute Strictness)
+  if (cleanTargetId !== "") {
+    for (const c of clients) {
+      if (c.internalId && normalizeId(c.internalId) === cleanTargetId) {
+        return c;
+      }
+    }
+  }
+
+  // 2. Fallback to scoring if no ID match found (or no ID provided)
   let target = null;
   let bestScore = -1;
 
@@ -17,8 +27,11 @@ const findTarget = (windowClass, targetWindowId, targetPid) => {
     const cClass = (c.resourceClass || "").toLowerCase();
     const cName = (c.resourceName || "").toLowerCase();
 
-    if (cleanTargetId !== "" && c.internalId && normalizeId(c.internalId) === cleanTargetId) score += 1000;
-    if (safeTargetPid > 0 && c.pid == safeTargetPid) score += 500;
+    // If we have an ID but didn't find it in step 1, we still allow a PID fallback
+    // but with much lower weight to prevent stealing visible instances of the same app.
+    if (safeTargetPid > 0 && c.pid == safeTargetPid) {
+      score += (cleanTargetId !== "" ? 100 : 500);
+    }
 
     // Modern .includes() for readability
     if (lowerClass) {
@@ -173,6 +186,7 @@ const setQuakeProperties = (target, keepAbove, noBorders, skipPager, isVisible, 
 };
 
 const resetQuakeProperties = (target) => {
+  target.janqTag = undefined;
   target.keepAbove = false;
   target.onAllDesktops = false;
   target.noBorder = false;

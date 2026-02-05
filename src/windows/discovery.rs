@@ -113,6 +113,7 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
 
   target_struct.found_data.push(FoundWindow {
     id: (hwnd.0 as usize).to_string(),
+    hwnd: hwnd.0 as isize,
     class_lowercase: class_name,
     proc_lowercase: proc_name,
     #[cfg(target_os = "linux")]
@@ -143,29 +144,23 @@ pub fn find_window_by_process(
   candidates: Option<&[FoundWindow]>,
 ) -> Option<CachedWindow> {
   let cache = get_app_cache().read().unwrap();
-  let managed_ids: std::collections::HashSet<String> = cache
-    .values()
-    .map(|cw| (cw.hwnd.0 as usize).to_string())
-    .collect();
+  let managed_ids: std::collections::HashSet<isize> =
+    cache.values().map(|cw| cw.hwnd.0 as isize).collect();
 
   if let Some(list) = candidates {
     if let Some(best) = fuzzy_match_window(name, list, &managed_ids) {
-      if let Ok(handle) = best.id.parse::<usize>() {
-        return Some(CachedWindow {
-          hwnd: HWND(handle as *mut _),
-        });
-      }
+      return Some(CachedWindow {
+        hwnd: HWND(best.hwnd as *mut _),
+      });
     }
     return None;
   }
 
   let found_data = fetch_system_windows();
   if let Some(best) = fuzzy_match_window(name, &found_data, &managed_ids) {
-    if let Ok(handle) = best.id.parse::<usize>() {
-      return Some(CachedWindow {
-        hwnd: HWND(handle as *mut _),
-      });
-    }
+    return Some(CachedWindow {
+      hwnd: HWND(best.hwnd as *mut _),
+    });
   }
 
   None

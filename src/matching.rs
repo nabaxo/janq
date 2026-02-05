@@ -72,6 +72,8 @@ const THRESHOLD_MINIMUM: i32 = 500;
 #[derive(Clone, Debug, Default)]
 pub struct FoundWindow {
   pub id: String,
+  #[cfg(target_os = "windows")]
+  pub hwnd: isize,
   pub class_lowercase: String,
   pub proc_lowercase: String,
   #[cfg(target_os = "linux")]
@@ -99,6 +101,9 @@ use std::collections::HashSet;
 /// ```ignore
 /// let windows = fetch_system_windows();
 /// let mut managed = HashSet::new();
+/// #[cfg(target_os = "windows")]
+/// managed.insert(12345);
+/// #[cfg(not(target_os = "windows"))]
 /// managed.insert("12345".to_string());
 /// if let Some(win) = fuzzy_match_window("wezterm", &windows, &managed) {
 ///     println!("Found window: {}", win.id);
@@ -107,7 +112,8 @@ use std::collections::HashSet;
 pub fn fuzzy_match_window(
   target: &str,
   candidates: &[FoundWindow],
-  managed_ids: &HashSet<String>,
+  #[cfg(target_os = "windows")] managed_ids: &HashSet<isize>,
+  #[cfg(not(target_os = "windows"))] managed_ids: &HashSet<String>,
 ) -> Option<FoundWindow> {
   let lower_target = target.to_lowercase();
   if lower_target.is_empty() {
@@ -138,7 +144,13 @@ pub fn fuzzy_match_window(
     if win.is_visible {
       score += BONUS_VISIBILITY;
     }
-    if managed_ids.contains(&win.id) {
+
+    #[cfg(target_os = "windows")]
+    let is_managed = managed_ids.contains(&win.hwnd);
+    #[cfg(not(target_os = "windows"))]
+    let is_managed = managed_ids.contains(&win.id);
+
+    if is_managed {
       score += BONUS_MANAGED;
     }
 
@@ -296,6 +308,8 @@ mod tests {
   fn make_window(id: &str, class: &str, proc: &str, visible: bool) -> FoundWindow {
     FoundWindow {
       id: id.to_string(),
+      #[cfg(target_os = "windows")]
+      hwnd: id.parse().unwrap_or(0),
       class_lowercase: class.to_lowercase(),
       proc_lowercase: proc.to_lowercase(),
       #[cfg(target_os = "linux")]
@@ -352,6 +366,9 @@ mod tests {
     ];
     // Both match equally, but managed one should win
     let mut managed = HashSet::new();
+    #[cfg(target_os = "windows")]
+    managed.insert(2);
+    #[cfg(not(target_os = "windows"))]
     managed.insert("2".to_string());
     let result = fuzzy_match_window("wezterm", &candidates, &managed);
     assert!(result.is_some());
