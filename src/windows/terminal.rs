@@ -120,9 +120,10 @@ pub fn ensure_terminal_running(
 
   // Wait for window to appear
   let mut found = false;
-  for i in 0..80 {
-    // Wait up to 8s (100ms * 80)
-    std::thread::sleep(Duration::from_millis(100));
+  let mut current_delay = 100;
+  for i in 0..50 {
+    // Poll for window with linear backoff to save CPU/Battery
+    std::thread::sleep(Duration::from_millis(current_delay));
     let cw = {
       if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None) {
         if unsafe { IsWindowVisible(found_cw.hwnd).as_bool() } {
@@ -151,12 +152,17 @@ pub fn ensure_terminal_running(
       break;
     }
 
-    if i > 0 && (i + 1) % 20 == 0 {
+    if i > 0 && (i + 1) % 10 == 0 {
       println!(
-        "janq: Still waiting for window '{}' to appear (attempt {}/80)...",
+        "janq: Still waiting for window '{}' to appear (attempt {}/50)...",
         app_name,
         i + 1
       );
+    }
+
+    // Backoff: Starts at 100ms, increases by 50ms every loop after 5 attempts, capped at 1s.
+    if i >= 5 {
+      current_delay = (current_delay + 50).min(1000);
     }
   }
 
