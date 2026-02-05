@@ -140,6 +140,8 @@ static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new(
 static LAST_EXTERNAL_FOCUS: AtomicIsize = AtomicIsize::new(0);
 static MANAGED_APP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
 pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
+/// Bridge window handle for PostMessage-based signaling (modal-loop safe).
+pub static BRIDGE_HWND: OnceLock<CachedWindow> = OnceLock::new();
 
 pub fn get_last_external_focus() -> HWND {
   HWND(LAST_EXTERNAL_FOCUS.load(Ordering::Relaxed) as *mut _)
@@ -155,6 +157,17 @@ pub fn is_managed_window(hwnd: HWND) -> bool {
   }
   let cache = get_app_cache().read().unwrap();
   cache.values().any(|cw| cw.hwnd == hwnd)
+}
+
+/// Posts a wake-up message to the main loop via the bridge window.
+/// This is safe during modal loops (e.g., tray menu open).
+pub fn post_wake_message(msg_id: u32) {
+  use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
+  if let Some(bridge) = BRIDGE_HWND.get() {
+    unsafe {
+      let _ = PostMessageW(Some(bridge.hwnd), msg_id, WPARAM(0), LPARAM(0));
+    }
+  }
 }
 
 pub unsafe extern "system" fn focus_hook_proc(
@@ -173,10 +186,8 @@ pub unsafe extern "system" fn focus_hook_proc(
       MANAGED_APP_HAS_FOCUS.store(false, Ordering::Relaxed);
       LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
 
-      // Trigger FocusLost event for auto-hide
-      if let Some(id) = MAIN_THREAD_ID.get() {
-        let _ = PostThreadMessageW(*id, WM_USER + 2, WPARAM(0), LPARAM(0));
-      }
+      // Trigger FocusLost event for auto-hide (modal-loop safe)
+      post_wake_message(WM_USER + 2);
     }
   }
 }

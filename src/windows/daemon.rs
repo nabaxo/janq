@@ -40,14 +40,13 @@ use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
   MouseButton, TrayIconBuilder, TrayIconEvent,
 };
-use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::{
   HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
   Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT},
   WindowsAndMessaging::{
-    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, IsWindow, PostThreadMessageW,
-    TranslateMessage, ASFW_ANY, MSG, WM_USER,
+    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, IsWindow, TranslateMessage, ASFW_ANY,
+    MSG, WM_USER,
   },
 };
 
@@ -56,8 +55,9 @@ use crate::windows::{
   show_error,
   terminal::ensure_terminal_running,
   window::{
-    fetch_system_windows, get_app_cache, init_focus_hook, init_hidden_owner, release_windows,
-    reset_visible_app, restore_window_visibility, toggle_window,
+    fetch_system_windows, get_app_cache, init_focus_hook, init_hidden_owner, post_wake_message,
+    release_windows, reset_visible_app, restore_window_visibility, toggle_window, CachedWindow,
+    BRIDGE_HWND,
   },
 };
 use janq::config::{load_config, Config};
@@ -70,6 +70,61 @@ use janq::spawn_guard::get_spawning_apps;
 
 /// Named pipe path for IPC between janq client and daemon.
 const PIPE_NAME: &str = r"\\.\pipe\janq";
+
+// =============================================================================
+// Bridge Window for Modal-Loop Safe Signaling
+// =============================================================================
+
+/// Creates a message-only window to receive wake-up messages.
+/// This is necessary because PostThreadMessage signals are lost during modal loops
+/// (e.g., when the tray menu is open), but PostMessage to a window handle works.
+fn init_bridge_window() {
+  use windows::core::w;
+  use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+  use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DefWindowProcW, RegisterClassW, HWND_MESSAGE, WINDOW_EX_STYLE, WNDCLASSW,
+    WS_POPUP,
+  };
+
+  unsafe extern "system" fn bridge_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+  ) -> LRESULT {
+    DefWindowProcW(hwnd, msg, wparam, lparam)
+  }
+
+  unsafe {
+    let class_name = w!("janq_bridge");
+
+    let wc = WNDCLASSW {
+      lpfnWndProc: Some(bridge_wnd_proc),
+      lpszClassName: class_name,
+      ..Default::default()
+    };
+    RegisterClassW(&wc);
+
+    let hwnd = CreateWindowExW(
+      WINDOW_EX_STYLE::default(),
+      class_name,
+      w!("janq_bridge_window"),
+      WS_POPUP,
+      0,
+      0,
+      0,
+      0,
+      Some(HWND_MESSAGE),
+      None,
+      None,
+      None,
+    );
+
+    if let Ok(h) = hwnd {
+      let _ = BRIDGE_HWND.set(CachedWindow { hwnd: h });
+    }
+  }
+}
 
 // =============================================================================
 // Daemon Event Loop
@@ -114,6 +169,9 @@ pub async fn run_daemon(
   // Initialize hidden owner window for taskbar hiding (skip_pager feature)
   init_hidden_owner();
 
+  // Initialize bridge window for modal-loop safe message posting
+  init_bridge_window();
+
   let config = Arc::new(RwLock::new(Arc::new(initial_config)));
 
   // 3. Setup IPC Server (Tokio Task)
@@ -147,9 +205,7 @@ pub async fn run_daemon(
                       ensure_terminal_running(&target_name_c, &app_cfg, &cfg, None);
                       toggle_window(&target_name_c, &cfg);
                     });
-                    unsafe {
-                      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
-                    }
+                    post_wake_message(WM_USER + 1);
                   }
                 }
               }
@@ -192,16 +248,13 @@ pub async fn run_daemon(
     };
 
     let _ = event_tx_signal.send(DaemonEvent::Exit(Some(signal_name)));
-    unsafe {
-      let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
-    }
+    post_wake_message(WM_USER + 1);
   });
 
   janq::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
     let path_to_watch = path_to_watch.clone();
     let config_clone_watcher = config_clone_watcher.clone();
     let event_tx_watcher = event_tx_watcher.clone();
-    let main_thread_id = main_thread_id;
     async move {
       let (new_config, _) = match load_config(path_to_watch.clone()) {
         Ok(c) => c,
@@ -247,9 +300,7 @@ pub async fn run_daemon(
         release_windows(to_restore);
       }
       let _ = event_tx_watcher.send(DaemonEvent::ReloadHotkeys);
-      unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
-      }
+      post_wake_message(WM_USER + 1);
     }
   });
 
@@ -308,9 +359,7 @@ pub async fn run_daemon(
           tokio::task::spawn_blocking(move || {
             toggle_window(&app_name_c2, &cfg_c2);
           });
-          unsafe {
-            let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
-          }
+          post_wake_message(WM_USER + 1);
         });
       }
     }
@@ -321,9 +370,7 @@ pub async fn run_daemon(
   std::thread::spawn(move || {
     while let Ok(event) = hotkey_receiver.recv() {
       let _ = event_tx_hk.send(DaemonEvent::Hotkey(event));
-      unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
-      }
+      post_wake_message(WM_USER + 1);
     }
   });
 
@@ -331,9 +378,7 @@ pub async fn run_daemon(
   std::thread::spawn(move || {
     while let Ok(event) = menu_receiver.recv() {
       let _ = event_tx_menu.send(DaemonEvent::Menu(event));
-      unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
-      }
+      post_wake_message(WM_USER + 1);
     }
   });
 
@@ -357,9 +402,7 @@ pub async fn run_daemon(
       }
 
       let _ = event_tx_tray_icon.send(DaemonEvent::Tray(event));
-      unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
-      }
+      post_wake_message(WM_USER + 1);
     }
   });
 
@@ -368,9 +411,7 @@ pub async fn run_daemon(
     loop {
       tokio::time::sleep(Duration::from_secs(2)).await;
       let _ = event_tx_heartbeat.send(DaemonEvent::RespawnCheck);
-      unsafe {
-        let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
-      }
+      post_wake_message(WM_USER + 1);
     }
   });
 
@@ -457,13 +498,15 @@ pub async fn run_daemon(
               let _ = AllowSetForegroundWindow(ASFW_ANY);
               let cfg = config.read().unwrap().clone();
               let app_name = app_name.clone();
-              let app_cfg = cfg.app.get(&app_name).unwrap().clone();
-              let app_name_spawn = app_name.clone();
-              let cfg_spawn = cfg.clone();
-              tokio::task::spawn_blocking(move || {
-                ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
-                toggle_window(&app_name_spawn, &cfg_spawn);
-              });
+              if let Some(app_cfg) = cfg.app.get(&app_name) {
+                let app_cfg = app_cfg.clone();
+                let app_name_spawn = app_name.clone();
+                let cfg_spawn = cfg.clone();
+                tokio::task::spawn_blocking(move || {
+                  ensure_terminal_running(&app_name_spawn, &app_cfg, &cfg_spawn, None);
+                  toggle_window(&app_name_spawn, &cfg_spawn);
+                });
+              }
             }
           }
           DaemonEvent::Tray(event) => {
@@ -499,12 +542,14 @@ pub async fn run_daemon(
                 // --- STANDARD LEFT CLICK: Toggle first app (Current behavior) ---
                 if let Some(app_name) = cfg.app.keys().next() {
                   let app_name = app_name.clone();
-                  let app_cfg = cfg.app.get(&app_name).unwrap().clone();
-                  let cfg_spawn = cfg.clone();
-                  tokio::task::spawn_blocking(move || {
-                    ensure_terminal_running(&app_name, &app_cfg, &cfg_spawn, None);
-                    toggle_window(&app_name, &cfg_spawn);
-                  });
+                  if let Some(app_cfg) = cfg.app.get(&app_name) {
+                    let app_cfg = app_cfg.clone();
+                    let cfg_spawn = cfg.clone();
+                    tokio::task::spawn_blocking(move || {
+                      ensure_terminal_running(&app_name, &app_cfg, &cfg_spawn, None);
+                      toggle_window(&app_name, &cfg_spawn);
+                    });
+                  }
                 }
               }
             }
@@ -543,7 +588,7 @@ pub async fn run_daemon(
                     &cfg_spawn,
                     Some(&candidates_clone),
                   );
-                  let _ = PostThreadMessageW(main_thread_id, WM_USER + 1, WPARAM(0), LPARAM(0));
+                  post_wake_message(WM_USER + 1);
                 });
               }
             }
