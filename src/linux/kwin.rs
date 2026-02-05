@@ -435,8 +435,10 @@ async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn
   }
 
   let class_lower = class_name.to_lowercase();
-  for managed_class in janq_classes {
-    if class_lower.contains(&managed_class.to_lowercase()) {
+  let janq_classes_lower: Vec<String> = janq_classes.iter().map(|s| s.to_lowercase()).collect();
+
+  for managed_class in janq_classes_lower {
+    if class_lower.contains(&managed_class) {
       return;
     }
   }
