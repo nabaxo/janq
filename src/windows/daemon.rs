@@ -40,13 +40,14 @@ use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
   MouseButton, TrayIconBuilder, TrayIconEvent,
 };
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::{
   HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
   Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT},
   WindowsAndMessaging::{
-    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, IsWindow, TranslateMessage, ASFW_ANY,
-    MSG, WM_USER,
+    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, IsWindow, SendMessageW,
+    TranslateMessage, ASFW_ANY, MSG, WM_CANCELMODE, WM_USER,
   },
 };
 
@@ -80,7 +81,7 @@ const PIPE_NAME: &str = r"\\.\pipe\janq";
 /// (e.g., when the tray menu is open), but PostMessage to a window handle works.
 fn init_bridge_window() {
   use windows::core::w;
-  use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+  // use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
   use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, RegisterClassW, HWND_MESSAGE, WINDOW_EX_STYLE, WNDCLASSW,
     WS_POPUP,
@@ -171,6 +172,9 @@ pub async fn run_daemon(
 
   // Initialize bridge window for modal-loop safe message posting
   init_bridge_window();
+
+  // Set tray menu theme
+  apply_theme_preference();
 
   let config = Arc::new(RwLock::new(Arc::new(initial_config)));
 
@@ -421,12 +425,15 @@ pub async fn run_daemon(
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
       if msg.message == WM_USER + 2 {
+        if let Some(bridge) = crate::windows::window::BRIDGE_HWND.get() {
+          let _ = SendMessageW(bridge.hwnd, WM_CANCELMODE, Some(WPARAM(0)), Some(LPARAM(0)));
+        }
         let _ = event_tx.send(DaemonEvent::FocusLost);
       }
+
       let _ = TranslateMessage(&msg);
       DispatchMessageW(&msg);
 
-      // Process our internal events
       while let Ok(daemon_event) = event_rx.try_recv() {
         match daemon_event {
           DaemonEvent::Exit(signal) => {
@@ -435,6 +442,7 @@ pub async fn run_daemon(
             print_termination_complete();
             exit(0);
           }
+
           DaemonEvent::ReloadHotkeys => {
             let cfg = config.read().unwrap().clone();
             let _ = sync_hotkeys(
@@ -443,6 +451,9 @@ pub async fn run_daemon(
               &hotkey_map,
               &current_hotkeys,
             );
+
+            // Re-apply theme in case system settings changed
+            apply_theme_preference();
 
             // Rebuild and update the tray menu
             let (new_menu, items, q_id) = build_tray_menu(&cfg);
@@ -453,6 +464,7 @@ pub async fn run_daemon(
               let _ = ti.set_menu(Some(Box::new(new_menu)));
             }
           }
+
           DaemonEvent::FocusLost => {
             let cfg = config.read().unwrap().clone();
             if cfg.window.auto_hide {
@@ -788,4 +800,53 @@ fn build_tray_menu(
   let _ = tray_menu.append(&quit_i);
 
   (tray_menu, app_items, quit_id)
+}
+
+fn is_dark_mode() -> bool {
+  use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+  let mut data = 0u32;
+  let mut size = std::mem::size_of::<u32>() as u32;
+  unsafe {
+    let path =
+      windows::core::w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+    let name = windows::core::w!("AppsUseLightTheme");
+
+    if RegGetValueW(
+      HKEY_CURRENT_USER,
+      path,
+      name,
+      RRF_RT_REG_DWORD,
+      None,
+      Some(&mut data as *mut _ as *mut _),
+      Some(&mut size),
+    )
+    .is_ok()
+    {
+      return data == 0;
+    }
+  }
+  false
+}
+
+fn apply_theme_preference() {
+  use windows::core::PCSTR;
+  use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+
+  unsafe {
+    if let Ok(uxtheme) = GetModuleHandleW(windows::core::w!("uxtheme.dll")) {
+      // SetPreferredAppMode (Ordinal 135)
+      if let Some(set_preferred_ptr) = GetProcAddress(uxtheme, PCSTR(135 as *const u8)) {
+        let set_preferred_app_mode: unsafe extern "system" fn(i32) -> i32 =
+          std::mem::transmute(set_preferred_ptr);
+        let mode = if is_dark_mode() { 2 } else { 3 };
+        let _ = set_preferred_app_mode(mode);
+      }
+
+      // FlushMenuThemes (Ordinal 136)
+      if let Some(flush_ptr) = GetProcAddress(uxtheme, PCSTR(136 as *const u8)) {
+        let flush_menu_themes: unsafe extern "system" fn() -> i32 = std::mem::transmute(flush_ptr);
+        let _ = flush_menu_themes();
+      }
+    }
+  }
 }
