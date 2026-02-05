@@ -487,11 +487,7 @@ pub async fn run_daemon(
           DaemonEvent::FocusLost => {
             let cfg = config.read().unwrap().clone();
             if cfg.window.auto_hide {
-              if let Some(visible_app) = crate::windows::window::get_visible_app()
-                .read()
-                .unwrap()
-                .clone()
-              {
+              if let Some(visible_app) = crate::windows::window::get_visible_app() {
                 println!("Focus Lost: Auto-hiding '{}'", visible_app);
                 let _ = AllowSetForegroundWindow(ASFW_ANY);
                 tokio::task::spawn_blocking(move || {
@@ -570,9 +566,10 @@ pub async fn run_daemon(
                 print_termination_complete();
                 exit(0);
               } else {
-                // --- STANDARD LEFT CLICK: Toggle first app (Current behavior) ---
-                if let Some(app_name) = cfg.app.keys().next() {
-                  let app_name = app_name.clone();
+                let target = crate::windows::window::get_visible_app()
+                  .or_else(|| cfg.app.keys().next().cloned());
+
+                if let Some(app_name) = target {
                   if let Some(app_cfg) = cfg.app.get(&app_name) {
                     let app_cfg = app_cfg.clone();
                     let cfg_spawn = cfg.clone();

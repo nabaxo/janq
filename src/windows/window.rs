@@ -217,8 +217,12 @@ pub fn get_animation_cancel() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
     .clone()
 }
 
-pub fn get_visible_app() -> &'static RwLock<Option<String>> {
+pub fn visible_app_lock() -> &'static RwLock<Option<String>> {
   VISIBLE_APP.get_or_init(|| RwLock::new(None))
+}
+
+pub fn get_visible_app() -> Option<String> {
+  visible_app_lock().read().unwrap().clone()
 }
 
 pub fn get_app_cache() -> &'static RwLock<FxHashMap<String, CachedWindow>> {
@@ -287,10 +291,7 @@ pub unsafe extern "system" fn monitor_enum_proc(
 // =============================================================================
 
 pub fn toggle_window(app_name: &str, config: &Config) -> bool {
-  let is_visible = {
-    let v = get_visible_app().read().unwrap();
-    v.as_deref() == Some(app_name)
-  };
+  let is_visible = get_visible_app().as_deref() == Some(app_name);
   let should_show = !is_visible;
   let app_cfg = match config.app.get(app_name) {
     Some(c) => c,
@@ -350,7 +351,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
 
   let mut restore_focus = false;
   {
-    let mut v = get_visible_app().write().unwrap();
+    let mut v = visible_app_lock().write().unwrap();
     if should_show {
       *v = Some(app_name.to_string());
     } else {

@@ -538,7 +538,7 @@ pub fn run_animation_task_sync(
       loop {
         // Exit checks
         {
-          let v = get_visible_app().read().unwrap();
+          let v = get_visible_app();
           let still_target = if should_show {
             v.as_deref() == Some(app_name)
           } else {

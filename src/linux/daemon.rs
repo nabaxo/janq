@@ -54,8 +54,8 @@ use std::process::id;
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
 use crate::linux::hotkey::sync_kde_shortcuts;
 use crate::linux::kwin::{
-  clear_removed_apps_from_cache, grab_apps, init as init_kwin, reset_visibility, restore_app,
-  restore_quake, toggle_quake,
+  clear_removed_apps_from_cache, get_visible_app, grab_apps, init as init_kwin, reset_visibility,
+  restore_app, restore_quake, toggle_quake,
 };
 use crate::linux::terminal::{
   ensure_terminal_running, ensure_terminal_running_with_candidates, fetch_system_windows_async,
@@ -238,8 +238,12 @@ impl Tray for JanqTray {
     let config = { self.config.read().unwrap().clone() };
     let conn = self.conn.clone();
     tokio::spawn(async move {
-      if let Some(app_name) = config.app.keys().next() {
-        let _ = toggle_quake(app_name, &config, &conn).await;
+      let target = get_visible_app()
+        .await
+        .or_else(|| config.app.keys().next().cloned());
+
+      if let Some(app_name) = target {
+        let _ = toggle_quake(&app_name, &config, &conn).await;
       }
     });
   }

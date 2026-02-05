@@ -466,6 +466,10 @@ async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u
 // Toggle Logic
 // =============================================================================
 
+pub async fn get_visible_app() -> Option<String> {
+  STATE.lock().await.visible_app.clone()
+}
+
 pub async fn toggle_quake(
   app_name: &str,
   config: &Config,

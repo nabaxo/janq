@@ -10,7 +10,7 @@ use windows::Win32::{
 };
 
 use crate::windows::window::{
-  get_animation_cancel, get_app_cache, get_visible_app, set_taskbar_hidden, CachedWindow,
+  get_animation_cancel, get_app_cache, set_taskbar_hidden, visible_app_lock, CachedWindow,
 };
 use janq::config::{AppConfig, Config};
 
@@ -174,6 +174,6 @@ pub fn restore_window_visibility() {
 
 /// Clears the visible app state.
 pub fn reset_visible_app() {
-  let mut v = get_visible_app().write().unwrap();
+  let mut v = visible_app_lock().write().unwrap();
   *v = None;
 }
