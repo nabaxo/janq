@@ -20,6 +20,16 @@
 // Hotkey Validation
 // =============================================================================
 
+/// Valid identifiers for hotkey modifiers.
+pub const MODIFIERS: &[&str] = &[
+  "ctrl", "control", "alt", "shift", "meta", "super", "win", "cmd",
+];
+
+/// Checks if a string is a valid hotkey modifier.
+pub fn is_modifier(s: &str) -> bool {
+  MODIFIERS.iter().any(|&m| m.eq_ignore_ascii_case(s))
+}
+
 /// Validates a hotkey string format.
 ///
 /// # Format
@@ -37,33 +47,51 @@
 /// - Unknown key name is used
 /// - Empty parts exist (e.g., "Meta++Grave")
 pub fn validate_hotkey(s: &str) -> Result<(), String> {
-  let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
   let mut has_base_key = false;
 
-  for part in parts {
-    let p = part.to_lowercase();
-    match p.as_str() {
-      "ctrl" | "control" | "alt" | "shift" | "meta" | "super" | "win" | "cmd" => {}
-      "" => return Err("Empty key part (double plus or trailing plus?)".to_string()),
-      _ => {
-        // Must be the base key
-        if has_base_key {
-          return Err(
-            "Multiple base keys found: use only one base key (e.g., 'F1') per shortcut."
-              .to_string(),
-          );
-        }
-
-        // Validate base key name
-        if !is_valid_base_key(&p) {
-          let hint = crate::matching::suggest_similar(&p, VALID_KEYS)
-            .map(|s| format!(" Did you mean '{}'?", s))
-            .unwrap_or_else(|| format!(" Valid base keys include: {}.", VALID_KEYS.join(", ")));
-          return Err(format!("Unknown key name: '{}'{}", part, hint));
-        }
-        has_base_key = true;
-      }
+  for part in s.split('+') {
+    let part = part.trim();
+    if part.is_empty() {
+      return Err("Empty key part (double plus or trailing plus?)".to_string());
     }
+
+    if is_modifier(part) {
+      continue;
+    }
+
+    if is_valid_base_key(part) {
+      if has_base_key {
+        return Err(
+          "Multiple base keys found: use only one base key (e.g., 'F1') per shortcut.".to_string(),
+        );
+      }
+      has_base_key = true;
+      continue;
+    }
+
+    // It is unknown (not a modifier and not a valid base key)
+    let part_lower = part.to_lowercase();
+    let suggestion = if has_base_key {
+      // If we already have a base key, this MUST have been intended as a modifier
+      crate::matching::suggest_similar(&part_lower, MODIFIERS)
+    } else {
+      // Otherwise it could be a typo of either
+      crate::matching::suggest_similar(&part_lower, MODIFIERS)
+        .or_else(|| crate::matching::suggest_similar(&part_lower, VALID_KEYS))
+    };
+
+    let hint = if let Some(s) = suggestion {
+      format!(" Did you mean '{}'?", s)
+    } else if has_base_key {
+      format!(" Valid modifiers include: {}.", MODIFIERS.join(", "))
+    } else {
+      format!(
+        " Valid modifiers: {}. Valid base keys include: {}.",
+        MODIFIERS.join(", "),
+        VALID_KEYS.join(", ")
+      )
+    };
+    return Err(format!("Unknown key name: '{}'{}", part, hint));
   }
 
   if !has_base_key {
@@ -162,8 +190,8 @@ pub fn is_valid_base_key(s: &str) -> bool {
   if s.len() == 1 && s.chars().next().unwrap().is_ascii_alphanumeric() {
     return true;
   }
-  // Check against our canonical list
-  VALID_KEYS.contains(&s)
+  // Check against our canonical list (case-insensitive to avoid allocations)
+  VALID_KEYS.iter().any(|&k| k.eq_ignore_ascii_case(s))
 }
 
 /// Parses a cubic-bezier easing curve specification.
@@ -189,25 +217,30 @@ pub fn is_valid_base_key(s: &str) -> bool {
 /// ```
 pub fn parse_bezier(type_: &str) -> Option<(f64, f64, f64, f64)> {
   let s = type_.trim().to_lowercase();
-  let content = if s.starts_with("cubic-bezier(") && s.ends_with(')') {
-    &s["cubic-bezier(".len()..s.len() - 1]
-  } else if s.starts_with("bezier(") && s.ends_with(')') {
-    &s["bezier(".len()..s.len() - 1]
-  } else if s.starts_with('(') && s.ends_with(')') {
-    &s[1..s.len() - 1]
+
+  let content = if s.ends_with(')') {
+    if let Some(stripped) = s.strip_prefix("cubic-bezier(") {
+      stripped.strip_suffix(')')?
+    } else if let Some(stripped) = s.strip_prefix("bezier(") {
+      stripped.strip_suffix(')')?
+    } else if s.starts_with('(') {
+      &s[1..s.len() - 1]
+    } else {
+      return None;
+    }
   } else {
     return None;
   };
 
-  let parts: Vec<&str> = content.split(',').map(|p| p.trim()).collect();
-  if parts.len() != 4 {
+  let mut parts = content.split(',');
+  let x1 = parts.next()?.trim().parse::<f64>().ok()?;
+  let y1 = parts.next()?.trim().parse::<f64>().ok()?;
+  let x2 = parts.next()?.trim().parse::<f64>().ok()?;
+  let y2 = parts.next()?.trim().parse::<f64>().ok()?;
+
+  if parts.next().is_some() {
     return None;
   }
-
-  let x1 = parts[0].parse::<f64>().ok()?;
-  let y1 = parts[1].parse::<f64>().ok()?;
-  let x2 = parts[2].parse::<f64>().ok()?;
-  let y2 = parts[3].parse::<f64>().ok()?;
 
   Some((x1, y1, x2, y2))
 }
