@@ -74,7 +74,7 @@ use janq::shutdown::{print_shutdown_message, print_termination_complete};
 /// from KDE when the user triggers a registered shortcut.
 #[derive(Clone)]
 struct QuakeApplication {
-  config: Arc<RwLock<Arc<Config>>>,
+  config: Arc<RwLock<Config>>,
   conn: Connection,
 }
 
@@ -84,7 +84,7 @@ struct QuakeApplication {
 /// callbacks from KWin scripts reporting window metadata.
 #[derive(Clone)]
 struct QuakeDaemon {
-  config: Arc<RwLock<Arc<Config>>>,
+  config: Arc<RwLock<Config>>,
   conn: Connection,
 }
 
@@ -163,7 +163,7 @@ impl QuakeDaemon {
 
 #[cfg(not(feature = "systray"))]
 struct StatusNotifierItem {
-  config: Arc<RwLock<Arc<Config>>>,
+  config: Arc<RwLock<Config>>,
   icon_cache: IconPixmap,
   conn: Connection,
 }
@@ -228,7 +228,7 @@ impl StatusNotifierItem {
 
 #[cfg(feature = "systray")]
 struct JanqTray {
-  config: Arc<RwLock<Arc<Config>>>,
+  config: Arc<RwLock<Config>>,
   conn: Connection,
 }
 
@@ -362,7 +362,7 @@ pub async fn run_daemon(
 
   println!("Starting janq daemon...");
   init_kwin().await;
-  let config = Arc::new(RwLock::new(Arc::new(initial_config)));
+  let config = Arc::new(RwLock::new(initial_config));
   let conn = zbus::connection::Builder::session()?
     .internal_executor(false)
     .build()
@@ -467,7 +467,7 @@ pub async fn run_daemon(
     for name in cfg.app.keys() {
       if let Some(app_cfg) = cfg.app.get(name) {
         let app_cfg_owned = app_cfg.clone();
-        let cfg_clone = (*cfg).clone();
+        let cfg_clone = cfg.clone();
         let conn_clone = conn.clone();
         let candidates_clone = initial_candidates.clone();
 
@@ -490,7 +490,7 @@ pub async fn run_daemon(
     // Grabbing apps (now using the pre-fetched list is too old, grab_apps will do its own scan if needed)
     let mut apps_for_grabbing = Vec::new();
     for (_name, app_cfg) in &cfg.app {
-      apps_for_grabbing.push((app_cfg.clone(), (*cfg).clone()));
+      apps_for_grabbing.push((app_cfg.clone(), cfg.clone()));
     }
     let _ = grab_apps(&apps_for_grabbing, &conn).await;
 
@@ -539,8 +539,8 @@ pub async fn run_daemon(
 
       let old_config = {
         let mut w = config_for_watcher.write().unwrap();
-        let old = (**w).clone();
-        *w = Arc::new(new_config.clone());
+        let old = w.clone();
+        *w = new_config.clone();
         old
       };
 

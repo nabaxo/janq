@@ -190,7 +190,7 @@ pub async fn run_daemon(
   // Set tray menu theme
   apply_theme_preference();
 
-  let config = Arc::new(RwLock::new(Arc::new(initial_config)));
+  let config = Arc::new(RwLock::new(initial_config));
 
   // 3. Setup IPC Server (Tokio Task)
   let config_ipc = config.clone();
@@ -287,8 +287,8 @@ pub async fn run_daemon(
       };
       {
         let mut w = config_clone_watcher.write().unwrap();
-        let old_config = (**w).clone();
-        *w = Arc::new(new_config.clone());
+        let old_config = w.clone();
+        *w = new_config.clone();
 
         // Handle removed or changed apps
         let mut to_restore = Vec::new();
