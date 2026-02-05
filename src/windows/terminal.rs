@@ -21,7 +21,9 @@ use std::{
 
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, IsWindowVisible};
 
-use crate::windows::window::{find_window_by_process, get_app_cache, park_window};
+use crate::windows::window::{
+  find_window_by_process, get_app_cache, park_window, update_managed_hwnds_cache,
+};
 use janq::config::{AppConfig, Config, FoundWindow};
 use janq::spawn_guard::{get_spawning_apps, SpawnGuard};
 
@@ -58,6 +60,7 @@ pub fn ensure_terminal_running(
         let mut cache = get_app_cache().write().unwrap();
         cache.insert(app_name.to_string(), cw);
       }
+      update_managed_hwnds_cache();
 
       park_window(cw, config, app_cfg);
       return false;
@@ -128,6 +131,7 @@ pub fn ensure_terminal_running(
             let mut cache = get_app_cache().write().unwrap();
             cache.insert(app_name.to_string(), found_cw);
           }
+          update_managed_hwnds_cache();
           Some(found_cw)
         } else {
           None

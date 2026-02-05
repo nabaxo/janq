@@ -314,6 +314,8 @@ pub async fn run_daemon(
             }
           }
         }
+        // Sync the lock-free HWND cache after reload
+        crate::windows::window::update_managed_hwnds_cache();
         // Cancel any ongoing animation before restoring
         release_windows(to_restore);
       }

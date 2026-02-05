@@ -139,6 +139,16 @@ static APP_CACHE: OnceLock<RwLock<FxHashMap<String, CachedWindow>>> = OnceLock::
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
 static LAST_EXTERNAL_FOCUS: AtomicIsize = AtomicIsize::new(0);
 static MANAGED_APP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
+static MANAGED_HWNDS_CACHE: [AtomicIsize; 8] = [
+  AtomicIsize::new(0),
+  AtomicIsize::new(0),
+  AtomicIsize::new(0),
+  AtomicIsize::new(0),
+  AtomicIsize::new(0),
+  AtomicIsize::new(0),
+  AtomicIsize::new(0),
+  AtomicIsize::new(0),
+];
 pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
 /// Bridge window handle for PostMessage-based signaling (modal-loop safe).
 pub static BRIDGE_HWND: OnceLock<CachedWindow> = OnceLock::new();
@@ -151,12 +161,34 @@ pub fn get_managed_app_has_focus() -> bool {
   MANAGED_APP_HAS_FOCUS.load(Ordering::Relaxed)
 }
 
+pub fn update_managed_hwnds_cache() {
+  let cache = get_app_cache().read().unwrap();
+  let mut i = 0;
+  for cw in cache.values().take(8) {
+    MANAGED_HWNDS_CACHE[i].store(cw.hwnd.0 as isize, Ordering::Relaxed);
+    i += 1;
+  }
+  if i < 8 {
+    MANAGED_HWNDS_CACHE[i].store(0, Ordering::Relaxed);
+  }
+}
+
 pub fn is_managed_window(hwnd: HWND) -> bool {
   if hwnd.0.is_null() {
     return false;
   }
-  let cache = get_app_cache().read().unwrap();
-  cache.values().any(|cw| cw.hwnd == hwnd)
+  let h_val = hwnd.0 as isize;
+  // Lock-free hot path for OS focus hook
+  for i in 0..8 {
+    let cached = MANAGED_HWNDS_CACHE[i].load(Ordering::Relaxed);
+    if cached == 0 {
+      break;
+    }
+    if cached == h_val {
+      return true;
+    }
+  }
+  false
 }
 
 /// Posts a wake-up message to the main loop via the bridge window.
@@ -316,6 +348,8 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       Some(cw) => {
         let mut cache = get_app_cache().write().unwrap();
         cache.insert(app_name.to_string(), cw);
+        drop(cache);
+        update_managed_hwnds_cache();
         cw
       }
       None => {
