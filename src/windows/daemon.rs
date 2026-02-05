@@ -583,9 +583,10 @@ pub async fn run_daemon(
             }
           }
           DaemonEvent::RespawnCheck => {
-            let candidates = fetch_system_windows();
             let cfg = config.read().unwrap().clone();
-            for (name, app_cfg) in &cfg.app {
+            let mut missing_apps = Vec::new();
+
+            for name in cfg.app.keys() {
               let needs_check = {
                 let cache = get_app_cache().read().unwrap();
                 let already_spawning = {
@@ -603,22 +604,23 @@ pub async fn run_daemon(
               };
 
               if needs_check {
-                reset_visible_app();
-                println!("App '{}' not managed. Checking/Respawning...", name);
-                let app_cfg = app_cfg.clone();
-                let cfg_spawn = cfg.clone();
-                let name_clone = name.clone();
-                let candidates_clone = candidates.clone();
-                tokio::task::spawn_blocking(move || {
-                  ensure_terminal_running(
-                    &name_clone,
-                    &app_cfg,
-                    &cfg_spawn,
-                    Some(&candidates_clone),
-                  );
-                  post_wake_message(WM_USER + 1);
-                });
+                missing_apps.push(name.clone());
               }
+            }
+
+            if !missing_apps.is_empty() {
+              let cfg_spawn = cfg.clone();
+              tokio::task::spawn_blocking(move || {
+                let candidates = fetch_system_windows();
+                for name in missing_apps {
+                  if let Some(app_cfg) = cfg_spawn.app.get(&name) {
+                    println!("App '{}' not managed. Checking/Respawning...", name);
+                    ensure_terminal_running(&name, app_cfg, &cfg_spawn, Some(&candidates));
+                  }
+                }
+                reset_visible_app();
+                post_wake_message(WM_USER + 1);
+              });
             }
           }
         }

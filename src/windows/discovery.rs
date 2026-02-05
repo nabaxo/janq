@@ -5,7 +5,7 @@
 
 use windows::core::BOOL;
 use windows::Win32::{
-  Foundation::{HWND, LPARAM},
+  Foundation::{CloseHandle, HWND, LPARAM},
   System::{
     ProcessStatus::GetModuleBaseNameW,
     Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
@@ -79,6 +79,9 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
     let len = unsafe { GetModuleBaseNameW(process, None, &mut buffer) };
     if len > 0 {
       proc_name = String::from_utf16_lossy(&buffer[..len as usize]).to_lowercase();
+    }
+    unsafe {
+      let _ = CloseHandle(process);
     }
   }
 
