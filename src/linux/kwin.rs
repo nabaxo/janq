@@ -116,8 +116,14 @@ async fn run_kwin_script(
     )
     .await;
 
-  // 2. Write content to temp file
-  let tmp_path = temp_dir().join(format!("{}.js", script_name));
+  // 2. Write content to shared memory (/dev/shm) to avoid SSD churn
+  let shm_dir = std::path::PathBuf::from("/dev/shm");
+  let tmp_path = if shm_dir.exists() {
+    shm_dir.join(format!("{}.js", script_name))
+  } else {
+    temp_dir().join(format!("{}.js", script_name))
+  };
+
   fs::write(&tmp_path, script_content)
     .map_err(|e| zbus::Error::Failure(format!("Failed to write script: {}", e)))?;
 
