@@ -93,6 +93,20 @@ fn init_bridge_window() {
     wparam: WPARAM,
     lparam: LPARAM,
   ) -> LRESULT {
+    use windows::Win32::UI::WindowsAndMessaging::{WM_SETTINGCHANGE, WM_USER};
+
+    if msg == WM_SETTINGCHANGE {
+      // Check if the change was to "ImmersiveColorSet" (the theme)
+      let l_ptr = lparam.0 as *const u16;
+      if !l_ptr.is_null() {
+        let s = windows::core::PCWSTR(l_ptr).to_string().unwrap_or_default();
+        if s == "ImmersiveColorSet" {
+          // Wake the loop to re-apply themes
+          post_wake_message(WM_USER + 1);
+          // We'll reuse the ReloadHotkeys logic or a new ThemeChanged event
+        }
+      }
+    }
     DefWindowProcW(hwnd, msg, wparam, lparam)
   }
 
@@ -433,6 +447,11 @@ pub async fn run_daemon(
 
       let _ = TranslateMessage(&msg);
       DispatchMessageW(&msg);
+
+      // Force the theme to re-sync based on current registry state
+      if msg.message == WM_USER + 1 {
+        apply_theme_preference();
+      }
 
       while let Ok(daemon_event) = event_rx.try_recv() {
         match daemon_event {
