@@ -26,8 +26,8 @@ use windows::Win32::{
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
   force_focus, get_animation_cancel, get_animation_state, get_app_cache, get_last_external_focus,
-  get_visible_app, is_shell_window, monitor_enum_proc, set_taskbar_hidden, AnimationState,
-  CachedWindow, MonitorEnumCtx,
+  is_shell_window, monitor_enum_proc, set_taskbar_hidden, AnimationState, CachedWindow,
+  MonitorEnumCtx,
 };
 use janq::config::{
   compute_slide_positions, Config, DisplayMode, Framerate, PositionOffset, SlideDirection, WorkArea,
@@ -537,20 +537,11 @@ pub fn run_animation_task_sync(
 
       loop {
         // Exit checks
+        if get_animation_cancel().load(Ordering::SeqCst)
+          || ANIMATION_GENERATION.load(Ordering::SeqCst) != my_gen
         {
-          let v = get_visible_app();
-          let still_target = if should_show {
-            v.as_deref() == Some(app_name)
-          } else {
-            v.as_deref() != Some(app_name)
-          };
-          if !still_target
-            || get_animation_cancel().load(Ordering::SeqCst)
-            || ANIMATION_GENERATION.load(Ordering::SeqCst) != my_gen
-          {
-            let _ = timeEndPeriod(1);
-            return;
-          }
+          let _ = timeEndPeriod(1);
+          return;
         }
 
         let elapsed = start_time.elapsed().as_secs_f64();
