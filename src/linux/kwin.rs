@@ -24,9 +24,10 @@
 //! - `previous_window_id` - Window to restore focus to after hide
 //! - `max_refresh_rate` - Detected system refresh rate, used when `framerate = "auto"`
 use rustc_hash::FxHashMap;
-use std::{env::temp_dir, fs, path::Path, process::Command, sync::OnceLock};
+use std::{env::temp_dir, fs, path::Path, sync::OnceLock};
 
 use tokio::{
+  process::Command as TokioCommand,
   sync::Mutex,
   time::{sleep, Duration},
 };
@@ -194,10 +195,11 @@ static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
   max_refresh_rate: 60.0,
 });
 
-fn get_max_refresh_rate() -> f64 {
-  let output = Command::new("kscreen-doctor")
+async fn get_max_refresh_rate() -> f64 {
+  let output = TokioCommand::new("kscreen-doctor")
     .arg("-o")
     .output()
+    .await
     .ok()
     .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
     .unwrap_or_default();
@@ -225,7 +227,7 @@ fn get_max_refresh_rate() -> f64 {
 }
 
 pub async fn init() {
-  let hz = get_max_refresh_rate();
+  let hz = get_max_refresh_rate().await;
   let mut state = STATE.lock().await;
   state.max_refresh_rate = hz;
 }
