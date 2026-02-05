@@ -53,10 +53,10 @@ const BONUS_CONSECUTIVE: i32 = 100;
 const PENALTY_GAP: i32 = 50;
 
 /// Bonus for visible windows
-const BONUS_VISIBILITY: i32 = 2000;
+const BONUS_VISIBILITY: i32 = 1000;
 
 /// Bonus for windows already managed by janq
-const BONUS_MANAGED: i32 = 1000;
+const BONUS_MANAGED: i32 = 3000;
 
 /// Minimum score threshold to accept a match
 const THRESHOLD_MINIMUM: i32 = 500;

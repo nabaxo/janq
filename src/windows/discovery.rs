@@ -6,6 +6,7 @@
 use windows::core::BOOL;
 use windows::Win32::{
   Foundation::{CloseHandle, HWND, LPARAM},
+  Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED},
   System::{
     ProcessStatus::GetModuleBaseNameW,
     Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
@@ -48,6 +49,16 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
     // but for the INITIAL enumeration during hotkey trigger,
     // we often prioritize visible ones. Actually, the current logic is to collect
     // ALL so we can fuzzy match them. But we can skip obvious system "ghost" windows.
+    let mut cloaked: u32 = 0;
+    let dwm_result = DwmGetWindowAttribute(
+      hwnd,
+      DWMWA_CLOAKED,
+      &mut cloaked as *mut u32 as *mut _,
+      std::mem::size_of::<u32>() as u32,
+    );
+    if dwm_result.is_ok() && cloaked != 0 {
+      return BOOL(1);
+    }
   }
 
   let mut pid = 0;
@@ -60,12 +71,25 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
   let class_len = unsafe { GetClassNameW(hwnd, &mut class_buffer) };
   let class_name = String::from_utf16_lossy(&class_buffer[..class_len as usize]).to_lowercase();
 
+  let mut title_buf = [0u16; 512];
+  let title_len = unsafe { GetWindowTextW(hwnd, &mut title_buf) };
+  let has_title = title_len > 0;
+
   // Filter out known junk classes
   if class_name.contains("nvopengl")
     || class_name.contains("wgpu")
     || class_name == "ime"
     || class_name == "msctfime ui"
     || class_name.contains("gdi+ hooks")
+    || class_name == "progman"
+    || class_name == "workerw"
+    || class_name.contains("shell_traywnd")
+    || class_name.contains("shell_secondarytraywnd")
+    || class_name.contains("windows.ui.core.corewindow")
+    || ((class_name.contains("chrome_widgetwin") || class_name.contains("nativehwndhost"))
+      && !has_title)
+    || class_name.contains("tooltip")
+    || class_name.contains("ghost")
   {
     return BOOL(1);
   }
