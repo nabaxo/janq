@@ -143,7 +143,7 @@ pub fn find_window_by_process(
   candidates: Option<&[FoundWindow]>,
 ) -> Option<CachedWindow> {
   let cache = get_app_cache().read().unwrap();
-  let managed_ids: Vec<String> = cache
+  let managed_ids: std::collections::HashSet<String> = cache
     .values()
     .map(|cw| (cw.hwnd.0 as usize).to_string())
     .collect();
