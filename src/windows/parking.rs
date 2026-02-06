@@ -117,21 +117,25 @@ pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
 /// Restores a specific window to a visible state.
 pub fn restore_hwnd(hwnd: HWND) {
   unsafe {
+    let mut needs_refresh = false;
+
     let mut ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
     let old_ex = ex;
     if (ex & WS_EX_LAYERED.0) == 0 {
       ex |= WS_EX_LAYERED.0;
     }
-    // Clear TOOLWINDOW and owner so window shows in taskbar and Alt+Tab
+    // Clear TOOLWINDOW so window shows in Alt+Tab
     ex &= !WS_EX_TOOLWINDOW.0;
 
     if ex != old_ex {
       SetWindowLongW(hwnd, GWL_EXSTYLE, ex as i32);
+      needs_refresh = true;
     }
 
     // Surgical check for taskbar owner
     if GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) != 0 {
       set_taskbar_hidden(hwnd, false);
+      needs_refresh = true;
     }
 
     // Restore borders
@@ -139,6 +143,10 @@ pub fn restore_hwnd(hwnd: HWND) {
     let target_style = style | WS_CAPTION.0 | WS_THICKFRAME.0;
     if style != target_style {
       SetWindowLongW(hwnd, GWL_STYLE, target_style as i32);
+      needs_refresh = true;
+    }
+
+    if needs_refresh {
       let _ = SetWindowPos(
         hwnd,
         None,

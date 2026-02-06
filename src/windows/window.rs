@@ -138,16 +138,8 @@ static APP_CACHE: OnceLock<RwLock<FxHashMap<String, CachedWindow>>> = OnceLock::
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
 static LAST_EXTERNAL_FOCUS: AtomicIsize = AtomicIsize::new(0);
 static MANAGED_APP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
-static MANAGED_HWNDS_CACHE: [AtomicIsize; 8] = [
-  AtomicIsize::new(0),
-  AtomicIsize::new(0),
-  AtomicIsize::new(0),
-  AtomicIsize::new(0),
-  AtomicIsize::new(0),
-  AtomicIsize::new(0),
-  AtomicIsize::new(0),
-  AtomicIsize::new(0),
-];
+static MANAGED_HWNDS_CACHE: OnceLock<RwLock<Vec<isize>>> = OnceLock::new();
+
 pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
 /// Bridge window handle for PostMessage-based signaling (modal-loop safe).
 pub static BRIDGE_HWND: OnceLock<CachedWindow> = OnceLock::new();
@@ -177,14 +169,14 @@ pub fn is_internal_window(hwnd: HWND) -> bool {
 
 pub fn update_managed_hwnds_cache() {
   let cache = get_app_cache().read().unwrap();
-  let mut i = 0;
-  for cw in cache.values().take(8) {
-    MANAGED_HWNDS_CACHE[i].store(cw.hwnd.0 as isize, Ordering::Relaxed);
-    i += 1;
+  let mut new_ids = Vec::with_capacity(cache.len());
+  for cw in cache.values() {
+    new_ids.push(cw.hwnd.0 as isize);
   }
-  if i < 8 {
-    MANAGED_HWNDS_CACHE[i].store(0, Ordering::Relaxed);
-  }
+
+  let cache_lock = MANAGED_HWNDS_CACHE.get_or_init(|| RwLock::new(Vec::new()));
+  let mut w = cache_lock.write().unwrap();
+  *w = new_ids;
 }
 
 pub fn is_managed_window(hwnd: HWND) -> bool {
@@ -192,15 +184,15 @@ pub fn is_managed_window(hwnd: HWND) -> bool {
     return false;
   }
   let h_val = hwnd.0 as isize;
-  // Lock-free hot path for OS focus hook
-  for i in 0..8 {
-    let cached = MANAGED_HWNDS_CACHE[i].load(Ordering::Relaxed);
-    if cached == 0 {
-      break;
+
+  // Use try_read to avoid any potential deadlock if the hook fires while
+  // the main thread or a worker thread is holding the write lock.
+  if let Some(cache_lock) = MANAGED_HWNDS_CACHE.get() {
+    if let Ok(ids) = cache_lock.try_read() {
+      return ids.contains(&h_val);
     }
-    if cached == h_val {
-      return true;
-    }
+    // If locked, assume it's managed to be safe (prevents overwriting external focus)
+    return true;
   }
   false
 }
