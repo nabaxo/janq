@@ -69,7 +69,12 @@ pub fn is_shell_window(hwnd: HWND) -> bool {
       return false;
     }
     let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
-    class_name == "progman" || class_name == "workerw" || class_name == "shell_traywnd"
+    class_name == "progman"
+      || class_name == "workerw"
+      || class_name == "shell_traywnd"
+      || class_name == "shell_secondarytraywnd"
+      || class_name == "#32768" // Menu
+      || class_name == "windows.ui.core.corewindow"
   }
 }
 
@@ -138,7 +143,10 @@ static APP_CACHE: OnceLock<RwLock<FxHashMap<String, CachedWindow>>> = OnceLock::
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
 static LAST_EXTERNAL_FOCUS: AtomicIsize = AtomicIsize::new(0);
 static MANAGED_APP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
-static MANAGED_HWNDS_CACHE: OnceLock<RwLock<Vec<isize>>> = OnceLock::new();
+static MANAGED_PIDS_CACHE: [std::sync::atomic::AtomicU32; 64] = {
+  const ATOMIC_ZERO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+  [ATOMIC_ZERO; 64]
+};
 
 pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
 /// Bridge window handle for PostMessage-based signaling (modal-loop safe).
@@ -169,30 +177,60 @@ pub fn is_internal_window(hwnd: HWND) -> bool {
 
 pub fn update_managed_hwnds_cache() {
   let cache = get_app_cache().read().unwrap();
-  let mut new_ids = Vec::with_capacity(cache.len());
+  let mut pids = Vec::with_capacity(64);
+
   for cw in cache.values() {
-    new_ids.push(cw.hwnd.0 as isize);
+    unsafe {
+      let mut pid = 0;
+      GetWindowThreadProcessId(cw.hwnd, Some(&mut pid));
+      if pid != 0 && !pids.contains(&pid) {
+        pids.push(pid);
+        if pids.len() >= 64 {
+          break;
+        }
+      }
+    }
   }
 
-  let cache_lock = MANAGED_HWNDS_CACHE.get_or_init(|| RwLock::new(Vec::new()));
-  let mut w = cache_lock.write().unwrap();
-  *w = new_ids;
+  // Update indices 1..64 first, then index 0 last to minimize race impact
+  for i in (1..64).rev() {
+    let val = if i < pids.len() {
+      pids[i]
+    } else if i == pids.len() {
+      0
+    } else {
+      // Don't overwrite if we don't need to, but for safety we can
+      0
+    };
+    MANAGED_PIDS_CACHE[i].store(val, Ordering::Relaxed);
+  }
+  // Store the first one last
+  let first = if !pids.is_empty() { pids[0] } else { 0 };
+  MANAGED_PIDS_CACHE[0].store(first, Ordering::Relaxed);
 }
 
 pub fn is_managed_window(hwnd: HWND) -> bool {
   if hwnd.0.is_null() {
     return false;
   }
-  let h_val = hwnd.0 as isize;
 
-  // Use try_read to avoid any potential deadlock if the hook fires while
-  // the main thread or a worker thread is holding the write lock.
-  if let Some(cache_lock) = MANAGED_HWNDS_CACHE.get() {
-    if let Ok(ids) = cache_lock.try_read() {
-      return ids.contains(&h_val);
+  unsafe {
+    let mut pid = 0;
+    let tid = GetWindowThreadProcessId(hwnd, Some(&mut pid));
+    if tid == 0 || pid == 0 {
+      return false;
     }
-    // If locked, assume it's managed to be safe (prevents overwriting external focus)
-    return true;
+
+    // Lock-free check of managed process IDs
+    for i in 0..64 {
+      let cached_pid = MANAGED_PIDS_CACHE[i].load(Ordering::Relaxed);
+      if cached_pid == 0 {
+        break;
+      }
+      if cached_pid == pid {
+        return true;
+      }
+    }
   }
   false
 }

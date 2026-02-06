@@ -778,6 +778,7 @@ pub fn sync_hotkeys(
     }
   }
 
+  crate::windows::window::update_managed_hwnds_cache();
   Ok(())
 }
 
