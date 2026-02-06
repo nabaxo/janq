@@ -76,6 +76,12 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
   - **Windows 0.62 Conversion**: Deep refactor of all Win32 API calls to match strict `Option<Handle>` type requirements.
   - **Notify 8.2 & TOML 0.9**: Modernized file watching and serialization stacks.
   - **Performance Optimization**: Integrated `FxHash` and `tokio::signal`, and migrated to `fs4` for better file locking.
+- **The "Stupid Shit" Technical Audit**:
+  - **Zero-Allocation Discovery**: Windows window enumeration now filters "junk" classes directly on stack-allocated buffers. Thousands of transient `String` allocations and `.to_lowercase()` calls were eliminated.
+  - **Atomic Startup Guards**: Added thread-level atomicity to window discovery. Spamming a hotkey while an app is starting now results in graceful event-dropping instead of a race condition that could "grab" transient utility windows.
+  - **Linear Backoff Polling**: Polling for new windows on Windows now scales from 100ms up to 1000ms, heavily reducing CPU overhead during application launch.
+  - **Async KWin Initialization**: KDE display queries are now fully non-blocking, preventing initialization-time executor stalls.
+  - **Window ID-Strictness**: Replaced probabilistic PID-based sibling matching on Linux with strict internal window ID tracking to handle multi-vault Obsidian setups and Electron-based "hidden" windows.
 - **Library Split & Refactor**: Extracted shared core logic into a dedicated library crate (`src/lib.rs`), reducing binary size and eliminating platform-specific code duplication.
 
 ---

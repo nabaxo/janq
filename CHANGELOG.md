@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-02-06
+
+### Added
+- **Async Display Initialization (Linux)**: Migrated KDE display configuration and refresh-rate detection to use `tokio::process`, ensuring the daemon never blocks during startup.
+- **Window ID-Strictness (Linux)**: Refactored KWin scripts to use unique internal window IDs for sibling identification, preventing multi-window applications (like Obsidian) from accidentally hiding unrelated instances.
+
+### Fixed
+- **Startup Resource Optimization (Windows)**: Implemented linear backoff (100ms to 1000ms) for startup window polling, significantly reducing CPU churn for slow-loading applications.
+- **Atomic Discovery (Windows)**: Added thread-guards to ensure only a single discovery session can be active per application. This prevents hotkey "spamming" from accidentally grabbing transient utility windows during startup.
+- **Non-Fatal Config Reload**: Improved config watcher handling to ensure syntax errors during a reload log a warning and retain the last known-good configuration instead of crashing the daemon.
+
+### Changed
+- **Performance Audit Cleanups**: 
+  - Optimized Windows window enumeration by performing case-insensitive ASCII comparisons on stack-allocated buffers, eliminating thousands of transient `String` allocations.
+  - Replaced $O(N)$ vector searches with $O(1)$ `HashSet` lookups in the matching core.
+  - Converted Windows handle discovery to store and compare raw `isize` handles, removing redundant pointer-to-string heap conversions.
+
 ## [1.0.0] - 2026-01-31
 
 ### Added
