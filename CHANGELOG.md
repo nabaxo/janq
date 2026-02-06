@@ -8,19 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-02-06
 
 ### Added
-- **Async Display Initialization (Linux)**: Migrated KDE display configuration and refresh-rate detection to use `tokio::process`, ensuring the daemon never blocks during startup.
-- **Window ID-Strictness (Linux)**: Refactored KWin scripts to use unique internal window IDs for sibling identification, preventing multi-window applications (like Obsidian) from accidentally hiding unrelated instances.
+- **Unified Selection Engine (Task 2)**: Consolidated all window discovery and fuzzy matching logic into a shared platform-agnostic crate module. Windows and Linux now share a weighted scoring algorithm (Exact > Substring > Managed > Visible).
+- **Name-Aware Process Liveness**: New `process` module for platform-agnostic PID verification.
+  - **Linux**: Migrated to `/proc/{pid}/cmdline` parsing to support full binary names (e.g., `org.wezfurlong.wezterm`) and bypass 15-character kernel `comm` truncation.
+  - **Windows**: Implemented `GetExitCodeProcess` verification to prevent "Zombie App" detection caused by PID recycling.
+- **Focus Inheritance (Linux)**: Implemented sticky focus restoration for rapid app switching. Toggling between multiple Janq-managed apps now correctly preserves and "inherits" the original external window focus target.
+- **Momentum-Aware Animations**: Overhauled animation engines on both platforms to support "Handover" states. Toggling an app mid-animation now picks up from the current opacity/position instead of snapping back to the start.
 
 ### Fixed
-- **Startup Resource Optimization (Windows)**: Implemented linear backoff (100ms to 1000ms) for startup window polling, significantly reducing CPU churn for slow-loading applications.
-- **Atomic Discovery (Windows)**: Added thread-guards to ensure only a single discovery session can be active per application. This prevents hotkey "spamming" from accidentally grabbing transient utility windows during startup.
-- **Non-Fatal Config Reload**: Improved config watcher handling to ensure syntax errors during a reload log a warning and retain the last known-good configuration instead of crashing the daemon.
+- **Windows Focus "Yo-Yo"**: Hardened focus hooks to prevent `auto_hide` from triggering incorrectly when a window is manually toggled or focus-forced.
+- **Windows WezTerm Reopening**: Fixed a bug where closed windows stayed in the management cache, preventing re-spawning. Added aggressive cache pruning upon PID death detection.
+- **Linux Focus Restore Lag**: Bypassed the metadata cache during toggle events to ensure focus restoration targets are captured with zero-latency D-Bus synchronization.
+- **Type-Safety & Build Reliability**: Resolved numerous cross-platform type regressions and Win32 import conflicts introduced during the architectural deduplication.
 
 ### Changed
-- **Performance Audit Cleanups**: 
-  - Optimized Windows window enumeration by performing case-insensitive ASCII comparisons on stack-allocated buffers, eliminating thousands of transient `String` allocations.
-  - Replaced $O(N)$ vector searches with $O(1)$ `HashSet` lookups in the matching core.
-  - Converted Windows handle discovery to store and compare raw `isize` handles, removing redundant pointer-to-string heap conversions.
+- **Zero-Allocation Discovery Loops**: Refactored core window discovery interfaces to use `&[FoundWindow]` slices. This eliminates thousands of heap allocations per minute during system polling and hotkey triggers.
+- **Aggressive Cache Pruning**: Windows backend now proactively evicts handles if `IsWindow` or `is_process_running` fails, ensuring much faster recovery from application crashes.
 
 ## [1.0.0] - 2026-01-31
 

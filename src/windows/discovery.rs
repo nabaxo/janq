@@ -14,9 +14,10 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::config::{fuzzy_match_window, FoundWindow};
-use crate::windows::window::{get_hidden_owner, CachedWindow};
-use janq::matching::{u16_contains_ascii_ignore_case, u16_eq_ascii_ignore_case};
+use crate::windows::window::{get_hidden_owner, is_managed_process, CachedWindow};
+use janq::matching::{
+  fuzzy_match_window, u16_contains_ascii_ignore_case, u16_eq_ascii_ignore_case, FoundWindow,
+};
 
 /// Context struct for EnumWindows callback.
 pub struct TargetSearch {
@@ -116,12 +117,11 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
 
   target_struct.found_data.push(FoundWindow {
     id: (hwnd.0 as usize).to_string(),
-    hwnd: hwnd.0 as isize,
     class_lowercase: class_name,
     proc_lowercase: proc_name,
-    #[cfg(target_os = "linux")]
     pid,
     is_visible,
+    is_managed: is_managed_process(pid),
   });
 
   BOOL(1)
@@ -145,22 +145,22 @@ pub fn fetch_system_windows() -> Vec<FoundWindow> {
 pub fn find_window_by_process(
   name: &str,
   candidates: Option<&[FoundWindow]>,
-  managed_ids: &std::collections::HashSet<isize>,
 ) -> Option<CachedWindow> {
-  if let Some(list) = candidates {
-    if let Some(best) = fuzzy_match_window(name, list, managed_ids) {
+  let binding;
+  let list = match candidates {
+    Some(c) => c,
+    None => {
+      binding = fetch_system_windows();
+      &binding
+    }
+  };
+
+  if let Some(best) = fuzzy_match_window(name, list) {
+    if let Ok(hwnd_val) = best.id.parse::<usize>() {
       return Some(CachedWindow {
-        hwnd: HWND(best.hwnd as *mut _),
+        hwnd: HWND(hwnd_val as *mut _),
       });
     }
-    return None;
-  }
-
-  let found_data = fetch_system_windows();
-  if let Some(best) = fuzzy_match_window(name, &found_data, managed_ids) {
-    return Some(CachedWindow {
-      hwnd: HWND(best.hwnd as *mut _),
-    });
   }
 
   None

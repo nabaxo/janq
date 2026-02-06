@@ -191,7 +191,7 @@
           if (config.animateOpacity) {
             const rawProgress = Math.min(1.0, Math.max(0, globalProgress / (config.showOpacityPoint <= 0 ? 0.0001 : config.showOpacityPoint)));
             const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, config.easingType)));
-            target.opacity = opEase;
+            target.opacity = startOpacity + (1.0 - startOpacity) * opEase;
           } else {
             target.opacity = 1.0;
           }
@@ -201,7 +201,7 @@
             const denom = 1.0 - config.hideOpacityPoint;
             const rawProgress = Math.min(1.0, Math.max(0, (globalProgress - config.hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
             const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, config.easingType)));
-            target.opacity = 1.0 - opEase;
+            target.opacity = startOpacity * (1.0 - opEase);
           } else {
             target.opacity = (globalProgress >= 1.0 ? 0.0 : 1.0);
           }
@@ -226,7 +226,7 @@
             const denom = 1.0 - config.hideOpacityPoint;
             const rawProgress = Math.min(1.0, Math.max(0, (sOpProgress - config.hideOpacityPoint) / (denom <= 0 ? 0.0001 : denom)));
             const opEase = Math.min(1.0, Math.max(0.0, getEasing(rawProgress, data.easing)));
-            data.client.opacity = 1.0 - opEase;
+            data.client.opacity = data.startOpacity * (1.0 - opEase);
           } else {
             data.client.opacity = (globalProgress >= 1.0 ? 0.0 : 1.0);
           }

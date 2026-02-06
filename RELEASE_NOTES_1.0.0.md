@@ -100,12 +100,15 @@ make build-linux-musl          # Static Linux binary
 make build-windows-static      # Static Windows binary
 ```
 
+### Selection Engine & Stability Overhaul
+- **Unified matching logic**: Windows and Linux now share the same "brain" for finding your windows. No more platform-specific bugs where Windows finds your terminal but Linux gets confused by the class name.
+- **Aggressive PID Pruning**: Fixed "Ghost Terminals" on Windows where killing a terminal via Task Manager would leave janq staring at a dead window handle. It now detects process death instantly and spawns a fresh one.
+- **Momentum-Aware Animations**: Toggling mid-animation now "Hands over" the state. The window picks up from its current opacity and position rather than snapping back to the starting line. No more flickering.
+- **Focus Inheritance (Linux)**: Rapidly cycling through managed apps now correctly "Sticky-tracks" your original browser/IDE focus, so you always return to where you started.
+
 ---
 
 ## ⚠️ Known Issues
-
-### Animation Restart on Rapid Toggles
-If you spam your hotkeys faster than the animation can finish, the window might "hitch" as it recalculates its journey. This is a design choice to prevent the window from just teleporting. You're welcome.
 
 ### Linux: Hotkey Registration Delay
 On KDE, there's a 500ms delay when registering hotkeys. It's a workaround for a race condition in KWin that can cause crashes. It only affects startup. Consider it a feature for system stability.

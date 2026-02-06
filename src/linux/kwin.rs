@@ -333,63 +333,6 @@ pub async fn report_active_window(payload: String) {
   }
 }
 
-// Short-term cache for active window (debounces rapid toggles)
-struct CachedActiveWindow {
-  id: String,
-  class: String,
-  fetched_at: std::time::Instant,
-}
-
-static ACTIVE_WINDOW_CACHE: OnceLock<StdMutex<Option<CachedActiveWindow>>> = OnceLock::new();
-
-fn get_active_window_cache() -> &'static StdMutex<Option<CachedActiveWindow>> {
-  ACTIVE_WINDOW_CACHE.get_or_init(|| StdMutex::new(None))
-}
-
-async fn fetch_active_window_cached(conn: &Connection) -> Option<(String, String)> {
-  // DEBOUNCE CONFIGURATION:
-  // - ENABLE_ACTIVE_WINDOW_CACHE: Set to false to always fetch fresh (disables caching)
-  // - CACHE_TTL_MS: How long (in ms) to reuse cached active window info
-  //
-  // Purpose: Prevents KWin script flooding during rapid toggling. When you spam
-  // the hotkey, multiple show-toggles would each trigger a KWin script to get
-  // the active window. With caching, subsequent calls within TTL reuse the result.
-  //
-  // Trade-off: Higher TTL = fewer scripts but potentially stale focus restoration
-  // if user Alt+Tabs during the window. 100ms is fast enough for human perception.
-  const ENABLE_ACTIVE_WINDOW_CACHE: bool = true;
-  const CACHE_TTL_MS: u128 = 100;
-
-  if !ENABLE_ACTIVE_WINDOW_CACHE {
-    return fetch_active_window(conn).await;
-  }
-
-  // Check cache first
-  {
-    let cache = get_active_window_cache().lock().unwrap();
-    if let Some(ref cached) = *cache {
-      if cached.fetched_at.elapsed().as_millis() < CACHE_TTL_MS {
-        return Some((cached.id.clone(), cached.class.clone()));
-      }
-    }
-  }
-
-  // Cache miss or stale, fetch fresh
-  let result = fetch_active_window(conn).await;
-
-  // Update cache
-  if let Some((ref id, ref class)) = result {
-    let mut cache = get_active_window_cache().lock().unwrap();
-    *cache = Some(CachedActiveWindow {
-      id: id.clone(),
-      class: class.clone(),
-      fetched_at: std::time::Instant::now(),
-    });
-  }
-
-  result
-}
-
 async fn fetch_active_window(conn: &Connection) -> Option<(String, String)> {
   let request_id = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
@@ -432,7 +375,9 @@ async fn fetch_active_window(conn: &Connection) -> Option<(String, String)> {
 }
 
 async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn: &Connection) {
-  let (current_id, class_name) = match fetch_active_window_cached(conn).await {
+  // Always fetch fresh when toggling - D-Bus focus events are asynchronous and can be laggy.
+  // Using the 100ms cache during a toggle event leads to stale restoration targets.
+  let (current_id, class_name) = match fetch_active_window(conn).await {
     Some(info) => info,
     None => return,
   };
@@ -442,6 +387,7 @@ async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn
   }
 
   // Optimize search: check if current class matches any managed class (case-insensitive)
+  // If focus is already on a Janq window, we inherit the existing previous_window_id.
   for managed_class in janq_classes {
     if class_name.eq_ignore_ascii_case(managed_class)
       || class_name
@@ -451,6 +397,8 @@ async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn
       return;
     }
   }
+
+  // Focus is on an external window, save it as the restoration target
   state.previous_window_id = current_id;
 }
 
@@ -686,7 +634,7 @@ pub async fn grab_apps(
       .unwrap_or("");
 
     let (target_id, target_pid) = if let Some(id) =
-      check_window_exists_with_candidates(&app_cfg.window_class, Some(&all_windows)).await
+      check_window_exists_with_candidates(&app_cfg.window_class, Some(&all_windows[..])).await
     {
       let pid = get_pid_for_class(&app_cfg.window_class).unwrap_or(0);
       if !app_name.is_empty() {

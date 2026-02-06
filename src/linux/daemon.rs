@@ -476,7 +476,7 @@ pub async fn run_daemon(
             &app_cfg_owned,
             &cfg_clone,
             &conn_clone,
-            Some(&candidates_clone),
+            Some(&candidates_clone[..]),
           )
           .await;
         }));

@@ -71,14 +71,12 @@ const THRESHOLD_MINIMUM: i32 = 500;
 /// `window_class` configuration value.
 #[derive(Clone, Debug, Default)]
 pub struct FoundWindow {
-  pub id: String,
-  #[cfg(target_os = "windows")]
-  pub hwnd: isize,
+  pub id: String, // HWND for Windows, KWin ID for Linux
   pub class_lowercase: String,
   pub proc_lowercase: String,
-  #[cfg(target_os = "linux")]
   pub pid: u32,
   pub is_visible: bool,
+  pub is_managed: bool, // Pre-calculated during discovery
 }
 
 // =============================================================================
@@ -123,36 +121,15 @@ pub fn u16_eq_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
 // Matching Algorithm
 // =============================================================================
 
-use std::collections::HashSet;
-
 /// Finds the best matching window for a target class/process name.
 ///
 /// # Arguments
 /// * `target` - The window_class from user config to search for
 /// * `candidates` - List of windows discovered from the system
-/// * `managed_ids` - IDs of windows already managed by janq (for bonus scoring)
 ///
 /// # Returns
 /// The highest-scoring window, or None if no candidate scores above threshold.
-///
-/// # Example
-/// ```ignore
-/// let windows = fetch_system_windows();
-/// let mut managed = HashSet::new();
-/// #[cfg(target_os = "windows")]
-/// managed.insert(12345);
-/// #[cfg(not(target_os = "windows"))]
-/// managed.insert("12345".to_string());
-/// if let Some(win) = fuzzy_match_window("wezterm", &windows, &managed) {
-///     println!("Found window: {}", win.id);
-/// }
-/// ```
-pub fn fuzzy_match_window(
-  target: &str,
-  candidates: &[FoundWindow],
-  #[cfg(target_os = "windows")] managed_ids: &HashSet<isize>,
-  #[cfg(not(target_os = "windows"))] managed_ids: &HashSet<String>,
-) -> Option<FoundWindow> {
+pub fn fuzzy_match_window(target: &str, candidates: &[FoundWindow]) -> Option<FoundWindow> {
   let lower_target = target.to_lowercase();
   if lower_target.is_empty() {
     return None;
@@ -183,12 +160,7 @@ pub fn fuzzy_match_window(
       score += BONUS_VISIBILITY;
     }
 
-    #[cfg(target_os = "windows")]
-    let is_managed = managed_ids.contains(&win.hwnd);
-    #[cfg(not(target_os = "windows"))]
-    let is_managed = managed_ids.contains(&win.id);
-
-    if is_managed {
+    if win.is_managed {
       score += BONUS_MANAGED;
     }
 
@@ -343,95 +315,86 @@ pub fn suggest_similar<'a>(input: &str, valid_options: &[&'a str]) -> Option<&'a
 mod tests {
   use super::*;
 
-  fn make_window(id: &str, class: &str, proc: &str, visible: bool) -> FoundWindow {
+  fn make_window(id: &str, class: &str, proc: &str, visible: bool, managed: bool) -> FoundWindow {
     FoundWindow {
       id: id.to_string(),
-      #[cfg(target_os = "windows")]
-      hwnd: id.parse().unwrap_or(0),
       class_lowercase: class.to_lowercase(),
       proc_lowercase: proc.to_lowercase(),
-      #[cfg(target_os = "linux")]
       pid: 0,
       is_visible: visible,
+      is_managed: managed,
     }
   }
 
   #[test]
   fn test_exact_match() {
-    let candidates = vec![make_window("1", "wezterm", "wezterm", true)];
-    let result = fuzzy_match_window("wezterm", &candidates, &HashSet::default());
+    let candidates = vec![make_window("1", "wezterm", "wezterm", true, false)];
+    let result = fuzzy_match_window("wezterm", &candidates);
     assert!(result.is_some());
     assert_eq!(result.unwrap().id, "1");
   }
 
   #[test]
   fn test_substring_match() {
-    let candidates = vec![make_window("1", "org.wezfurlong.wezterm", "", true)];
-    let result = fuzzy_match_window("wezterm", &candidates, &HashSet::default());
+    let candidates = vec![make_window("1", "org.wezfurlong.wezterm", "", true, false)];
+    let result = fuzzy_match_window("wezterm", &candidates);
     assert!(result.is_some());
   }
 
   #[test]
   fn test_empty_target_returns_none() {
-    let candidates = vec![make_window("1", "wezterm", "", true)];
-    let result = fuzzy_match_window("", &candidates, &HashSet::default());
+    let candidates = vec![make_window("1", "wezterm", "", true, false)];
+    let result = fuzzy_match_window("", &candidates);
     assert!(result.is_none());
   }
 
   #[test]
   fn test_no_candidates_returns_none() {
-    let result = fuzzy_match_window("wezterm", &[], &HashSet::default());
+    let result = fuzzy_match_window("wezterm", &[]);
     assert!(result.is_none());
   }
 
   #[test]
   fn test_visibility_bonus() {
     let candidates = vec![
-      make_window("1", "wezterm", "", false),
-      make_window("2", "wezterm", "", true),
+      make_window("1", "wezterm", "", false, false),
+      make_window("2", "wezterm", "", true, false),
     ];
     // Both match equally, but visible one should win
-    let result = fuzzy_match_window("wezterm", &candidates, &HashSet::default());
-    assert!(result.is_some());
+    let result = fuzzy_match_window("wezterm", &candidates);
     assert_eq!(result.unwrap().id, "2");
   }
 
   #[test]
   fn test_managed_bonus() {
     let candidates = vec![
-      make_window("1", "wezterm", "", true),
-      make_window("2", "wezterm", "", true),
+      make_window("1", "wezterm", "", true, false),
+      make_window("2", "wezterm", "", true, true),
     ];
     // Both match equally, but managed one should win
-    let mut managed = HashSet::new();
-    #[cfg(target_os = "windows")]
-    managed.insert(2);
-    #[cfg(not(target_os = "windows"))]
-    managed.insert("2".to_string());
-    let result = fuzzy_match_window("wezterm", &candidates, &managed);
-    assert!(result.is_some());
+    let result = fuzzy_match_window("wezterm", &candidates);
     assert_eq!(result.unwrap().id, "2");
   }
 
   #[test]
   fn test_no_match_when_no_subsequence() {
     // "xyz" doesn't appear at all in "abcdef"
-    let candidates = vec![make_window("1", "abcdef", "", true)];
-    let result = fuzzy_match_window("xyz", &candidates, &HashSet::default());
+    let candidates = vec![make_window("1", "abcdef", "", true, false)];
+    let result = fuzzy_match_window("xyz", &candidates);
     assert!(result.is_none());
   }
 
   #[test]
   fn test_case_insensitive() {
-    let candidates = vec![make_window("1", "WezTerm", "", true)];
-    let result = fuzzy_match_window("wezterm", &candidates, &HashSet::default());
+    let candidates = vec![make_window("1", "WezTerm", "", true, false)];
+    let result = fuzzy_match_window("wezterm", &candidates);
     assert!(result.is_some());
   }
 
   #[test]
   fn test_proc_name_fallback() {
-    let candidates = vec![make_window("1", "some-class", "wezterm-gui", true)];
-    let result = fuzzy_match_window("wezterm", &candidates, &HashSet::default());
+    let candidates = vec![make_window("1", "some-class", "wezterm-gui", true, false)];
+    let result = fuzzy_match_window("wezterm", &candidates);
     assert!(result.is_some());
   }
 }

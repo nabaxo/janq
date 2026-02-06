@@ -46,8 +46,8 @@ use windows::Win32::UI::{
   HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
   Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT},
   WindowsAndMessaging::{
-    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, IsWindow, SendMessageW,
-    TranslateMessage, ASFW_ANY, MSG, WM_CANCELMODE, WM_USER,
+    AllowSetForegroundWindow, DispatchMessageW, GetMessageW, GetWindowThreadProcessId, IsWindow,
+    SendMessageW, TranslateMessage, ASFW_ANY, MSG, WM_CANCELMODE, WM_USER,
   },
 };
 
@@ -220,7 +220,8 @@ pub async fn run_daemon(
                     let app_cfg = app_cfg.clone();
                     let target_name_c = target_name.clone();
                     tokio::task::spawn_blocking(move || {
-                      ensure_terminal_running(&target_name_c, &app_cfg, &cfg, None);
+                      let cands = fetch_system_windows();
+                      ensure_terminal_running(&target_name_c, &app_cfg, &cfg, Some(&cands[..]));
                       toggle_window(&target_name_c, &cfg);
                     });
                     post_wake_message(WM_USER + 1);
@@ -348,7 +349,7 @@ pub async fn run_daemon(
   // Initial app spawning
   {
     println!("janq: Yoinking apps...");
-    let candidates = fetch_system_windows();
+    let candidates = Arc::new(fetch_system_windows());
     let cfg = config.read().unwrap().clone();
     for (name, app_cfg) in &cfg.app {
       let name = name.clone();
@@ -356,7 +357,7 @@ pub async fn run_daemon(
       let cfg_copy = cfg.clone();
       let candidates_clone = candidates.clone();
       tokio::task::spawn_blocking(move || {
-        ensure_terminal_running(&name, &app_cfg, &cfg_copy, Some(&candidates_clone));
+        ensure_terminal_running(&name, &app_cfg, &cfg_copy, Some(&candidates_clone[..]));
       });
     }
 
@@ -509,7 +510,8 @@ pub async fn run_daemon(
                 tokio::task::spawn_blocking(move || {
                   if let Some(app_cfg) = cfg.app.get(&app_name) {
                     if !toggle_window(&app_name, &cfg) {
-                      ensure_terminal_running(&app_name, app_cfg, &cfg, None);
+                      let cands = fetch_system_windows();
+                      ensure_terminal_running(&app_name, app_cfg, &cfg, Some(&cands[..]));
                       toggle_window(&app_name, &cfg);
                     }
                   }
@@ -599,7 +601,14 @@ pub async fn run_daemon(
                 if already_spawning {
                   false
                 } else if let Some(hwnd) = cache.get(name) {
-                  !IsWindow(Some(hwnd.hwnd)).as_bool()
+                  let is_alive = IsWindow(Some(hwnd.hwnd)).as_bool();
+                  if is_alive {
+                    let mut pid = 0;
+                    GetWindowThreadProcessId(hwnd.hwnd, Some(&mut pid));
+                    !janq::process::is_process_running(pid, None)
+                  } else {
+                    true
+                  }
                 } else {
                   true
                 }
@@ -617,7 +626,7 @@ pub async fn run_daemon(
                 for name in missing_apps {
                   if let Some(app_cfg) = cfg_spawn.app.get(&name) {
                     println!("App '{}' not managed. Checking/Respawning...", name);
-                    ensure_terminal_running(&name, app_cfg, &cfg_spawn, Some(&candidates));
+                    ensure_terminal_running(&name, app_cfg, &cfg_spawn, Some(&candidates[..]));
                   }
                 }
                 reset_visible_app();

@@ -564,11 +564,9 @@ pub fn run_animation_task_sync(
                 .clamp(0.0, 1.0)
             };
             let eased_op = get_easing(raw_op_progress, easing);
-            if should_show {
-              (255.0 * eased_op) as u8
-            } else {
-              (255.0 * (1.0 - eased_op)) as u8
-            }
+            let start_a = t_curr_alpha as f64;
+            let end_a = if should_show { 255.0 } else { 0.0 };
+            (start_a + (end_a - start_a) * eased_op) as u8
           };
 
           if t_alpha != last_alpha {
@@ -591,7 +589,7 @@ pub fn run_animation_task_sync(
               / if s_denom <= 0.0 { 0.0001 } else { s_denom })
             .clamp(0.0, 1.0);
             let eased_op = get_easing(raw_op_progress, &sib.easing);
-            let s_target_alpha = (255.0 * (1.0 - eased_op)) as u8;
+            let s_target_alpha = (sib.alpha as f64 * (1.0 - eased_op)) as u8;
 
             if s_target_alpha != last_sibling_alphas[i] {
               let _ = SetLayeredWindowAttributes(sib.hwnd, COLORREF(0), s_target_alpha, LWA_ALPHA);

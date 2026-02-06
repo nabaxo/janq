@@ -175,21 +175,59 @@ pub fn is_internal_window(hwnd: HWND) -> bool {
   false
 }
 
+pub fn is_managed_process(pid: u32) -> bool {
+  if pid == 0 {
+    return false;
+  }
+  // Fast check against cache
+  let exists = MANAGED_PIDS_CACHE
+    .iter()
+    .any(|slot| slot.load(Ordering::Relaxed) == pid);
+
+  if exists {
+    // Verify it isn't a recycled PID
+    return janq::process::is_process_running(pid, None);
+  }
+  false
+}
+
 pub fn update_managed_hwnds_cache() {
-  let cache = get_app_cache().read().unwrap();
+  let mut to_remove = Vec::new();
   let mut pids = Vec::with_capacity(64);
 
-  for cw in cache.values() {
-    unsafe {
-      let mut pid = 0;
-      GetWindowThreadProcessId(cw.hwnd, Some(&mut pid));
-      if pid != 0 && !pids.contains(&pid) {
-        pids.push(pid);
-        if pids.len() >= 64 {
-          break;
+  {
+    let cache = get_app_cache().read().unwrap();
+    for (name, cw) in cache.iter() {
+      unsafe {
+        if !IsWindow(Some(cw.hwnd)).as_bool() {
+          to_remove.push(name.clone());
+          continue;
+        }
+
+        let mut pid = 0;
+        GetWindowThreadProcessId(cw.hwnd, Some(&mut pid));
+        if pid != 0 {
+          if janq::process::is_process_running(pid, None) {
+            if !pids.contains(&pid) {
+              pids.push(pid);
+            }
+          } else {
+            to_remove.push(name.clone());
+          }
         }
       }
     }
+  }
+
+  if !to_remove.is_empty() {
+    let mut cache = get_app_cache().write().unwrap();
+    for name in to_remove {
+      cache.remove(&name);
+    }
+  }
+
+  if pids.len() >= 64 {
+    pids.truncate(64);
   }
 
   // Update indices 1..64 first, then index 0 last to minimize race impact
@@ -412,12 +450,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       }
     }
 
-    let managed_ids: std::collections::HashSet<isize> = {
-      let cache = get_app_cache().read().unwrap();
-      cache.values().map(|cw| cw.hwnd.0 as isize).collect()
-    };
-
-    match find_window_by_process(&app_cfg.window_class, None, &managed_ids) {
+    match find_window_by_process(&app_cfg.window_class, None) {
       Some(cw) => {
         let mut cache = get_app_cache().write().unwrap();
         cache.insert(app_name.to_string(), cw);

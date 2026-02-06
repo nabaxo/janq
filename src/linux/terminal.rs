@@ -24,7 +24,6 @@ use rustc_hash::FxHashMap;
 use std::{
   fmt::Write,
   fs,
-  path::Path,
   process::{id, Stdio},
   sync::{Mutex, OnceLock},
   time::Duration,
@@ -35,8 +34,10 @@ use tokio::time::sleep;
 use zbus::Connection;
 
 use crate::linux::cache::{get_cache, get_cached_window, remove_from_cache, update_cache};
-use janq::config::{fuzzy_match_window, AppConfig, Config, FoundWindow};
+use janq::config::{AppConfig, Config, FoundWindow};
 use janq::error::show_error;
+use janq::matching::fuzzy_match_window;
+use janq::process;
 use janq::spawn_guard::{get_spawning_apps, SpawnGuard};
 
 // =============================================================================
@@ -116,17 +117,8 @@ pub async fn ensure_terminal_running_with_candidates(
   let window_class = &app_cfg.window_class;
   let start_command = &app_cfg.start_command;
 
-  let managed_ids: std::collections::HashSet<String> = {
-    let cache = get_cache().lock().unwrap();
-    let mut ids = std::collections::HashSet::with_capacity(cache.len());
-    for c in cache.values() {
-      ids.insert(c.id.clone());
-    }
-    ids
-  };
-
   // 1. Check if window already exists
-  if check_window_exists_with_candidates_and_managed(window_class, candidates, &managed_ids)
+  if check_window_exists_with_candidates_and_managed(window_class, candidates)
     .await
     .is_some()
   {
@@ -173,9 +165,7 @@ pub async fn ensure_terminal_running_with_candidates(
     sleep(Duration::from_millis(400)).await;
 
     // If release uncovered an existing window, reuse it immediately
-    if let Some(id) =
-      check_window_exists_with_candidates_and_managed(window_class, None, &managed_ids).await
-    {
+    if let Some(id) = check_window_exists_with_candidates_and_managed(window_class, None).await {
       println!(
         "janq: Recovering window {} for '{}' after release.",
         id, window_class
@@ -214,9 +204,7 @@ pub async fn ensure_terminal_running_with_candidates(
 
   // Wait for window to appear (more reliable than just process)
   for i in 0..20 {
-    if let Some(_id) =
-      check_window_exists_with_candidates_and_managed(window_class, None, &managed_ids).await
-    {
+    if let Some(_id) = check_window_exists_with_candidates_and_managed(window_class, None).await {
       // Give it a moment to finalize
       tokio::time::sleep(Duration::from_millis(500)).await;
       // Call ensure_grabbed (async)
@@ -260,32 +248,22 @@ pub async fn check_window_exists_with_candidates(
   target_class: &str,
   candidates: Option<&[FoundWindow]>,
 ) -> Option<String> {
-  let managed_ids: std::collections::HashSet<String> = {
-    let cache = get_cache().lock().unwrap();
-    let mut ids = std::collections::HashSet::with_capacity(cache.len());
-    for c in cache.values() {
-      ids.insert(c.id.clone());
-    }
-    ids
-  };
-
-  check_window_exists_with_candidates_and_managed(target_class, candidates, &managed_ids).await
+  check_window_exists_with_candidates_and_managed(target_class, candidates).await
 }
 
 pub async fn check_window_exists_with_candidates_and_managed(
   target_class: &str,
   candidates: Option<&[FoundWindow]>,
-  managed_ids: &std::collections::HashSet<String>,
 ) -> Option<String> {
   // 1. If candidates are provided (batch search), use them immediately
   if let Some(list) = candidates {
-    return fuzzy_match_window(target_class, list, managed_ids).map(|w| w.id);
+    return fuzzy_match_window(target_class, list).map(|w| w.id);
   }
 
-  // 2. Hot path: Check cache and verify liveness via /proc (no expensive script call)
+  // 2. Hot path: Check cache and verify liveness
   {
     if let Some(cached) = get_cached_window(target_class) {
-      if !cached.id.is_empty() && Path::new(&format!("/proc/{}", cached.pid)).exists() {
+      if !cached.id.is_empty() && process::is_process_running(cached.pid, None) {
         // Process is alive, trust the cached window ID
         return Some(cached.id.clone());
       }
@@ -297,7 +275,7 @@ pub async fn check_window_exists_with_candidates_and_managed(
   // 3. Fallback: Full system fetch and fuzzy match
   let all_windows = fetch_system_windows_async().await;
 
-  if let Some(best) = fuzzy_match_window(target_class, &all_windows, managed_ids) {
+  if let Some(best) = fuzzy_match_window(target_class, &all_windows) {
     // Update cache
     update_cache(target_class, best.id.clone(), best.pid);
     return Some(best.id);
@@ -392,6 +370,10 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
       proc_lowercase,
       pid,
       is_visible,
+      is_managed: {
+        let cache = get_cache().lock().unwrap();
+        cache.values().any(|c| c.id == id)
+      },
     });
   }
 
@@ -405,7 +387,7 @@ pub async fn is_window_valid(window_class: &str, id: &str) -> bool {
 
   // 1. Fast path: Check cache
   if let Some(cached) = get_cached_window(window_class) {
-    if cached.id == id && Path::new(&format!("/proc/{}", cached.pid)).exists() {
+    if cached.id == id && process::is_process_running(cached.pid, None) {
       return true;
     }
   }
@@ -422,9 +404,7 @@ pub fn get_pid_for_class(target_class: &str) -> Option<u32> {
 pub fn check_process_running(target_class: &str) -> bool {
   // 1. Fast path: Check cached PID for this specific class
   if let Some(cached) = get_cached_window(target_class) {
-    // Fast liveness check: just check if the directory exists
-    // This is much faster than reading cmdline every time.
-    if Path::new(&format!("/proc/{}", cached.pid)).exists() {
+    if process::is_process_running(cached.pid, None) {
       return true;
     }
   }

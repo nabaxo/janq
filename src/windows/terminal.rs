@@ -33,12 +33,6 @@ pub fn ensure_terminal_running(
   config: &Config,
   candidates: Option<&[FoundWindow]>,
 ) -> bool {
-  // PERF: Pre-calculate managed IDs once to avoid redundant allocations in loops or early exits
-  let managed_ids: std::collections::HashSet<isize> = {
-    let cache = get_app_cache().read().unwrap();
-    cache.values().map(|cw| cw.hwnd.0 as isize).collect()
-  };
-
   // 0. Check cache first
   {
     let cache = get_app_cache().read().unwrap();
@@ -53,8 +47,6 @@ pub fn ensure_terminal_running(
   }
 
   // 0.5. Idempotency Lock Part 1: Early Exit
-  // If another thread is already spawning or searching, we drop out immediately
-  // without performing a redundant EnumWindows scan.
   {
     let spawning = get_spawning_apps().lock().unwrap();
     if spawning.contains(app_name) {
@@ -63,7 +55,7 @@ pub fn ensure_terminal_running(
   }
 
   // 1. Check if window already exists
-  if let Some(cw) = find_window_by_process(&app_cfg.window_class, candidates, &managed_ids) {
+  if let Some(cw) = find_window_by_process(&app_cfg.window_class, candidates) {
     {
       let mut cache = get_app_cache().write().unwrap();
       cache.insert(app_name.to_string(), cw);
@@ -130,7 +122,7 @@ pub fn ensure_terminal_running(
     // Poll for window with linear backoff to save CPU/Battery
     std::thread::sleep(Duration::from_millis(current_delay));
     let cw = {
-      if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None, &managed_ids) {
+      if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None) {
         if unsafe { IsWindowVisible(found_cw.hwnd).as_bool() } {
           found = true;
           {

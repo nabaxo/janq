@@ -3,6 +3,7 @@ pub mod config_watcher;
 pub mod error;
 pub mod matching;
 pub mod paths;
+pub mod process;
 pub mod shutdown;
 pub mod spawn_guard;
 pub mod validation;
