@@ -258,17 +258,27 @@ pub unsafe extern "system" fn focus_hook_proc(
   if event == EVENT_SYSTEM_FOREGROUND && !hwnd.0.is_null() {
     if is_managed_window(hwnd) {
       MANAGED_APP_HAS_FOCUS.store(true, Ordering::Relaxed);
-    } else if !is_shell_window(hwnd) && !is_internal_window(hwnd) {
-      // If we are currently hiding a window, Windows might automatically shift focus
-      // to the next window. We don't want to treat that transition as a valid
-      // "last external focus" target.
-      let current_last = LAST_EXTERNAL_FOCUS.load(Ordering::Relaxed);
-      if hwnd.0 as isize != current_last {
-        MANAGED_APP_HAS_FOCUS.store(false, Ordering::Relaxed);
-        LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
+    } else {
+      MANAGED_APP_HAS_FOCUS.store(false, Ordering::Relaxed);
 
-        // Trigger FocusLost event for auto-hide (modal-loop safe)
-        post_wake_message(WM_USER + 2);
+      // 1. Record restoration target (skip shell/janq/menus)
+      if !is_shell_window(hwnd) && !is_internal_window(hwnd) {
+        LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
+      }
+
+      // 2. Trigger auto-hide if a managed window IS actually visible
+      if let Some(visible_app) = get_visible_app() {
+        // Double-check visibility to prevent race with hotkey hide
+        let mut cached_hwnd = None;
+        if let Some(cw) = get_app_cache().read().unwrap().get(&visible_app) {
+          if IsWindowVisible(cw.hwnd).as_bool() {
+            cached_hwnd = Some(cw.hwnd);
+          }
+        }
+
+        if let Some(_) = cached_hwnd {
+          post_wake_message(WM_USER + 2);
+        }
       }
     }
   }

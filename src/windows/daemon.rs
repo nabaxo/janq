@@ -484,10 +484,16 @@ pub async fn run_daemon(
             let cfg = config.read().unwrap().clone();
             if cfg.window.auto_hide {
               if let Some(visible_app) = crate::windows::window::get_visible_app() {
-                println!("Focus Lost: Auto-hiding '{}'", visible_app);
-                let _ = AllowSetForegroundWindow(ASFW_ANY);
+                let cfg_clone = cfg.clone();
+                let app_name = visible_app.clone();
                 tokio::task::spawn_blocking(move || {
-                  toggle_window(&visible_app, &cfg);
+                  // Final safety check: Only toggle if the window is STILL the visible app.
+                  // If the user hotkeyed to hide, VISIBLE_APP is already None.
+                  if crate::windows::window::get_visible_app().as_deref() == Some(&app_name) {
+                    println!("Focus Lost: Auto-hiding '{}'", app_name);
+                    let _ = AllowSetForegroundWindow(ASFW_ANY);
+                    toggle_window(&app_name, &cfg_clone);
+                  }
                 });
               }
             }
