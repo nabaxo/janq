@@ -60,7 +60,7 @@ use crate::linux::kwin::{
 use crate::linux::terminal::{
   ensure_terminal_running, ensure_terminal_running_with_candidates, fetch_system_windows_async,
 };
-use janq::config::{load_config, Config};
+use janq::config::Config;
 use janq::error::show_error;
 use janq::shutdown::{print_shutdown_message, print_termination_complete};
 
@@ -490,7 +490,7 @@ pub async fn run_daemon(
     // Grabbing apps (now using the pre-fetched list is too old, grab_apps will do its own scan if needed)
     let mut apps_for_grabbing = Vec::new();
     for (_name, app_cfg) in &cfg.app {
-      apps_for_grabbing.push((app_cfg.clone(), cfg.clone()));
+      apps_for_grabbing.push((app_cfg, &cfg));
     }
     let _ = grab_apps(&apps_for_grabbing, &conn).await;
 
@@ -525,24 +525,15 @@ pub async fn run_daemon(
     let tray_handle = tray_handle_for_watcher.clone();
 
     async move {
-      let (new_config, _) = match load_config(path_to_watch.clone()) {
-        Ok(c) => c,
-        Err(e) => {
-          let err_msg = format!(
-            "Config reload failed: {}\nStaying with the last known good configuration.",
-            e
-          );
-          show_error(&err_msg);
-          return;
-        }
+      let old_config = match janq::config_watcher::reload_shared_config(
+        path_to_watch.clone(),
+        &*config_for_watcher,
+      ) {
+        Some(old) => old,
+        None => return,
       };
 
-      let old_config = {
-        let mut w = config_for_watcher.write().unwrap();
-        let old = w.clone();
-        *w = new_config.clone();
-        old
-      };
+      let new_config = config_for_watcher.read().unwrap().clone();
 
       // Notify tray immediately that config state changed
       #[cfg(feature = "systray")]
@@ -574,7 +565,7 @@ pub async fn run_daemon(
         }
         // We ensure terminal is running for ALL apps (in case one crashed)
         let _ = ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
-        apps_for_grabbing.push((app_cfg.clone(), new_config_in_async.clone()));
+        apps_for_grabbing.push((app_cfg, &new_config_in_async));
       }
       let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
 

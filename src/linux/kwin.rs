@@ -664,10 +664,13 @@ pub async fn ensure_grabbed(
   config: &Config,
   conn: &Connection,
 ) -> janq::error::Result<()> {
-  grab_apps(&[(app_cfg.clone(), config.clone())], conn).await
+  grab_apps(&[(app_cfg, config)], conn).await
 }
 
-pub async fn grab_apps(apps: &[(AppConfig, Config)], conn: &Connection) -> janq::error::Result<()> {
+pub async fn grab_apps(
+  apps: &[(&AppConfig, &Config)],
+  conn: &Connection,
+) -> janq::error::Result<()> {
   println!("janq: Yoinking apps...");
   let all_windows = fetch_system_windows().await;
   let state = STATE.lock().await;

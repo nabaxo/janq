@@ -332,9 +332,9 @@ pub async fn run_daemon(
   let manager_arc = Arc::new(GlobalHotKeyManager::new().expect("Failed to create HotKeyManager"));
   sync_hotkeys(
     Arc::clone(&manager_arc),
-    &config.read().unwrap(),
-    &hotkey_map,
-    &current_hotkeys,
+    &*config.read().unwrap(),
+    &*hotkey_map,
+    &*current_hotkeys,
   )?;
 
   // Consolidated Initialization
@@ -469,8 +469,8 @@ pub async fn run_daemon(
             let _ = sync_hotkeys(
               Arc::clone(&manager_arc),
               &cfg,
-              &hotkey_map,
-              &current_hotkeys,
+              &*hotkey_map,
+              &*current_hotkeys,
             );
 
             // Re-apply theme in case system settings changed
@@ -659,8 +659,8 @@ pub async fn send_toggle(app_name: Option<String>) -> janq::error::Result<()> {
 pub fn sync_hotkeys(
   manager: Arc<GlobalHotKeyManager>,
   config: &Config,
-  hotkey_map: &Arc<RwLock<FxHashMap<u32, String>>>,
-  current_hotkeys: &Arc<RwLock<Vec<HotKey>>>,
+  hotkey_map: &RwLock<FxHashMap<u32, String>>,
+  current_hotkeys: &RwLock<Vec<HotKey>>,
 ) -> janq::error::Result<()> {
   // 1. Check if we actually need to sync
   let mut desired_map = FxHashMap::default();

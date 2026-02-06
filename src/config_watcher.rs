@@ -113,6 +113,29 @@ fn setup_watch_path(watcher: &mut RecommendedWatcher, config_path: &Option<PathB
   }
 }
 
+/// Consolidated helper to reload config and update shared state.
+/// Returns the OLD configuration if reload was successful.
+pub fn reload_shared_config(
+  path: Option<PathBuf>,
+  shared_config: &std::sync::RwLock<crate::config::Config>,
+) -> Option<crate::config::Config> {
+  match crate::config::load_config(path) {
+    Ok((new_cfg, _)) => {
+      let mut w = shared_config.write().unwrap();
+      let old = w.clone();
+      *w = new_cfg;
+      Some(old)
+    }
+    Err(e) => {
+      crate::error::show_error(&format!(
+        "Config reload failed: {}\nStaying with last known good configuration.",
+        e
+      ));
+      None
+    }
+  }
+}
+
 /// Checks if the event is a modification we care about (ignores access/metadata)
 fn is_interesting_event(event: &Event) -> bool {
   match event.kind {
