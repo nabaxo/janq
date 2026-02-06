@@ -68,33 +68,35 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
   }
 
   let mut class_buffer = [0u16; 256];
-  let class_len = unsafe { GetClassNameW(hwnd, &mut class_buffer) };
-  let class_name = String::from_utf16_lossy(&class_buffer[..class_len as usize]).to_lowercase();
+  let class_len = unsafe { GetClassNameW(hwnd, &mut class_buffer) } as usize;
+  let class_slice = &class_buffer[..class_len];
 
   let mut title_buf = [0u16; 512];
   let title_len = unsafe { GetWindowTextW(hwnd, &mut title_buf) };
   let has_title = title_len > 0;
 
-  // Filter out known junk classes
-  if class_name.contains("nvopengl")
-    || class_name.contains("wgpu")
-    || class_name == "ime"
-    || class_name == "msctfime ui"
-    || class_name.contains("gdi+ hooks")
-    || class_name == "progman"
-    || class_name == "workerw"
-    || class_name.contains("shell_traywnd")
-    || class_name.contains("shell_secondarytraywnd")
-    || class_name.contains("windows.ui.core.corewindow")
-    || ((class_name.contains("chrome_widgetwin") || class_name.contains("nativehwndhost"))
+  // Filter out known junk classes (Case-insensitive ASCII comparisons on u16 stack buffer)
+  if u16_contains_ascii_ignore_case(class_slice, "nvopengl")
+    || u16_contains_ascii_ignore_case(class_slice, "wgpu")
+    || u16_eq_ascii_ignore_case(class_slice, "ime")
+    || u16_eq_ascii_ignore_case(class_slice, "msctfime ui")
+    || u16_contains_ascii_ignore_case(class_slice, "gdi+ hooks")
+    || u16_eq_ascii_ignore_case(class_slice, "progman")
+    || u16_eq_ascii_ignore_case(class_slice, "workerw")
+    || u16_contains_ascii_ignore_case(class_slice, "shell_traywnd")
+    || u16_contains_ascii_ignore_case(class_slice, "shell_secondarytraywnd")
+    || u16_contains_ascii_ignore_case(class_slice, "windows.ui.core.corewindow")
+    || ((u16_contains_ascii_ignore_case(class_slice, "chrome_widgetwin")
+      || u16_contains_ascii_ignore_case(class_slice, "nativehwndhost"))
       && !has_title)
-    || class_name.contains("tooltip")
-    || class_name.contains("ghost")
+    || u16_contains_ascii_ignore_case(class_slice, "tooltip")
+    || u16_contains_ascii_ignore_case(class_slice, "ghost")
   {
     return BOOL(1);
   }
 
-  // Only open process if we passed the class name filter
+  // Only allocate and convert strings if we passed the initial junk filter
+  let class_name = String::from_utf16_lossy(class_slice).to_lowercase();
   let mut proc_name = String::new();
   if let Ok(process) =
     unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) }
@@ -164,4 +166,40 @@ pub fn find_window_by_process(
   }
 
   None
+}
+
+// =============================================================================
+// Case-Insensitive ASCII Helpers for u16 (Stack-safe)
+// =============================================================================
+
+fn u16_contains_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
+  let needle_bytes = needle.as_bytes();
+  if haystack.len() < needle_bytes.len() {
+    return false;
+  }
+  haystack.windows(needle_bytes.len()).any(|window| {
+    window.iter().zip(needle_bytes).all(|(&h, &n)| {
+      let h_lower = if h <= 127 {
+        (h as u8).to_ascii_lowercase() as u16
+      } else {
+        h
+      };
+      h_lower == n.to_ascii_lowercase() as u16
+    })
+  })
+}
+
+fn u16_eq_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
+  let needle_bytes = needle.as_bytes();
+  if haystack.len() != needle_bytes.len() {
+    return false;
+  }
+  haystack.iter().zip(needle_bytes).all(|(&h, &n)| {
+    let h_lower = if h <= 127 {
+      (h as u8).to_ascii_lowercase() as u16
+    } else {
+      h
+    };
+    h_lower == n.to_ascii_lowercase() as u16
+  })
 }
