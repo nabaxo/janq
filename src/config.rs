@@ -35,8 +35,22 @@ pub use crate::matching::{fuzzy_match_window, FoundWindow};
 pub use crate::error::ConfigError;
 
 // Import validation functions used internally
-use crate::error::format_error_with_span;
+use crate::error::{format_error_with_multi_span, format_error_with_span};
 use crate::validation::validate_hotkey;
+
+/// Normalizes hotkey modifier strings to a canonical format.
+///
+/// Converts "control", "super", "win", "cmd" etc. into the internal representations
+/// used by both Windows and Linux backends.
+pub fn normalize_hotkey_modifier(m: &str) -> &str {
+  match m.trim().to_lowercase().as_str() {
+    "ctrl" | "control" => "ctrl",
+    "alt" => "alt",
+    "shift" => "shift",
+    "meta" | "super" | "win" | "cmd" => "meta",
+    _ => m,
+  }
+}
 
 /// A dimension value that can be specified as percent, pixels, or unset.
 ///
@@ -377,47 +391,51 @@ impl Config {
           if let Err(e) = validate_hotkey(&key) {
             // Point to the hotkey field, not the section header
             let hotkey_span = find_field_in_app_section(content, app_name, "hotkey");
+
+            // Refine the span to point at the specific invalid value within the field
+            let specific_span =
+              find_string_near_span(content, &key, hotkey_span.clone()).unwrap_or(hotkey_span);
+
             return Err(
               format_error_with_span(
                 content,
                 path,
-                hotkey_span,
+                specific_span,
                 &format!("App [{}]: {} in hotkey '{}'", app_name, e, key),
               )
               .into(),
             );
           }
 
-          // Normalize for duplicate detection (sort modifiers, keep base key at the end)
-          let mut mods = Vec::new();
-          let mut base = String::new();
-          for part in key.split('+').map(|s| s.trim().to_lowercase()) {
-            match part.as_str() {
-              "ctrl" | "control" | "alt" | "shift" | "meta" | "super" | "win" | "cmd" => {
-                mods.push(part)
-              }
-              _ => base = part,
-            }
-          }
-          mods.sort();
-          let normalized = if mods.is_empty() {
-            base
-          } else {
-            format!("{}+{}", mods.join("+"), base)
-          };
+          // Use the robust canonicalizer from validation module
+          let normalized = crate::validation::canonicalize_hotkey(&key);
 
-          if let Some(other_app) = seen_hotkeys.insert(normalized.clone(), app_name.clone()) {
-            // Point to the hotkey field for duplicate errors too
-            let hotkey_span = find_field_in_app_section(content, app_name, "hotkey");
+          // Point to the hotkey field for duplicate detection
+          let hotkey_span = find_field_in_app_section(content, app_name, "hotkey");
+          let specific_span =
+            find_string_near_span(content, &key, hotkey_span.clone()).unwrap_or(hotkey_span);
+
+          if let Some((other_app, other_span)) = seen_hotkeys.insert(
+            normalized.clone(),
+            (app_name.clone(), specific_span.clone()),
+          ) {
             return Err(
-              format_error_with_span(
+              format_error_with_multi_span(
                 content,
                 path,
-                hotkey_span,
-                &format!(
-                  "Duplicate hotkey '{}' (normalized: '{}') found in app '{}' and '{}'",
-                  key, normalized, other_app, app_name
-                ),
+                vec![
+                  (
+                    specific_span,
+                    format!(
+                      "Duplicate hotkey '{}' (normalized: '{}') found in app '{}'",
+                      key, normalized, app_name
+                    ),
+                  ),
+                  (
+                    other_span,
+                    format!("Note: First defined here in app '{}'", other_app),
+                  ),
+                ],
               )
               .into(),
             );
@@ -498,13 +516,20 @@ impl Config {
 
 /// Finds the byte span of an [app.name] section header in the content.
 fn find_app_section_span(content: &str, app_name: &str) -> std::ops::Range<usize> {
-  // 1. Try exact [app.NAME]
-  let pattern = "[app.".to_string() + app_name + "]";
-  if let Some(pos) = content.find(&pattern) {
-    return pos..pos + pattern.len();
+  let prefixes = ["app.", "apps.", "general.", ""];
+  for prefix in prefixes {
+    let pattern = if prefix.is_empty() {
+      format!("[{}]", app_name)
+    } else {
+      format!("[{}{}]", prefix, app_name)
+    };
+
+    if let Some(pos) = content.find(&pattern) {
+      return pos..pos + pattern.len();
+    }
   }
 
-  // 2. Try generic [app]
+  // Generic [app]
   if let Some(pos) = content.find("[app]") {
     return pos..pos + 5;
   }
@@ -533,27 +558,40 @@ fn find_field_in_app_section(
   // Search for the field within this section
   let section_content = &content[section_start..section_end];
 
-  // Pattern match without formatting if possible:
-  // We need to find "\n" + field_name
-  for line in section_content.lines() {
-    let trimmed = line.trim_start();
-    if let Some(rest) = trimmed.strip_prefix(field_name) {
-      if rest.is_empty() || rest.starts_with(' ') || rest.starts_with('=') || rest.starts_with('\t')
-      {
-        // Calculate byte offset of this line in the content
-        // This is slightly complex with .lines() as it strips \n
-        // Let's use string find instead but be careful about matches outside line starts.
+  // Pattern match: look for line start + field_name + separator
+  // We use .find() to get the byte offset relative to the section start
+  let mut current_search = section_content;
+  let mut offset = 0;
+
+  while let Some(line_start) = current_search.find(field_name) {
+    let before = &current_search[..line_start];
+    // Must be at start of line (possibly with whitespace)
+    let is_line_start = before.is_empty()
+      || before.ends_with('\n')
+      || before[before.rfind('\n').map(|i| i + 1).unwrap_or(0)..]
+        .chars()
+        .all(|c| c.is_whitespace());
+
+    if is_line_start {
+      let after = &current_search[line_start + field_name.len()..];
+      let matches_field = after.is_empty()
+        || after.starts_with(' ')
+        || after.starts_with('=')
+        || after.starts_with('\t');
+
+      if matches_field {
+        let abs_start = section_start + offset + line_start;
+        return abs_start..abs_start + field_name.len();
       }
     }
+
+    // Continue search from next character
+    let skip = line_start + 1;
+    offset += skip;
+    current_search = &current_search[skip..];
   }
 
-  // Fallback to the optimized find:
-  let search_pattern = "\n".to_string() + field_name;
-  if let Some(pos) = section_content.find(&search_pattern) {
-    let field_start = section_start + pos + 1;
-    return field_start..field_start + field_name.len();
-  }
-
+  // Fallback to the whole section if field not found specifically
   span
 }
 
@@ -1121,6 +1159,54 @@ fn format_toml_error(content: &str, path: &std::path::Path, err: toml::de::Error
   format_error_with_span(content, path, span, &message)
 }
 
+/// Finds the span of a string value (like a hotkey), preferring the occurrence closest to hint_span.
+fn find_string_near_span(
+  content: &str,
+  val: &str,
+  hint_span: std::ops::Range<usize>,
+) -> Option<std::ops::Range<usize>> {
+  let mut occurrences = Vec::new();
+
+  // We look for the value, specifically inside quotes if possible
+  let quoted = format!("\"{}\"", val);
+  let single_quoted = format!("'{}'", val);
+
+  for pattern in &[quoted.as_str(), single_quoted.as_str(), val] {
+    let mut current_search = content;
+    let mut offset = 0;
+    while let Some(pos) = current_search.find(pattern) {
+      let abs_start = offset + pos;
+      // If we used a quoted pattern, the actual value is 1 byte in
+      let span = if pattern.starts_with(['"', '\'']) {
+        abs_start + 1..abs_start + 1 + val.len()
+      } else {
+        abs_start..abs_start + val.len()
+      };
+      occurrences.push(span);
+
+      let skip = pos + 1;
+      offset += skip;
+      current_search = &current_search[skip..];
+    }
+    if !occurrences.is_empty() {
+      break;
+    }
+  }
+
+  if occurrences.is_empty() {
+    return None;
+  }
+
+  if occurrences.len() == 1 {
+    return occurrences.into_iter().next();
+  }
+
+  // Pick the occurrence closest to the hint span
+  occurrences
+    .into_iter()
+    .min_by_key(|span| (span.start as isize - hint_span.start as isize).abs())
+}
+
 /// Extracts field name from common TOML error message patterns.
 /// Only extracts from semantic errors (missing/unknown field), not syntax errors.
 fn extract_field_from_error(message: &str) -> Option<String> {
@@ -1151,26 +1237,37 @@ fn find_field_near_span(
   field: &str,
   hint_span: std::ops::Range<usize>,
 ) -> Option<std::ops::Range<usize>> {
-  // Find ALL occurrences of the field
+  // Find ALL occurrences of the field that look like the start of a TOML assignment
   let mut occurrences = Vec::new();
-  let mut byte_offset = 0;
 
-  for line in content.lines() {
-    let trimmed = line.trim_start();
-    let leading_ws = line.len() - trimmed.len();
+  let mut current_search = content;
+  let mut offset = 0;
 
-    if let Some(after_field) = trimmed.strip_prefix(field) {
-      if after_field.is_empty()
-        || after_field.starts_with(' ')
-        || after_field.starts_with('=')
-        || after_field.starts_with('\t')
-      {
-        let field_start = byte_offset + leading_ws;
-        occurrences.push(field_start..field_start + field.len());
+  while let Some(line_start) = current_search.find(field) {
+    let before = &current_search[..line_start];
+    // Check if it's the start of a line (with optional whitespace)
+    let is_line_start = before.is_empty()
+      || before.ends_with('\n')
+      || before[before.rfind('\n').map(|i| i + 1).unwrap_or(0)..]
+        .chars()
+        .all(|c| c.is_whitespace());
+
+    if is_line_start {
+      let after = &current_search[line_start + field.len()..];
+      let matches_field = after.is_empty()
+        || after.starts_with(' ')
+        || after.starts_with('=')
+        || after.starts_with('\t');
+
+      if matches_field {
+        let abs_start = offset + line_start;
+        occurrences.push(abs_start..abs_start + field.len());
       }
     }
 
-    byte_offset += line.len() + 1; // +1 for newline
+    let skip = line_start + 1;
+    offset += skip;
+    current_search = &current_search[skip..];
   }
 
   if occurrences.is_empty() {

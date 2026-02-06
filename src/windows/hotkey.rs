@@ -27,17 +27,17 @@ use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 /// - `"Ctrl+Alt+F12"` → Control + Alt + F12
 /// - `"F1"` → F1 with no modifiers
 pub fn parse_hotkey(hotkey_str: &str) -> janq::error::Result<HotKey> {
-  let parts: Vec<&str> = hotkey_str.split('+').collect();
+  let parts = janq::validation::split_hotkey(hotkey_str);
   let mut mods = Modifiers::empty();
   let mut key_code: Option<Code> = None;
 
   for part in parts {
     let p = part.trim().to_lowercase();
-    match p.as_str() {
-      "ctrl" | "control" => mods |= Modifiers::CONTROL,
+    match janq::config::normalize_hotkey_modifier(&p) {
+      "ctrl" => mods |= Modifiers::CONTROL,
       "alt" => mods |= Modifiers::ALT,
       "shift" => mods |= Modifiers::SHIFT,
-      "meta" | "super" | "win" | "cmd" => mods |= Modifiers::SUPER,
+      "meta" => mods |= Modifiers::SUPER,
       _ => {
         // Parse code
         if let Some(code) = parse_code(p.as_str()) {
@@ -139,7 +139,7 @@ fn parse_code(s: &str) -> Option<Code> {
     "f11" => Some(Code::F11),
     "f12" => Some(Code::F12),
     "§" | "section" => Some(Code::IntlBackslash),
-    "plusminus" => Some(Code::IntlBackslash),
+    "plusminus" => Some(Code::Backquote),
     "dead_grave" => Some(Code::Backquote),
     _ => None,
   }
@@ -147,17 +147,33 @@ fn parse_code(s: &str) -> Option<Code> {
 
 /// Normalizes a shortcut for the Windows tray accelerator parser.
 pub fn normalize_for_win(shortcut: &str) -> String {
-  shortcut
-    .to_lowercase()
-    .replace("control", "ctrl")
-    .replace("meta", "win")
-    .replace("super", "win")
-    .replace("cmd", "win")
-    .replace("grave", "`")
-    .replace("section", "§")
-    .replace("ctrl", "Ctrl")
-    .replace("alt", "Alt")
-    .replace("shift", "Shift")
-    .replace("win", "Win")
-    .replace(" ", "") // Remove any accidental spaces
+  let parts: Vec<&str> = shortcut.split('+').collect();
+  let mut normalized = Vec::with_capacity(parts.len());
+
+  for part in parts {
+    let p = part.trim().to_lowercase();
+    match janq::config::normalize_hotkey_modifier(&p) {
+      "ctrl" => normalized.push("Ctrl".to_string()),
+      "alt" => normalized.push("Alt".to_string()),
+      "shift" => normalized.push("Shift".to_string()),
+      "meta" => normalized.push("Win".to_string()),
+      _ => {
+        // Handle special keys
+        match p.as_str() {
+          "grave" | "backtick" | "`" => normalized.push("`".to_string()),
+          "section" | "§" => normalized.push("§".to_string()),
+          _ => {
+            // Capitalize first letter (e.g., "f1" -> "F1", "enter" -> "Enter")
+            if !p.is_empty() {
+              let mut c = p.chars();
+              let capitalized = c.next().unwrap().to_uppercase().collect::<String>() + c.as_str();
+              normalized.push(capitalized);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  normalized.join("+")
 }

@@ -118,7 +118,11 @@ pub async fn ensure_terminal_running_with_candidates(
 
   let managed_ids: std::collections::HashSet<String> = {
     let cache = get_cache().lock().unwrap();
-    cache.values().map(|c| c.id.clone()).collect()
+    let mut ids = std::collections::HashSet::with_capacity(cache.len());
+    for c in cache.values() {
+      ids.insert(c.id.clone());
+    }
+    ids
   };
 
   // 1. Check if window already exists
@@ -258,7 +262,11 @@ pub async fn check_window_exists_with_candidates(
 ) -> Option<String> {
   let managed_ids: std::collections::HashSet<String> = {
     let cache = get_cache().lock().unwrap();
-    cache.values().map(|c| c.id.clone()).collect()
+    let mut ids = std::collections::HashSet::with_capacity(cache.len());
+    for c in cache.values() {
+      ids.insert(c.id.clone());
+    }
+    ids
   };
 
   check_window_exists_with_candidates_and_managed(target_class, candidates, &managed_ids).await
@@ -303,7 +311,7 @@ pub async fn fetch_system_windows() -> Vec<FoundWindow> {
 }
 
 pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
-  let mut windows = Vec::with_capacity(64);
+  let mut windows = Vec::with_capacity(128);
 
   // 1. Setup waiter with unique ID (timestamp based)
   let request_id = std::time::SystemTime::now()
@@ -366,13 +374,14 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
 
     let mut proc_lowercase = String::new();
     if pid > 0 {
-      if let Ok(cmdline) = fs::read(format!("/proc/{}/cmdline", pid)) {
+      let mut proc_path = String::with_capacity(32);
+      let _ = write!(proc_path, "/proc/{}/cmdline", pid);
+      if let Ok(cmdline) = fs::read(&proc_path) {
         if let Some(part) = cmdline.split(|&b| b == 0).next() {
-          proc_lowercase = String::from_utf8_lossy(part)
-            .split('/')
-            .next_back()
-            .unwrap_or_default()
-            .to_lowercase();
+          let s = String::from_utf8_lossy(part);
+          if let Some(name) = s.split('/').next_back() {
+            proc_lowercase = name.to_lowercase();
+          }
         }
       }
     }
@@ -448,22 +457,23 @@ pub fn check_process_running(target_class: &str) -> bool {
 }
 
 fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
-  let target_lower = target_class.to_lowercase();
   let mut path_buf = String::with_capacity(32);
   let _ = write!(path_buf, "/proc/{}/cmdline", pid);
 
   if let Ok(cmdline) = fs::read(&path_buf) {
-    let parts: Vec<&[u8]> = cmdline.split(|&b| b == 0).collect();
-    for (i, part) in parts.iter().enumerate() {
+    let mut iter = cmdline.split(|&b| b == 0);
+    while let Some(part) = iter.next() {
       let s = String::from_utf8_lossy(part);
-      if s == "--class"
-        && i + 1 < parts.len()
-        && String::from_utf8_lossy(parts[i + 1]).eq_ignore_ascii_case(target_class)
-      {
-        return true;
-      }
-      if s.to_lowercase().starts_with("--class=") && s[8..].eq_ignore_ascii_case(target_class) {
-        return true;
+      if s == "--class" {
+        if let Some(next_part) = iter.next() {
+          if String::from_utf8_lossy(next_part).eq_ignore_ascii_case(target_class) {
+            return true;
+          }
+        }
+      } else if s.to_lowercase().starts_with("--class=") {
+        if s[8..].eq_ignore_ascii_case(target_class) {
+          return true;
+        }
       }
     }
 
@@ -472,8 +482,10 @@ fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
     let _ = write!(path_buf, "/proc/{}/exe", pid);
     if let Ok(exe) = fs::read_link(&path_buf) {
       if let Some(name) = exe.file_name().and_then(|n| n.to_str()) {
-        let n_lower = name.to_lowercase();
-        if n_lower == target_lower || (target_lower == "wezterm" && n_lower == "wezterm-gui") {
+        if name.eq_ignore_ascii_case(target_class)
+          || (target_class.eq_ignore_ascii_case("wezterm")
+            && name.eq_ignore_ascii_case("wezterm-gui"))
+        {
           return true;
         }
       }

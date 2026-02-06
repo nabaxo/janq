@@ -30,6 +30,19 @@ pub fn is_modifier(s: &str) -> bool {
   MODIFIERS.iter().any(|&m| m.eq_ignore_ascii_case(s))
 }
 
+/// Split a hotkey string into its parts, supporting both `+` and `-` as separators.
+pub fn split_hotkey(s: &str) -> Vec<&str> {
+  let s_trimmed = s.trim();
+  if s.contains('+') {
+    s.split('+').collect()
+  } else if s.contains('-') && s_trimmed != "-" && !s_trimmed.eq_ignore_ascii_case("minus") {
+    // Only split by '-' if it's not the base key itself
+    s.split('-').collect()
+  } else {
+    vec![s]
+  }
+}
+
 /// Validates a hotkey string format.
 ///
 /// # Format
@@ -49,10 +62,10 @@ pub fn is_modifier(s: &str) -> bool {
 pub fn validate_hotkey(s: &str) -> Result<(), String> {
   let mut has_base_key = false;
 
-  for part in s.split('+') {
+  for part in split_hotkey(s) {
     let part = part.trim();
     if part.is_empty() {
-      return Err("Empty key part (double plus or trailing plus?)".to_string());
+      return Err("Empty key part (double separator or trailing separator?)".to_string());
     }
 
     if is_modifier(part) {
@@ -176,6 +189,56 @@ pub const VALID_KEYS: &[&str] = &[
   "f11",
   "f12",
 ];
+
+/// Canonicalizes a hotkey for duplicate detection.
+///
+/// Maps synonyms (e.g., "Win" -> "Meta") and aliases (e.g., "Return" -> "Enter")
+/// to a stable string representation, with modifiers sorted alphabetically.
+pub fn canonicalize_hotkey(s: &str) -> String {
+  let mut mods = Vec::new();
+  let mut base = String::new();
+
+  for part in split_hotkey(s).into_iter().map(|s| s.trim().to_lowercase()) {
+    match part.as_str() {
+      // Modifier synonyms
+      "ctrl" | "control" => mods.push("ctrl".to_string()),
+      "meta" | "super" | "win" | "cmd" => mods.push("meta".to_string()),
+      "alt" | "shift" => mods.push(part),
+      // Base key aliases
+      "return" => base = "enter".to_string(),
+      "escape" => base = "esc".to_string(),
+      "backtick" | "`" | "dead_grave" => base = "grave".to_string(),
+      "§" => base = "section".to_string(),
+      "±" => base = "plusminus".to_string(),
+      "-" => base = "minus".to_string(),
+      "=" => base = "equal".to_string(),
+      "[" => base = "bracketleft".to_string(),
+      "]" => base = "bracketright".to_string(),
+      "\\" => base = "backslash".to_string(),
+      ";" => base = "semicolon".to_string(),
+      "'" => base = "quote".to_string(),
+      "," => base = "comma".to_string(),
+      "." => base = "period".to_string(),
+      "/" => base = "slash".to_string(),
+      "caps_lock" => base = "capslock".to_string(),
+      "arrowup" => base = "up".to_string(),
+      "arrowdown" => base = "down".to_string(),
+      "arrowleft" => base = "left".to_string(),
+      "arrowright" => base = "right".to_string(),
+      "pageup" => base = "pgup".to_string(),
+      "pagedown" => base = "pgdn".to_string(),
+      "del" => base = "delete".to_string(),
+      _ => base = part,
+    }
+  }
+
+  mods.sort();
+  if mods.is_empty() {
+    base
+  } else {
+    format!("{}+{}", mods.join("+"), base)
+  }
+}
 
 /// Checks if a string is a valid base key name.
 ///

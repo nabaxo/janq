@@ -57,50 +57,26 @@ impl From<&str> for ConfigError {
 }
 
 /// Formats an error with line context and a visual pointer.
-///
-/// This is used for both TOML parsing errors and semantic validation errors.
 pub fn format_error_with_span(
   content: &str,
   path: &Path,
   span: std::ops::Range<usize>,
   message: &str,
 ) -> String {
-  // Find line and column by counting bytes up to span.start
-  let mut line_no = 1;
-  let mut line_start_byte = 0;
+  let (line_no, col_no, line_content) = get_line_context(content, span.start);
+  let visual_width = calculate_visual_width(&content[span.clone()]);
 
-  for (i, c) in content.char_indices() {
-    if i >= span.start {
-      break;
-    }
-    if c == '\n' {
-      line_no += 1;
-      line_start_byte = i + 1; // Next line starts after the newline
-    }
+  let mut pointer = " ".repeat(col_no.saturating_sub(1));
+  pointer.push('^');
+  for _ in 1..visual_width.saturating_sub(1) {
+    pointer.push('~');
   }
 
-  // Column is 1-based, counting from line start to span start
-  let col_no = span.start.saturating_sub(line_start_byte) + 1;
-
-  let line_content = content
-    .lines()
-    .nth(line_no - 1)
-    .unwrap_or("")
-    .replace('\t', "    ");
-
-  // Build the pointer line
-  let mut pointer = String::new();
-  for _ in 1..col_no {
-    pointer.push(' ');
-  }
-  pointer.push_str("^~~~");
-
-  // Colorize quoted strings in the message (cyan for values)
-  let colored_message = colorize_message(message);
+  let colored_msg = colorize_message(message);
 
   format!(
-    "\x1b[1;31merror\x1b[0m: {}\n \x1b[1;34m-->\x1b[0m \x1b[4m{}\x1b[0m:{}:{}\n  \x1b[1;34m|\x1b[0m\n\x1b[1;34m{:3} |\x1b[0m {}\n  \x1b[1;34m|\x1b[0m \x1b[1;31m{}\x1b[0m",
-    colored_message,
+    "\x1b[1;31merror\x1b[0m: {}\n \x1b[1;34m-->\x1b[0m \x1b[4m{}\x1b[0m:{}:{}\n\x1b[1;34m      |\n{:>5} | \x1b[0m{}\n\x1b[1;34m      | \x1b[1;31m{}\x1b[0m",
+    colored_msg,
     path.display(),
     line_no,
     col_no,
@@ -108,6 +84,84 @@ pub fn format_error_with_span(
     line_content,
     pointer
   )
+}
+
+/// Formats an error that references multiple locations (e.g., duplicate definitions).
+pub fn format_error_with_multi_span(
+  content: &str,
+  path: &Path,
+  spans: Vec<(std::ops::Range<usize>, String)>,
+) -> String {
+  let mut result = String::new();
+
+  for (i, (span, message)) in spans.into_iter().enumerate() {
+    let (line_no, col_no, line_content) = get_line_context(content, span.start);
+    let visual_width = calculate_visual_width(&content[span.clone()]);
+
+    let mut pointer = " ".repeat(col_no.saturating_sub(1));
+    pointer.push('^');
+    for _ in 1..visual_width.saturating_sub(1) {
+      pointer.push('~');
+    }
+
+    let colored_msg = colorize_message(&message);
+
+    if i == 0 {
+      result.push_str(&format!(
+        "\x1b[1;31merror\x1b[0m: {}\n \x1b[1;34m-->\x1b[0m \x1b[4m{}\x1b[0m:{}:{}\n\x1b[1;34m      |\n{:>5} | \x1b[0m{}\n\x1b[1;34m      | \x1b[1;31m{}\x1b[0m",
+        colored_msg, path.display(), line_no, col_no, line_no, line_content, pointer
+      ));
+    } else {
+      result.push_str(&format!(
+        "\n \x1b[1;34m=\x1b[0m \x1b[1m{}\x1b[0m:\n \x1b[1;34m-->\x1b[0m \x1b[4m{}\x1b[0m:{}:{}\n\x1b[1;34m      |\n{:>5} | \x1b[0m{}\n\x1b[1;34m      | \x1b[1;31m{}\x1b[0m",
+        colored_msg, path.display(), line_no, col_no, line_no, line_content, pointer
+      ));
+    }
+  }
+
+  result
+}
+
+/// Helper to get line number, visual column, and line content for a byte offset.
+fn get_line_context(content: &str, span_start: usize) -> (usize, usize, String) {
+  let mut line_no = 1;
+  let mut col_no = 1;
+
+  for (i, c) in content.char_indices() {
+    if i >= span_start {
+      break;
+    }
+    if c == '\n' {
+      line_no += 1;
+      col_no = 1;
+    } else if c == '\t' {
+      col_no += 4; // Tab expansion (match replace below)
+    } else if c != '\r' {
+      // Treat other characters as 1 visual column (close enough for CLI)
+      col_no += 1;
+    }
+  }
+
+  let line_content = content
+    .lines()
+    .nth(line_no - 1)
+    .unwrap_or("")
+    .replace('\t', "    ");
+
+  (line_no, col_no, line_content)
+}
+
+/// Calculates visual width of a string segment, accounting for tabs.
+fn calculate_visual_width(s: &str) -> usize {
+  let mut width = 0;
+  for c in s.chars() {
+    if c == '\t' {
+      width += 4;
+    } else if c != '\r' && c != '\n' {
+      width += 1;
+    }
+  }
+  width.max(1)
 }
 
 /// Colorizes quoted values and key names in error messages.

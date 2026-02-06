@@ -668,50 +668,45 @@ pub fn sync_hotkeys(
   hotkey_map: &RwLock<FxHashMap<u32, String>>,
   current_hotkeys: &RwLock<Vec<HotKey>>,
 ) -> janq::error::Result<()> {
-  // 1. Check if we actually need to sync
+  // 1. Identify what we WANT to have registered
   let mut desired_map = FxHashMap::default();
   let mut desired_hks = Vec::new();
+  let mut signature = Vec::new();
+
   for (app_name, app_cfg) in &config.app {
     for hk_str in app_cfg.hotkey.as_vec() {
       if hk_str.is_empty() {
         continue;
       }
       if let Ok(key) = parse_hotkey(&hk_str) {
-        desired_map.insert(key.id(), app_name.clone());
-        desired_hks.push(key);
+        let normalized = janq::validation::canonicalize_hotkey(&hk_str);
+        signature.push(format!("{}:{}", app_name, normalized));
+
+        // De-duplicate synonymous keys (e.g. "Grave" vs "`") for the same app
+        if !desired_map.contains_key(&key.id()) {
+          desired_map.insert(key.id(), app_name.clone());
+          desired_hks.push(key);
+        }
       }
     }
   }
+  signature.sort();
 
+  // 2. Short-circuit if the configuration hasn't changed
+  // This avoids infinite re-registration loops caused by hardware fallbacks (e.g. § -> `)
+  // where the registered ID differs from the config ID.
+  static LAST_SYNC_SIG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
   {
-    let current_map = hotkey_map.read().unwrap();
-    let current_hks = current_hotkeys.read().unwrap();
-
-    if current_map.len() == desired_map.len() && current_hks.len() == desired_hks.len() {
-      let mut identical = true;
-      for (id, app_name) in &desired_map {
-        if current_map.get(id) != Some(app_name) {
-          identical = false;
-          break;
-        }
-      }
-      if identical {
-        for hk in &desired_hks {
-          if !current_hks.iter().any(|c| c.id() == hk.id()) {
-            identical = false;
-            break;
-          }
-        }
-      }
-
-      if identical {
-        println!("Hotkey: Windows hotkeys already correct. Skipping sync.");
-        return Ok(());
-      }
+    let mut last = LAST_SYNC_SIG.lock().unwrap();
+    if *last == signature && !last.is_empty() {
+      return Ok(());
     }
+    *last = signature;
   }
 
-  // 2. Unregister all existing hotkeys
+  println!("Hotkey: Synchronizing Windows hotkeys...");
+
+  // 3. Unregister all existing hotkeys
   {
     let mut hks = current_hotkeys.write().unwrap();
     if !hks.is_empty() {
@@ -724,7 +719,7 @@ pub fn sync_hotkeys(
     map.clear();
   }
 
-  // 2. Register from current config
+  // 4. Register from current config
   let mut new_hks = Vec::new();
   let mut new_map = FxHashMap::default();
 
@@ -736,31 +731,40 @@ pub fn sync_hotkeys(
       match parse_hotkey(&hk_str) {
         Ok(key) => {
           let key_code = key.key;
+          // Skip if this physical ID is already taken in this cycle
+          if new_map.contains_key(&key.id()) {
+            continue;
+          }
+
           match manager.register(key) {
             Ok(_) => {
               new_map.insert(key.id(), app_name.clone());
               new_hks.push(key);
             }
-            Err(e) => {
-              // Try fallback for section key variants if it failed
+            Err(_) => {
+              // Try fallback for section key variants (EU keyboards)
               if key_code == global_hotkey::hotkey::Code::IntlBackslash {
                 let fallback_key =
                   HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backquote);
-                if manager.register(fallback_key).is_ok() {
+                if !new_map.contains_key(&fallback_key.id())
+                  && manager.register(fallback_key).is_ok()
+                {
                   new_map.insert(fallback_key.id(), app_name.clone());
                   new_hks.push(fallback_key);
                 } else {
                   let fallback_key2 =
                     HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backslash);
-                  if manager.register(fallback_key2).is_ok() {
+                  if !new_map.contains_key(&fallback_key2.id())
+                    && manager.register(fallback_key2).is_ok()
+                  {
                     new_map.insert(fallback_key2.id(), app_name.clone());
                     new_hks.push(fallback_key2);
                   } else {
-                    show_error(&format!("  ✗ Failed to register {}: {}", hk_str, e));
+                    show_error(&format!("  ✗ Failed to register hotkey: {}", hk_str));
                   }
                 }
               } else {
-                show_error(&format!("  ✗ Failed to register {}: {}", hk_str, e));
+                show_error(&format!("  ✗ Failed to register hotkey: {}", hk_str));
               }
             }
           }
@@ -776,7 +780,7 @@ pub fn sync_hotkeys(
     }
   }
 
-  // 3. Update shared state
+  // 5. Update shared state
   {
     let mut hks = current_hotkeys.write().unwrap();
     *hks = new_hks;

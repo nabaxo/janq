@@ -76,11 +76,12 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> janq::error:
   fs::create_dir_all(desktop_path.parent().unwrap())?;
 
   // Build content in memory to check for changes
-  let mut desktop_content = String::new();
+  use std::fmt::Write;
+  let mut desktop_content = String::with_capacity(1024 + (config.app.len() * 256));
   desktop_content.push_str("[Desktop Entry]\n");
   desktop_content.push_str("Name=janq\n");
   desktop_content.push_str("Comment=Quake-style terminal manager\n");
-  desktop_content.push_str(&format!("Exec={}\n", exec_cmd));
+  let _ = writeln!(desktop_content, "Exec={}", exec_cmd);
   desktop_content.push_str("Icon=janq\n");
   desktop_content.push_str("Terminal=false\n");
   desktop_content.push_str("Type=Application\n");
@@ -107,7 +108,7 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> janq::error:
     desktop_content.push_str(";\n");
 
     for name in &keys {
-      let mut hotkey_str = String::new();
+      let mut hotkey_str = String::with_capacity(32);
       if let Some(app) = config.app.get(*name) {
         let hotkeys = app.hotkey.as_vec();
         for (i, hk) in hotkeys.iter().enumerate() {
@@ -118,10 +119,10 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> janq::error:
         }
       }
 
-      desktop_content.push_str(&format!("\n[Desktop Action {}]\n", name));
-      desktop_content.push_str(&format!("Name=Toggle {}\n", name));
-      desktop_content.push_str(&format!("Exec={} --app {}\n", exe_path, name));
-      desktop_content.push_str(&format!("X-KDE-Shortcuts={}\n", hotkey_str));
+      let _ = write!(desktop_content, "\n[Desktop Action {}]\n", name);
+      let _ = write!(desktop_content, "Name=Toggle {}\n", name);
+      let _ = write!(desktop_content, "Exec={} --app {}\n", exe_path, name);
+      let _ = write!(desktop_content, "X-KDE-Shortcuts={}\n", hotkey_str);
     }
   }
 

@@ -210,13 +210,12 @@ async fn get_max_refresh_rate() -> f64 {
       l.split_whitespace()
         .filter(|w| w.contains('*'))
         .filter_map(|w| {
-          w.split('@')
-            .next_back()?
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '.')
-            .collect::<String>()
-            .parse::<f64>()
-            .ok()
+          let s = w.split('@').next_back()?;
+          // Efficiently parse the number prefix (e.g. "144.02*")
+          let end = s
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .unwrap_or(s.len());
+          s[..end].parse::<f64>().ok()
         })
     })
     .fold(0.0, f64::max);
@@ -442,11 +441,13 @@ async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn
     return;
   }
 
-  let class_lower = class_name.to_lowercase();
-  let janq_classes_lower: Vec<String> = janq_classes.iter().map(|s| s.to_lowercase()).collect();
-
-  for managed_class in janq_classes_lower {
-    if class_lower.contains(&managed_class) {
+  // Optimize search: check if current class matches any managed class (case-insensitive)
+  for managed_class in janq_classes {
+    if class_name.eq_ignore_ascii_case(managed_class)
+      || class_name
+        .to_lowercase()
+        .contains(&managed_class.to_lowercase())
+    {
       return;
     }
   }
@@ -806,16 +807,9 @@ pub async fn reset_visibility(config: &Config) {
 }
 
 pub fn clear_removed_apps_from_cache(old_config: &Config, new_config: &Config) {
-  let removed_apps: Vec<_> = old_config
-    .app
-    .keys()
-    .filter(|name| !new_config.app.contains_key(*name))
-    .cloned()
-    .collect();
-
-  if !removed_apps.is_empty() {
-    for name in removed_apps {
-      remove_from_cache(&name);
+  for name in old_config.app.keys() {
+    if !new_config.app.contains_key(name) {
+      remove_from_cache(name);
     }
   }
 }
