@@ -344,6 +344,16 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   let target_hwnd = if let Some(h) = cached_hwnd {
     h
   } else {
+    // If the window isn't cached, check if we are already in the middle of spawning/searching for it.
+    // This prevents hotkey spam from triggering multiple full-system EnumWindows scans and
+    // potentially grabbing transient windows during startup.
+    {
+      let spawning = janq::spawn_guard::get_spawning_apps().lock().unwrap();
+      if spawning.contains(app_name) {
+        return false;
+      }
+    }
+
     match find_window_by_process(&app_cfg.window_class, None) {
       Some(cw) => {
         let mut cache = get_app_cache().write().unwrap();

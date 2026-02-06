@@ -46,40 +46,35 @@ pub fn ensure_terminal_running(
     }
   }
 
-  // Loop to acquire lock or check existing window
-  loop {
-    // 1. Check if window already exists
-    // We only use candidates on the first pass of the loop if provided
-    let list_to_check = if candidates.is_some() {
-      candidates
-    } else {
-      None
-    };
-    if let Some(cw) = find_window_by_process(&app_cfg.window_class, list_to_check) {
-      {
-        let mut cache = get_app_cache().write().unwrap();
-        cache.insert(app_name.to_string(), cw);
-      }
-      update_managed_hwnds_cache();
-
-      park_window(cw, config, app_cfg);
+  // 0.5. Idempotency Lock Part 1: Early Exit
+  // If another thread is already spawning or searching, we drop out immediately
+  // without performing a redundant EnumWindows scan.
+  {
+    let spawning = get_spawning_apps().lock().unwrap();
+    if spawning.contains(app_name) {
       return false;
     }
+  }
 
-    // 2. Idempotency Lock
-    let already_spawning = {
-      let spawning = get_spawning_apps().lock().unwrap();
-      spawning.contains(app_name)
-    };
-
-    if !already_spawning {
-      // Try to acquire the "lock" by adding to the set
-      let mut spawning = get_spawning_apps().lock().unwrap();
-      spawning.insert(app_name.to_string());
-      break;
+  // 1. Check if window already exists
+  if let Some(cw) = find_window_by_process(&app_cfg.window_class, candidates) {
+    {
+      let mut cache = get_app_cache().write().unwrap();
+      cache.insert(app_name.to_string(), cw);
     }
+    update_managed_hwnds_cache();
 
-    std::thread::sleep(Duration::from_millis(100));
+    park_window(cw, config, app_cfg);
+    return false;
+  }
+
+  // 2. Idempotency Lock Part 2: Acquisition
+  {
+    let mut spawning = get_spawning_apps().lock().unwrap();
+    if spawning.contains(app_name) {
+      return false; // Rare race condition win
+    }
+    spawning.insert(app_name.to_string());
   }
 
   let _guard = SpawnGuard::new(app_name);
