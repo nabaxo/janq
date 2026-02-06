@@ -204,31 +204,14 @@ pub fn canonicalize_hotkey(s: &str) -> String {
       "ctrl" | "control" => mods.push("ctrl".to_string()),
       "meta" | "super" | "win" | "cmd" => mods.push("meta".to_string()),
       "alt" | "shift" => mods.push(part),
-      // Base key aliases
-      "return" => base = "enter".to_string(),
-      "escape" => base = "esc".to_string(),
-      "backtick" | "`" | "dead_grave" => base = "grave".to_string(),
-      "§" => base = "section".to_string(),
-      "±" => base = "plusminus".to_string(),
-      "-" => base = "minus".to_string(),
-      "=" => base = "equal".to_string(),
-      "[" => base = "bracketleft".to_string(),
-      "]" => base = "bracketright".to_string(),
-      "\\" => base = "backslash".to_string(),
-      ";" => base = "semicolon".to_string(),
-      "'" => base = "quote".to_string(),
-      "," => base = "comma".to_string(),
-      "." => base = "period".to_string(),
-      "/" => base = "slash".to_string(),
-      "caps_lock" => base = "capslock".to_string(),
-      "arrowup" => base = "up".to_string(),
-      "arrowdown" => base = "down".to_string(),
-      "arrowleft" => base = "left".to_string(),
-      "arrowright" => base = "right".to_string(),
-      "pageup" => base = "pgup".to_string(),
-      "pagedown" => base = "pgdn".to_string(),
-      "del" => base = "delete".to_string(),
-      _ => base = part,
+      // Base key aliases handled by the enum translation
+      _ => {
+        if let Some(key) = BaseKey::parse(&part) {
+          base = key.to_canonical_string();
+        } else {
+          base = part;
+        }
+      }
     }
   }
 
@@ -237,6 +220,138 @@ pub fn canonicalize_hotkey(s: &str) -> String {
     base
   } else {
     format!("{}+{}", mods.join("+"), base)
+  }
+}
+
+/// Unified abstraction for a physical key, shared across all platforms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BaseKey {
+  Digit(u8),
+  Letter(char),
+  F(u8),
+  Grave,
+  Section,
+  PlusMinus,
+  Minus,
+  Equal,
+  BracketLeft,
+  BracketRight,
+  Backslash,
+  Semicolon,
+  Quote,
+  Comma,
+  Period,
+  Slash,
+  Enter,
+  Space,
+  Esc,
+  Tab,
+  CapsLock,
+  Backspace,
+  Up,
+  Down,
+  Left,
+  Right,
+  PageUp,
+  PageDown,
+  Home,
+  End,
+  Insert,
+  Delete,
+}
+
+impl BaseKey {
+  /// Parses a string into a BaseKey, handling all common synonyms and aliases.
+  pub fn parse(s: &str) -> Option<Self> {
+    let s = s.trim().to_lowercase();
+    match s.as_str() {
+      "grave" | "backtick" | "`" | "dead_grave" => Some(BaseKey::Grave),
+      "section" | "§" => Some(BaseKey::Section),
+      "plusminus" | "±" => Some(BaseKey::PlusMinus),
+      "minus" | "-" => Some(BaseKey::Minus),
+      "equal" | "=" => Some(BaseKey::Equal),
+      "bracketleft" | "[" => Some(BaseKey::BracketLeft),
+      "bracketright" | "]" => Some(BaseKey::BracketRight),
+      "backslash" | "\\" => Some(BaseKey::Backslash),
+      "semicolon" | ";" => Some(BaseKey::Semicolon),
+      "quote" | "'" => Some(BaseKey::Quote),
+      "comma" | "," => Some(BaseKey::Comma),
+      "period" | "." => Some(BaseKey::Period),
+      "slash" | "/" => Some(BaseKey::Slash),
+      "enter" | "return" => Some(BaseKey::Enter),
+      "space" => Some(BaseKey::Space),
+      "esc" | "escape" => Some(BaseKey::Esc),
+      "tab" => Some(BaseKey::Tab),
+      "capslock" | "caps_lock" => Some(BaseKey::CapsLock),
+      "backspace" => Some(BaseKey::Backspace),
+      "up" | "arrowup" => Some(BaseKey::Up),
+      "down" | "arrowdown" => Some(BaseKey::Down),
+      "left" | "arrowleft" => Some(BaseKey::Left),
+      "right" | "arrowright" => Some(BaseKey::Right),
+      "pgup" | "pageup" => Some(BaseKey::PageUp),
+      "pgdn" | "pagedown" => Some(BaseKey::PageDown),
+      "home" => Some(BaseKey::Home),
+      "end" => Some(BaseKey::End),
+      "insert" => Some(BaseKey::Insert),
+      "delete" | "del" => Some(BaseKey::Delete),
+      _ => {
+        if s.starts_with('f') && s.len() > 1 {
+          if let Ok(num) = s[1..].parse::<u8>() {
+            if num >= 1 && num <= 12 {
+              return Some(BaseKey::F(num));
+            }
+          }
+        }
+        if s.len() == 1 {
+          let c = s.chars().next().unwrap();
+          if c.is_ascii_digit() {
+            return Some(BaseKey::Digit(c.to_digit(10).unwrap() as u8));
+          }
+          if c.is_ascii_alphabetic() {
+            return Some(BaseKey::Letter(c));
+          }
+        }
+        None
+      }
+    }
+  }
+
+  /// Returns the canonical, stable string representation of the key.
+  pub fn to_canonical_string(&self) -> String {
+    match self {
+      BaseKey::Digit(n) => n.to_string(),
+      BaseKey::Letter(c) => c.to_string(),
+      BaseKey::F(n) => format!("f{}", n),
+      BaseKey::Grave => "grave".to_string(),
+      BaseKey::Section => "section".to_string(),
+      BaseKey::PlusMinus => "plusminus".to_string(),
+      BaseKey::Minus => "minus".to_string(),
+      BaseKey::Equal => "equal".to_string(),
+      BaseKey::BracketLeft => "bracketleft".to_string(),
+      BaseKey::BracketRight => "bracketright".to_string(),
+      BaseKey::Backslash => "backslash".to_string(),
+      BaseKey::Semicolon => "semicolon".to_string(),
+      BaseKey::Quote => "quote".to_string(),
+      BaseKey::Comma => "comma".to_string(),
+      BaseKey::Period => "period".to_string(),
+      BaseKey::Slash => "slash".to_string(),
+      BaseKey::Enter => "enter".to_string(),
+      BaseKey::Space => "space".to_string(),
+      BaseKey::Esc => "esc".to_string(),
+      BaseKey::Tab => "tab".to_string(),
+      BaseKey::CapsLock => "capslock".to_string(),
+      BaseKey::Backspace => "backspace".to_string(),
+      BaseKey::Up => "up".to_string(),
+      BaseKey::Down => "down".to_string(),
+      BaseKey::Left => "left".to_string(),
+      BaseKey::Right => "right".to_string(),
+      BaseKey::PageUp => "pgup".to_string(),
+      BaseKey::PageDown => "pgdn".to_string(),
+      BaseKey::Home => "home".to_string(),
+      BaseKey::End => "end".to_string(),
+      BaseKey::Insert => "insert".to_string(),
+      BaseKey::Delete => "delete".to_string(),
+    }
   }
 }
 

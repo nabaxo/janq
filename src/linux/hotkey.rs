@@ -34,71 +34,71 @@ use janq::validation;
 pub fn normalize_shortcut_for_kde(shortcut: &str) -> String {
   let mut normalized = String::with_capacity(shortcut.len());
   for (i, part) in validation::split_hotkey(shortcut).into_iter().enumerate() {
-    let part: &str = part;
     if i > 0 {
       normalized.push('+');
     }
-    let p = part.trim();
-    let p_lower = p.to_lowercase();
+    let p = part.trim().to_lowercase();
 
-    match janq::config::normalize_hotkey_modifier(&p_lower) {
+    match janq::config::normalize_hotkey_modifier(&p) {
       "meta" => normalized.push_str("Meta"),
       "ctrl" => normalized.push_str("Ctrl"),
       "alt" => normalized.push_str("Alt"),
       "shift" => normalized.push_str("Shift"),
-      _ => match p_lower.as_str() {
-        "[`]" | "`" | "grave" | "backtick" | "dead_grave" => normalized.push('`'),
-        "§" | "section" => normalized.push('§'),
-        "±" | "plusminus" => normalized.push('±'),
-        "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" => {
-          normalized.push('F');
-          normalized.push_str(&p_lower[1..]);
+      _ => {
+        if let Some(base_key) = validation::BaseKey::parse(&p) {
+          normalized.push_str(&to_kde_display(base_key));
+        } else {
+          normalized.push_str(&p);
         }
-        "esc" | "escape" => normalized.push_str("Escape"),
-        "tab" => normalized.push_str("Tab"),
-        "space" => normalized.push_str("Space"),
-        "enter" | "return" => normalized.push_str("Return"),
-        "backspace" => normalized.push_str("Backspace"),
-        "delete" | "del" => normalized.push_str("Delete"),
-        "insert" => normalized.push_str("Insert"),
-        "home" => normalized.push_str("Home"),
-        "end" => normalized.push_str("End"),
-        "pgup" | "pageup" => normalized.push_str("PgUp"),
-        "pgdn" | "pagedown" => normalized.push_str("PgDown"),
-        "up" | "arrowup" => normalized.push_str("Up"),
-        "down" | "arrowdown" => normalized.push_str("Down"),
-        "left" | "arrowleft" => normalized.push_str("Left"),
-        "right" | "arrowright" => normalized.push_str("Right"),
-        "capslock" | "caps_lock" => normalized.push_str("Caps Lock"),
-        "-" | "minus" => normalized.push('-'),
-        "=" | "equal" => normalized.push('='),
-        "[" | "bracketleft" => normalized.push('['),
-        "]" | "bracketright" => normalized.push(']'),
-        "\\" | "backslash" => normalized.push('\\'),
-        ";" | "semicolon" => normalized.push(';'),
-        "'" | "quote" => normalized.push('\''),
-        "," | "comma" => normalized.push(','),
-        "." | "period" => normalized.push('.'),
-        "/" | "slash" => normalized.push('/'),
-        _ if p_lower.len() == 1 && p_lower.chars().next().unwrap().is_ascii_alphabetic() => {
-          normalized.push(p_lower.chars().next().unwrap().to_ascii_uppercase());
-        }
-        _ => normalized.push_str(p),
-      },
+      }
     }
   }
   normalized
 }
 
+fn to_kde_display(key: validation::BaseKey) -> String {
+  use validation::BaseKey;
+  match key {
+    BaseKey::Grave => "`".to_string(),
+    BaseKey::Section => "§".to_string(),
+    BaseKey::PlusMinus => "±".to_string(),
+    BaseKey::F(n) => format!("F{}", n),
+    BaseKey::Esc => "Escape".to_string(),
+    BaseKey::Tab => "Tab".to_string(),
+    BaseKey::Space => "Space".to_string(),
+    BaseKey::Enter => "Return".to_string(),
+    BaseKey::Backspace => "Backspace".to_string(),
+    BaseKey::Delete => "Delete".to_string(),
+    BaseKey::Insert => "Insert".to_string(),
+    BaseKey::Home => "Home".to_string(),
+    BaseKey::End => "End".to_string(),
+    BaseKey::PageUp => "PgUp".to_string(),
+    BaseKey::PageDown => "PgDown".to_string(),
+    BaseKey::Up => "Up".to_string(),
+    BaseKey::Down => "Down".to_string(),
+    BaseKey::Left => "Left".to_string(),
+    BaseKey::Right => "Right".to_string(),
+    BaseKey::CapsLock => "Caps Lock".to_string(),
+    BaseKey::Minus => "-".to_string(),
+    BaseKey::Equal => "=".to_string(),
+    BaseKey::BracketLeft => "[".to_string(),
+    BaseKey::BracketRight => "]".to_string(),
+    BaseKey::Backslash => "\\".to_string(),
+    BaseKey::Semicolon => ";".to_string(),
+    BaseKey::Quote => "'".to_string(),
+    BaseKey::Comma => ",".to_string(),
+    BaseKey::Period => ".".to_string(),
+    BaseKey::Slash => "/".to_string(),
+    BaseKey::Letter(c) => c.to_ascii_uppercase().to_string(),
+    BaseKey::Digit(n) => n.to_string(),
+  }
+}
+
 // =============================================================================
 // Qt Key Mapping
 // =============================================================================
-// NOTE: This duplicates some key names from normalize_shortcut_for_kde above.
-// The duplication is intentional: normalize_shortcut_for_kde returns display
-// strings for KDE System Settings (e.g., "Meta", "`"), while map_qt_key returns
-// Qt keycodes for D-Bus shortcut registration (e.g., 0x10000000, 0x60).
-// Combining them would save ~50 lines but risk subtle registration bugs that
-// are slow to diagnose. These are stable lookup tables that rarely change.
+// NOTE: This now uses the shared BaseKey abstraction, ensuring that if a key
+// name is valid in the config, it is guaranteed to be handled here.
 
 fn map_qt_key(s: &str) -> i32 {
   let s_lower = s.to_lowercase();
@@ -107,92 +107,96 @@ fn map_qt_key(s: &str) -> i32 {
     "ctrl" => 0x04000000,
     "alt" => 0x08000000,
     "shift" => 0x02000000,
-    _ => match s_lower.as_str() {
-      "1" => 0x31,
-      "2" => 0x32,
-      "3" => 0x33,
-      "4" => 0x34,
-      "5" => 0x35,
-      "6" => 0x36,
-      "7" => 0x37,
-      "8" => 0x38,
-      "9" => 0x39,
-      "0" => 0x30,
-      "-" | "minus" => 0x2d,
-      "=" | "equal" => 0x3d,
-      "q" => 0x51,
-      "w" => 0x57,
-      "e" => 0x45,
-      "r" => 0x52,
-      "t" => 0x54,
-      "y" => 0x59,
-      "u" => 0x55,
-      "i" => 0x49,
-      "o" => 0x4f,
-      "p" => 0x50,
-      "[" | "bracketleft" => 0x5b,
-      "]" | "bracketright" => 0x5d,
-      "\\" | "backslash" => 0x5c,
-      "a" => 0x41,
-      "s" => 0x53,
-      "d" => 0x44,
-      "f" => 0x46,
-      "g" => 0x47,
-      "h" => 0x48,
-      "j" => 0x4a,
-      "k" => 0x4b,
-      "l" => 0x4c,
-      ";" | "semicolon" => 0x3b,
-      "'" | "quote" => 0x27,
-      "enter" | "return" => 0x01000004,
-      "z" => 0x5a,
-      "x" => 0x58,
-      "c" => 0x43,
-      "v" => 0x56,
-      "b" => 0x42,
-      "n" => 0x4e,
-      "m" => 0x4d,
-      "," | "comma" => 0x2c,
-      "." | "period" => 0x2e,
-      "/" | "slash" => 0x2f,
-      "space" => 0x20,
-      "esc" | "escape" => 0x01000000,
-      "tab" => 0x01000001,
-      "capslock" | "caps_lock" => 0x01000024,
-      "backspace" => 0x01000003,
-      "up" | "arrowup" => 0x01000013,
-      "down" | "arrowdown" => 0x01000015,
-      "left" | "arrowleft" => 0x01000012,
-      "right" | "arrowright" => 0x01000014,
-      "pgup" | "pageup" => 0x01000016,
-      "pgdn" | "pagedown" => 0x01000017,
-      "home" => 0x01000010,
-      "end" => 0x01000011,
-      "insert" => 0x01000006,
-      "delete" | "del" => 0x01000007,
-      "f1" => 0x01000030,
-      "f2" => 0x01000031,
-      "f3" => 0x01000032,
-      "f4" => 0x01000033,
-      "f5" => 0x01000034,
-      "f6" => 0x01000035,
-      "f7" => 0x01000036,
-      "f8" => 0x01000037,
-      "f9" => 0x01000038,
-      "f10" => 0x01000039,
-      "f11" => 0x0100003a,
-      "f12" => 0x0100003b,
-      "§" | "section" | "±" | "plusminus" => 0xa7,
-      _ => {
-        if s.len() == 1 {
-          let ch = s.chars().next().unwrap().to_ascii_uppercase();
-          if ch.is_ascii_alphanumeric() {
-            return ch as i32;
-          }
-        }
+    _ => {
+      if let Some(base_key) = validation::BaseKey::parse(&s_lower) {
+        to_qt_code(base_key)
+      } else {
         0
       }
-    },
+    }
+  }
+}
+
+fn to_qt_code(key: validation::BaseKey) -> i32 {
+  use validation::BaseKey;
+  match key {
+    BaseKey::Digit(0) => 0x30,
+    BaseKey::Digit(1) => 0x31,
+    BaseKey::Digit(2) => 0x32,
+    BaseKey::Digit(3) => 0x33,
+    BaseKey::Digit(4) => 0x34,
+    BaseKey::Digit(5) => 0x35,
+    BaseKey::Digit(6) => 0x36,
+    BaseKey::Digit(7) => 0x37,
+    BaseKey::Digit(8) => 0x38,
+    BaseKey::Digit(9) => 0x39,
+    BaseKey::Minus => 0x2d,
+    BaseKey::Equal => 0x3d,
+    BaseKey::Letter('q') => 0x51,
+    BaseKey::Letter('w') => 0x57,
+    BaseKey::Letter('e') => 0x45,
+    BaseKey::Letter('r') => 0x52,
+    BaseKey::Letter('t') => 0x54,
+    BaseKey::Letter('y') => 0x59,
+    BaseKey::Letter('u') => 0x55,
+    BaseKey::Letter('i') => 0x49,
+    BaseKey::Letter('o') => 0x4f,
+    BaseKey::Letter('p') => 0x50,
+    BaseKey::BracketLeft => 0x5b,
+    BaseKey::BracketRight => 0x5d,
+    BaseKey::Backslash => 0x5c,
+    BaseKey::Letter('a') => 0x41,
+    BaseKey::Letter('s') => 0x53,
+    BaseKey::Letter('d') => 0x44,
+    BaseKey::Letter('f') => 0x46,
+    BaseKey::Letter('g') => 0x47,
+    BaseKey::Letter('h') => 0x48,
+    BaseKey::Letter('j') => 0x4a,
+    BaseKey::Letter('k') => 0x4b,
+    BaseKey::Letter('l') => 0x4c,
+    BaseKey::Semicolon => 0x3b,
+    BaseKey::Quote => 0x27,
+    BaseKey::Enter => 0x01000004,
+    BaseKey::Letter('z') => 0x5a,
+    BaseKey::Letter('x') => 0x58,
+    BaseKey::Letter('c') => 0x43,
+    BaseKey::Letter('v') => 0x56,
+    BaseKey::Letter('b') => 0x42,
+    BaseKey::Letter('n') => 0x4e,
+    BaseKey::Letter('m') => 0x4d,
+    BaseKey::Comma => 0x2c,
+    BaseKey::Period => 0x2e,
+    BaseKey::Slash => 0x2f,
+    BaseKey::Space => 0x20,
+    BaseKey::Esc => 0x01000000,
+    BaseKey::Tab => 0x01000001,
+    BaseKey::CapsLock => 0x01000024,
+    BaseKey::Backspace => 0x01000003,
+    BaseKey::Up => 0x01000013,
+    BaseKey::Down => 0x01000015,
+    BaseKey::Left => 0x01000012,
+    BaseKey::Right => 0x01000014,
+    BaseKey::PageUp => 0x01000016,
+    BaseKey::PageDown => 0x01000017,
+    BaseKey::Home => 0x01000010,
+    BaseKey::End => 0x01000011,
+    BaseKey::Insert => 0x01000006,
+    BaseKey::Delete => 0x01000007,
+    BaseKey::F(1) => 0x01000030,
+    BaseKey::F(2) => 0x01000031,
+    BaseKey::F(3) => 0x01000032,
+    BaseKey::F(4) => 0x01000033,
+    BaseKey::F(5) => 0x01000034,
+    BaseKey::F(6) => 0x01000035,
+    BaseKey::F(7) => 0x01000036,
+    BaseKey::F(8) => 0x01000037,
+    BaseKey::F(9) => 0x01000038,
+    BaseKey::F(10) => 0x01000039,
+    BaseKey::F(11) => 0x0100003a,
+    BaseKey::F(12) => 0x0100003b,
+    BaseKey::Grave => 0x60,
+    BaseKey::Section | BaseKey::PlusMinus => 0xa7,
+    _ => 0,
   }
 }
 
