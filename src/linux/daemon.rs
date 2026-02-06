@@ -544,11 +544,19 @@ pub async fn run_daemon(
 
       println!("Watcher: Starting/Restoring apps as needed...");
 
-      // 1. Restore removed apps
-      for (name, app_cfg) in &old_config.app {
-        if !new_config_in_async.app.contains_key(name) {
-          println!("Watcher: Restoring app '{}' (removed from config)", name);
-          let _ = restore_app(name, &app_cfg.window_class, &conn_in_async).await;
+      // 1. Restore removed or changed apps
+      for (name, old_app_cfg) in &old_config.app {
+        match new_config_in_async.app.get(name) {
+          Some(new_app_cfg) => {
+            if new_app_cfg.window_class != old_app_cfg.window_class {
+              println!("Watcher: Restoring app '{}' (class changed)", name);
+              let _ = restore_app(name, &old_app_cfg.window_class, &conn_in_async).await;
+            }
+          }
+          None => {
+            println!("Watcher: Restoring app '{}' (removed from config)", name);
+            let _ = restore_app(name, &old_app_cfg.window_class, &conn_in_async).await;
+          }
         }
       }
 

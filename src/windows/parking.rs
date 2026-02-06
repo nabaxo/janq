@@ -118,31 +118,44 @@ pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
 pub fn restore_hwnd(hwnd: HWND) {
   unsafe {
     let mut ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    let old_ex = ex;
     if (ex & WS_EX_LAYERED.0) == 0 {
       ex |= WS_EX_LAYERED.0;
     }
     // Clear TOOLWINDOW and owner so window shows in taskbar and Alt+Tab
     ex &= !WS_EX_TOOLWINDOW.0;
-    SetWindowLongW(hwnd, GWL_EXSTYLE, ex as i32);
-    set_taskbar_hidden(hwnd, false);
+
+    if ex != old_ex {
+      SetWindowLongW(hwnd, GWL_EXSTYLE, ex as i32);
+    }
+
+    // Surgical check for taskbar owner
+    if GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) != 0 {
+      set_taskbar_hidden(hwnd, false);
+    }
 
     // Restore borders
-    let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-    style |= WS_CAPTION.0 | WS_THICKFRAME.0;
-    SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    let target_style = style | WS_CAPTION.0 | WS_THICKFRAME.0;
+    if style != target_style {
+      SetWindowLongW(hwnd, GWL_STYLE, target_style as i32);
+      let _ = SetWindowPos(
+        hwnd,
+        None,
+        0,
+        0,
+        0,
+        0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOZORDER,
+      );
+    }
 
-    let _ = SetWindowPos(
-      hwnd,
-      Some(HWND::default()),
-      0,
-      0,
-      0,
-      0,
-      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-    );
     let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+
+    // Only move if strictly necessary (usually we want to restore to a visible area)
     let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
     let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), x, y, 0, 0, flags);
+
     if IsIconic(hwnd).as_bool() {
       let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     } else {

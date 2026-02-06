@@ -35,14 +35,6 @@ where
   F: Fn() -> Fut + Send + 'static,
   Fut: Future<Output = ()> + Send + 'static,
 {
-  let target_abs = if let Some(ref target_path) = config_path {
-    target_path.canonicalize().ok()
-  } else {
-    crate::paths::home_dir()
-      .map(|h| h.join(".janq.toml"))
-      .and_then(|p| p.canonicalize().ok())
-  };
-
   let (tx, mut rx) = tokio_mpsc::unbounded_channel();
   let mut watcher = match RecommendedWatcher::new(
     move |res| {
@@ -59,13 +51,13 @@ where
 
   setup_watch_path(&mut watcher, &config_path);
 
-  let debounce_duration = Duration::from_millis(500);
+  let settle_delay = Duration::from_millis(100);
   let mut last_event = Instant::now();
   let mut pending = false;
 
   loop {
     let timeout = if pending {
-      debounce_duration.saturating_sub(last_event.elapsed())
+      settle_delay.saturating_sub(last_event.elapsed())
     } else {
       Duration::from_secs(60)
     };
@@ -74,7 +66,7 @@ where
       res = rx.recv() => {
         match res {
           Some(Ok(event)) => {
-            if is_interesting_event(&event) && is_config_event(&event.paths, &target_abs) {
+            if is_interesting_event(&event) && is_config_event(&event.paths, config_path.as_ref()) {
               last_event = Instant::now();
               pending = true;
             }
@@ -86,7 +78,6 @@ where
       _ = tokio::time::sleep(timeout) => {
         if pending {
           pending = false;
-          println!("Config change detected, reloading...");
           on_change().await;
         }
       }
@@ -145,16 +136,31 @@ fn is_interesting_event(event: &Event) -> bool {
 }
 
 /// Checks if any of the event paths match the config file.
-fn is_config_event(event_paths: &[PathBuf], target_abs: &Option<PathBuf>) -> bool {
-  let target = match target_abs {
-    Some(t) => t,
-    None => return false,
+fn is_config_event(event_paths: &[PathBuf], config_path: Option<&PathBuf>) -> bool {
+  let target = if let Some(p) = config_path {
+    p.clone()
+  } else {
+    match crate::paths::home_dir().map(|h| h.join(".janq.toml")) {
+      Some(h) => h,
+      None => return false,
+    }
   };
 
+  // Pre-calculate canonical target for faster comparison
+  let target_abs = target.canonicalize().ok();
+
   for p in event_paths {
+    // 1. Exact path match (handles cases where canonicalization fails, e.g. deletions)
+    if *p == target {
+      return true;
+    }
+
+    // 2. Canonical match (handles symlinks and relative path variations)
     if let Ok(p_abs) = p.canonicalize() {
-      if p_abs == *target {
-        return true;
+      if let Some(ref t_abs) = target_abs {
+        if p_abs == *t_abs {
+          return true;
+        }
       }
     }
   }
