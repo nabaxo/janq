@@ -82,6 +82,44 @@ pub struct FoundWindow {
 }
 
 // =============================================================================
+// Helper Utilities
+// =============================================================================
+
+#[cfg(target_os = "windows")]
+pub fn u16_contains_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
+  let needle_bytes = needle.as_bytes();
+  if haystack.len() < needle_bytes.len() {
+    return false;
+  }
+  haystack.windows(needle_bytes.len()).any(|window| {
+    window.iter().zip(needle_bytes).all(|(&h, &n)| {
+      let h_lower = if h <= 127 {
+        (h as u8).to_ascii_lowercase() as u16
+      } else {
+        h
+      };
+      h_lower == n.to_ascii_lowercase() as u16
+    })
+  })
+}
+
+#[cfg(target_os = "windows")]
+pub fn u16_eq_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
+  let needle_bytes = needle.as_bytes();
+  if haystack.len() != needle_bytes.len() {
+    return false;
+  }
+  haystack.iter().zip(needle_bytes).all(|(&h, &n)| {
+    let h_lower = if h <= 127 {
+      (h as u8).to_ascii_lowercase() as u16
+    } else {
+      h
+    };
+    h_lower == n.to_ascii_lowercase() as u16
+  })
+}
+
+// =============================================================================
 // Matching Algorithm
 // =============================================================================
 

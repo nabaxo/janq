@@ -116,8 +116,13 @@ pub async fn ensure_terminal_running_with_candidates(
   let window_class = &app_cfg.window_class;
   let start_command = &app_cfg.start_command;
 
+  let managed_ids: std::collections::HashSet<String> = {
+    let cache = get_cache().lock().unwrap();
+    cache.values().map(|c| c.id.clone()).collect()
+  };
+
   // 1. Check if window already exists
-  if check_window_exists_with_candidates(window_class, candidates)
+  if check_window_exists_with_candidates_and_managed(window_class, candidates, &managed_ids)
     .await
     .is_some()
   {
@@ -164,7 +169,9 @@ pub async fn ensure_terminal_running_with_candidates(
     sleep(Duration::from_millis(400)).await;
 
     // If release uncovered an existing window, reuse it immediately
-    if let Some(id) = check_window_exists(window_class).await {
+    if let Some(id) =
+      check_window_exists_with_candidates_and_managed(window_class, None, &managed_ids).await
+    {
       println!(
         "janq: Recovering window {} for '{}' after release.",
         id, window_class
@@ -176,7 +183,10 @@ pub async fn ensure_terminal_running_with_candidates(
 
   let full_cmd = start_command.clone();
 
-  println!("Starting terminal: {}", full_cmd);
+  println!(
+    "janq: starting app with class '{}' (cmd: {})...",
+    window_class, full_cmd
+  );
 
   // Use tokio::process::Command to avoid blocking threads for reaping
   match tokio::process::Command::new("sh")
@@ -200,7 +210,9 @@ pub async fn ensure_terminal_running_with_candidates(
 
   // Wait for window to appear (more reliable than just process)
   for i in 0..20 {
-    if let Some(_id) = check_window_exists(window_class).await {
+    if let Some(_id) =
+      check_window_exists_with_candidates_and_managed(window_class, None, &managed_ids).await
+    {
       // Give it a moment to finalize
       tokio::time::sleep(Duration::from_millis(500)).await;
       // Call ensure_grabbed (async)
@@ -249,9 +261,17 @@ pub async fn check_window_exists_with_candidates(
     cache.values().map(|c| c.id.clone()).collect()
   };
 
+  check_window_exists_with_candidates_and_managed(target_class, candidates, &managed_ids).await
+}
+
+pub async fn check_window_exists_with_candidates_and_managed(
+  target_class: &str,
+  candidates: Option<&[FoundWindow]>,
+  managed_ids: &std::collections::HashSet<String>,
+) -> Option<String> {
   // 1. If candidates are provided (batch search), use them immediately
   if let Some(list) = candidates {
-    return fuzzy_match_window(target_class, list, &managed_ids).map(|w| w.id);
+    return fuzzy_match_window(target_class, list, managed_ids).map(|w| w.id);
   }
 
   // 2. Hot path: Check cache and verify liveness via /proc (no expensive script call)
@@ -269,7 +289,7 @@ pub async fn check_window_exists_with_candidates(
   // 3. Fallback: Full system fetch and fuzzy match
   let all_windows = fetch_system_windows_async().await;
 
-  if let Some(best) = fuzzy_match_window(target_class, &all_windows, &managed_ids) {
+  if let Some(best) = fuzzy_match_window(target_class, &all_windows, managed_ids) {
     // Update cache
     update_cache(target_class, best.id.clone(), best.pid);
     return Some(best.id);
@@ -283,7 +303,7 @@ pub async fn fetch_system_windows() -> Vec<FoundWindow> {
 }
 
 pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
-  let mut windows = Vec::new();
+  let mut windows = Vec::with_capacity(64);
 
   // 1. Setup waiter with unique ID (timestamp based)
   let request_id = std::time::SystemTime::now()

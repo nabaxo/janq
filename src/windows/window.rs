@@ -160,6 +160,21 @@ pub fn get_managed_app_has_focus() -> bool {
   MANAGED_APP_HAS_FOCUS.load(Ordering::Relaxed)
 }
 
+/// Checks if the window is one of janq's own internal helper windows.
+pub fn is_internal_window(hwnd: HWND) -> bool {
+  if let Some(owner) = get_hidden_owner() {
+    if hwnd == owner {
+      return true;
+    }
+  }
+  if let Some(bridge) = BRIDGE_HWND.get() {
+    if hwnd == bridge.hwnd {
+      return true;
+    }
+  }
+  false
+}
+
 pub fn update_managed_hwnds_cache() {
   let cache = get_app_cache().read().unwrap();
   let mut i = 0;
@@ -213,12 +228,18 @@ pub unsafe extern "system" fn focus_hook_proc(
   if event == EVENT_SYSTEM_FOREGROUND && !hwnd.0.is_null() {
     if is_managed_window(hwnd) {
       MANAGED_APP_HAS_FOCUS.store(true, Ordering::Relaxed);
-    } else if !is_shell_window(hwnd) {
-      MANAGED_APP_HAS_FOCUS.store(false, Ordering::Relaxed);
-      LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
+    } else if !is_shell_window(hwnd) && !is_internal_window(hwnd) {
+      // If we are currently hiding a window, Windows might automatically shift focus
+      // to the next window. We don't want to treat that transition as a valid
+      // "last external focus" target.
+      let current_last = LAST_EXTERNAL_FOCUS.load(Ordering::Relaxed);
+      if hwnd.0 as isize != current_last {
+        MANAGED_APP_HAS_FOCUS.store(false, Ordering::Relaxed);
+        LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
 
-      // Trigger FocusLost event for auto-hide (modal-loop safe)
-      post_wake_message(WM_USER + 2);
+        // Trigger FocusLost event for auto-hide (modal-loop safe)
+        post_wake_message(WM_USER + 2);
+      }
     }
   }
 }
@@ -351,7 +372,12 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       }
     }
 
-    match find_window_by_process(&app_cfg.window_class, None) {
+    let managed_ids: std::collections::HashSet<isize> = {
+      let cache = get_app_cache().read().unwrap();
+      cache.values().map(|cw| cw.hwnd.0 as isize).collect()
+    };
+
+    match find_window_by_process(&app_cfg.window_class, None, &managed_ids) {
       Some(cw) => {
         let mut cache = get_app_cache().write().unwrap();
         cache.insert(app_name.to_string(), cw);
@@ -411,7 +437,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   // We no longer need to manually capture focus here, the WinEventHook does it for us constantly.
   // The animation task will use get_last_external_focus() to know where to return.
 
-  let config_clone = config.clone();
+  let config_shared = config.clone();
   let app_name_clone = app_name.to_string();
 
   // Ensure the animation cancel flag is reset before starting a new task.
@@ -420,7 +446,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   std::thread::spawn(move || {
     run_animation_task_sync(
       &app_name_clone,
-      &config_clone,
+      &config_shared,
       target_hwnd,
       should_show,
       siblings,

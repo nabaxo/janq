@@ -107,19 +107,16 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> janq::error:
     desktop_content.push_str(";\n");
 
     for name in &keys {
-      let hotkey_str = config
-        .app
-        .get(*name)
-        .map(|app| {
-          app
-            .hotkey
-            .as_vec()
-            .iter()
-            .map(|hk| crate::linux::hotkey::normalize_shortcut_for_kde(hk))
-            .collect::<Vec<_>>()
-            .join(",")
-        })
-        .unwrap_or_default();
+      let mut hotkey_str = String::new();
+      if let Some(app) = config.app.get(*name) {
+        let hotkeys = app.hotkey.as_vec();
+        for (i, hk) in hotkeys.iter().enumerate() {
+          if i > 0 {
+            hotkey_str.push(',');
+          }
+          hotkey_str.push_str(&crate::linux::hotkey::normalize_shortcut_for_kde(hk));
+        }
+      }
 
       desktop_content.push_str(&format!("\n[Desktop Action {}]\n", name));
       desktop_content.push_str(&format!("Name=Toggle {}\n", name));

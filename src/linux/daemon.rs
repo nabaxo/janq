@@ -175,7 +175,7 @@ type IconPixmap = Vec<(i32, i32, Vec<u8>)>;
 #[interface(name = "org.kde.StatusNotifierItem")]
 impl StatusNotifierItem {
   fn activate(&self, _x: i32, _y: i32) {
-    let config = { self.config.read().unwrap().clone() };
+    let config = self.config.read().unwrap().clone();
     let conn = self.conn.clone();
     tokio::spawn(async move {
       let app_name = config.app.keys().next();
@@ -186,7 +186,7 @@ impl StatusNotifierItem {
   }
 
   fn secondary_activate(&self, _x: i32, _y: i32) {
-    let config = { self.config.read().unwrap().clone() };
+    let config = self.config.read().unwrap().clone();
     let conn = self.conn.clone();
     tokio::spawn(async move {
       print_shutdown_message("Quit via systray");
@@ -235,7 +235,7 @@ struct JanqTray {
 #[cfg(feature = "systray")]
 impl Tray for JanqTray {
   fn activate(&mut self, _x: i32, _y: i32) {
-    let config = { self.config.read().unwrap().clone() };
+    let config = self.config.read().unwrap().clone();
     let conn = self.conn.clone();
     tokio::spawn(async move {
       let target = get_visible_app()
@@ -249,7 +249,7 @@ impl Tray for JanqTray {
   }
 
   fn secondary_activate(&mut self, _x: i32, _y: i32) {
-    let config = { self.config.read().unwrap().clone() };
+    let config = self.config.read().unwrap().clone();
     let conn = self.conn.clone();
     tokio::spawn(async move {
       print_shutdown_message("Quit via middle-click");
@@ -276,7 +276,7 @@ impl Tray for JanqTray {
   }
 
   fn menu(&self) -> Vec<MenuItem<Self>> {
-    let config = { self.config.read().unwrap().clone() };
+    let config = self.config.read().unwrap().clone();
     let mut items = Vec::new();
 
     for name in config.app.keys() {
@@ -540,7 +540,7 @@ pub async fn run_daemon(
       let _ = tray_handle.update(|_| {}).await;
 
       let conn_in_async = conn_for_watcher.clone();
-      let new_config_in_async = new_config.clone();
+      let new_config_in_async = new_config; // Removed .clone() since we already cloned from read()
 
       println!("Watcher: Starting/Restoring apps as needed...");
 

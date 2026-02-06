@@ -33,6 +33,12 @@ pub fn ensure_terminal_running(
   config: &Config,
   candidates: Option<&[FoundWindow]>,
 ) -> bool {
+  // PERF: Pre-calculate managed IDs once to avoid redundant allocations in loops or early exits
+  let managed_ids: std::collections::HashSet<isize> = {
+    let cache = get_app_cache().read().unwrap();
+    cache.values().map(|cw| cw.hwnd.0 as isize).collect()
+  };
+
   // 0. Check cache first
   {
     let cache = get_app_cache().read().unwrap();
@@ -57,7 +63,7 @@ pub fn ensure_terminal_running(
   }
 
   // 1. Check if window already exists
-  if let Some(cw) = find_window_by_process(&app_cfg.window_class, candidates) {
+  if let Some(cw) = find_window_by_process(&app_cfg.window_class, candidates, &managed_ids) {
     {
       let mut cache = get_app_cache().write().unwrap();
       cache.insert(app_name.to_string(), cw);
@@ -95,7 +101,10 @@ pub fn ensure_terminal_running(
   let cmd = parts[0];
   let final_args = &parts[1..];
 
-  println!("Starting terminal: {}", app_cfg.start_command);
+  println!(
+    "janq: starting app '{}' (cmd: {})...",
+    app_name, app_cfg.start_command
+  );
   const DETACHED_PROCESS: u32 = 0x00000008;
   let spawn_result = Command::new(cmd)
     .args(final_args)
@@ -116,11 +125,12 @@ pub fn ensure_terminal_running(
   // Wait for window to appear
   let mut found = false;
   let mut current_delay = 100;
+
   for i in 0..50 {
     // Poll for window with linear backoff to save CPU/Battery
     std::thread::sleep(Duration::from_millis(current_delay));
     let cw = {
-      if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None) {
+      if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None, &managed_ids) {
         if unsafe { IsWindowVisible(found_cw.hwnd).as_bool() } {
           found = true;
           {

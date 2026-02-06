@@ -14,8 +14,9 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::windows::window::{get_app_cache, get_hidden_owner, CachedWindow};
-use janq::config::{fuzzy_match_window, FoundWindow};
+use crate::config::{fuzzy_match_window, FoundWindow};
+use crate::windows::window::{get_hidden_owner, CachedWindow};
+use janq::matching::{u16_contains_ascii_ignore_case, u16_eq_ascii_ignore_case};
 
 /// Context struct for EnumWindows callback.
 pub struct TargetSearch {
@@ -129,7 +130,7 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
 /// Fetches all visible windows from the system for fuzzy matching.
 pub fn fetch_system_windows() -> Vec<FoundWindow> {
   let mut search = TargetSearch {
-    found_data: Vec::new(),
+    found_data: Vec::with_capacity(128),
   };
   unsafe {
     let _ = EnumWindows(
@@ -144,13 +145,10 @@ pub fn fetch_system_windows() -> Vec<FoundWindow> {
 pub fn find_window_by_process(
   name: &str,
   candidates: Option<&[FoundWindow]>,
+  managed_ids: &std::collections::HashSet<isize>,
 ) -> Option<CachedWindow> {
-  let cache = get_app_cache().read().unwrap();
-  let managed_ids: std::collections::HashSet<isize> =
-    cache.values().map(|cw| cw.hwnd.0 as isize).collect();
-
   if let Some(list) = candidates {
-    if let Some(best) = fuzzy_match_window(name, list, &managed_ids) {
+    if let Some(best) = fuzzy_match_window(name, list, managed_ids) {
       return Some(CachedWindow {
         hwnd: HWND(best.hwnd as *mut _),
       });
@@ -159,47 +157,11 @@ pub fn find_window_by_process(
   }
 
   let found_data = fetch_system_windows();
-  if let Some(best) = fuzzy_match_window(name, &found_data, &managed_ids) {
+  if let Some(best) = fuzzy_match_window(name, &found_data, managed_ids) {
     return Some(CachedWindow {
       hwnd: HWND(best.hwnd as *mut _),
     });
   }
 
   None
-}
-
-// =============================================================================
-// Case-Insensitive ASCII Helpers for u16 (Stack-safe)
-// =============================================================================
-
-fn u16_contains_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
-  let needle_bytes = needle.as_bytes();
-  if haystack.len() < needle_bytes.len() {
-    return false;
-  }
-  haystack.windows(needle_bytes.len()).any(|window| {
-    window.iter().zip(needle_bytes).all(|(&h, &n)| {
-      let h_lower = if h <= 127 {
-        (h as u8).to_ascii_lowercase() as u16
-      } else {
-        h
-      };
-      h_lower == n.to_ascii_lowercase() as u16
-    })
-  })
-}
-
-fn u16_eq_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
-  let needle_bytes = needle.as_bytes();
-  if haystack.len() != needle_bytes.len() {
-    return false;
-  }
-  haystack.iter().zip(needle_bytes).all(|(&h, &n)| {
-    let h_lower = if h <= 127 {
-      (h as u8).to_ascii_lowercase() as u16
-    } else {
-      h
-    };
-    h_lower == n.to_ascii_lowercase() as u16
-  })
 }

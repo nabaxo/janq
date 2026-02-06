@@ -61,7 +61,7 @@ use crate::windows::{
     BRIDGE_HWND,
   },
 };
-use janq::config::{load_config, Config};
+use janq::config::Config;
 use janq::shutdown::{print_shutdown_message, print_termination_complete};
 use janq::spawn_guard::get_spawning_apps;
 
@@ -204,11 +204,12 @@ pub async fn run_daemon(
       let server_res = options.create(PIPE_NAME);
 
       match server_res {
-        Ok(server) => {
+        Ok(mut server) => {
           first = false;
           if server.connect().await.is_ok() {
+            use tokio::io::AsyncReadExt;
             let mut buf = [0u8; 1024];
-            if let Ok(bytes_read) = server.try_read(&mut buf) {
+            if let Ok(bytes_read) = server.read(&mut buf).await {
               if bytes_read > 0 {
                 let msg = String::from_utf8_lossy(&buf[..bytes_read]);
                 let cfg = config_ipc.read().unwrap().clone();
@@ -217,7 +218,6 @@ pub async fn run_daemon(
                 if let Some(target_name) = target_app {
                   if let Some(app_cfg) = cfg.app.get(&target_name) {
                     let app_cfg = app_cfg.clone();
-                    let cfg = cfg.clone();
                     let target_name_c = target_name.clone();
                     tokio::task::spawn_blocking(move || {
                       ensure_terminal_running(&target_name_c, &app_cfg, &cfg, None);
@@ -274,22 +274,16 @@ pub async fn run_daemon(
     let config_clone_watcher = config_clone_watcher.clone();
     let event_tx_watcher = event_tx_watcher.clone();
     async move {
-      let (new_config, _) = match load_config(path_to_watch.clone()) {
-        Ok(c) => c,
-        Err(e) => {
-          let err_msg = format!(
-            "Config reload failed: {}\nStaying with the last known good configuration.",
-            e
-          );
-          show_error(&err_msg);
-          return;
-        }
+      let old_config = match janq::config_watcher::reload_shared_config(
+        path_to_watch.clone(),
+        &*config_clone_watcher,
+      ) {
+        Some(old) => old,
+        None => return,
       };
-      {
-        let mut w = config_clone_watcher.write().unwrap();
-        let old_config = w.clone();
-        *w = new_config.clone();
 
+      let new_config = config_clone_watcher.read().unwrap().clone();
+      {
         // Handle removed or changed apps
         let mut to_restore = Vec::new();
         {
@@ -332,7 +326,7 @@ pub async fn run_daemon(
   let manager_arc = Arc::new(GlobalHotKeyManager::new().expect("Failed to create HotKeyManager"));
   sync_hotkeys(
     Arc::clone(&manager_arc),
-    &*config.read().unwrap(),
+    &config.read().unwrap(),
     &*hotkey_map,
     &*current_hotkeys,
   )?;
@@ -640,8 +634,20 @@ pub async fn run_daemon(
 
 pub async fn send_toggle(app_name: Option<String>) -> janq::error::Result<()> {
   use tokio::io::AsyncWriteExt;
+  use tokio::net::windows::named_pipe::ClientOptions;
 
-  let mut client = tokio::net::windows::named_pipe::ClientOptions::new().open(PIPE_NAME)?;
+  let mut attempts = 0;
+  let mut client = loop {
+    match ClientOptions::new().open(PIPE_NAME) {
+      Ok(c) => break c,
+      Err(e) if attempts < 10 && e.raw_os_error() == Some(231) => {
+        attempts += 1;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+      }
+      Err(e) => return Err(e.into()),
+    }
+  };
+
   if let Some(name) = app_name {
     client
       .write_all(format!("toggle:{}", name).as_bytes())
