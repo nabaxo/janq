@@ -8,3 +8,4 @@ pub mod terminal;
 pub mod window;
 
 pub use janq::error::show_error;
+pub use janq::error::show_warning;
