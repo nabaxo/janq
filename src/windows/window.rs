@@ -132,8 +132,7 @@ pub struct AnimationState {
   pub shown_y: i32,
 }
 
-static ANIMATION_TASK_CANCEL: OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
-  OnceLock::new();
+static ANIMATION_TASK_CANCEL: OnceLock<std::sync::atomic::AtomicBool> = OnceLock::new();
 static VISIBLE_APP: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 static APP_CACHE: OnceLock<RwLock<FxHashMap<String, CachedWindow>>> = OnceLock::new();
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
@@ -243,10 +242,8 @@ pub fn init_focus_hook() -> Option<HWINEVENTHOOK> {
   }
 }
 
-pub fn get_animation_cancel() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
-  ANIMATION_TASK_CANCEL
-    .get_or_init(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
-    .clone()
+pub fn get_animation_cancel() -> &'static std::sync::atomic::AtomicBool {
+  ANIMATION_TASK_CANCEL.get_or_init(|| std::sync::atomic::AtomicBool::new(false))
 }
 
 pub fn visible_app_lock() -> &'static RwLock<Option<String>> {
@@ -417,14 +414,8 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   let config_clone = config.clone();
   let app_name_clone = app_name.to_string();
 
-  // Update the global cancel flag to this NEW one
-  {
-    // We don't have a clean way to "swap" the Arc in OnceLock easily if it's already there
-    // Actually, I should just use a Mutex<Arc<AtomicBool>> or just one AtomicBool that we reset.
-    // Let's use one AtomicBool and reset it here.
-    let cancel = get_animation_cancel();
-    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
-  }
+  // Ensure the animation cancel flag is reset before starting a new task.
+  get_animation_cancel().store(false, std::sync::atomic::Ordering::SeqCst);
 
   std::thread::spawn(move || {
     run_animation_task_sync(
