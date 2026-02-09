@@ -70,6 +70,8 @@ struct Args {
   disable_autostart: bool,
   #[cfg(target_os = "linux")]
   setup: bool,
+  #[cfg(target_os = "linux")]
+  uninstall: bool,
 }
 
 fn print_help() {
@@ -92,7 +94,8 @@ OPTIONS:
     println!(
       "    --enable-autostart  Enable autostart (creates symlink in ~/.config/autostart)
     --disable-autostart Disable autostart (removes symlink from ~/.config/autostart)
-    --setup             Force refresh of desktop, icon, and D-Bus registration"
+    --setup             Force refresh of desktop, icon, and D-Bus registration
+    --uninstall         Remove all janq system integration (desktop, icons, rules)"
     );
   }
 
@@ -135,6 +138,10 @@ fn parse_args() -> Args {
       #[cfg(target_os = "linux")]
       "--setup" => {
         args.setup = true;
+      }
+      #[cfg(target_os = "linux")]
+      "--uninstall" => {
+        args.uninstall = true;
       }
       _ => {
         if arg.starts_with("--app=") {
@@ -227,6 +234,14 @@ fn main() -> janq::error::Result<()> {
         println!("✓ KWin window rules synchronized.");
       }
       println!("✓ Refresh complete.");
+      return Ok(());
+    }
+
+    if args.uninstall {
+      if let Err(e) = linux::desktop::purge_system_integration() {
+        show_error(&e.to_string());
+        exit(1);
+      }
       return Ok(());
     }
   }

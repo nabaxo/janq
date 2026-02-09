@@ -57,7 +57,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Windows:** Native Win32 registration. Instant response, unlike most things on Windows.
 - **Weighted matching** - Find windows by abbreviation or substring (e.g., `wt` → `WindowsTerminal`).
 - **Automated Icon Rule Lifecycle (Linux)**: Added a sophisticated synchronization engine for KWin Window Rules. Janq now automatically detects your apps' `.desktop` associations and creates/updates system rules to force correct taskbar icons. It safely prunes stale rules and manages the `kwinrulesrc` registry automatically. This behavior can be toggled via the new `kde_window_rules = true` setting in the `[window]` section.
-- **New `--setup` Flag (Linux)**: A dedicated command to force a refresh of all system integrations (icons, desktop files, D-Bus services, and KWin rules) if things get sticky.
+- **New `--setup` and `--uninstall` Flags (Linux)**: Dedicated commands to either force a full refresh of all system integrations or completely purge them (icons, desktop files, D-Bus services, and window rules) from your system.
 - **Platform-Aware Path Discovery**: janq now provides helpful, platform-specific error messages when a configuration file isn't found, correctly identifying `%APPDATA%\janq\janq.toml` as the preferred location on Windows.
 - **Platform-Specific Validation**: janq now blocks startup with a hard error if you try to use Linux-specific settings on Windows, ensuring your configuration is valid for your current platform.
 

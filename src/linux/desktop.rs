@@ -275,6 +275,51 @@ pub fn install_icon() -> janq::error::Result<()> {
   Ok(())
 }
 
+pub fn purge_system_integration() -> janq::error::Result<()> {
+  // 1. Disable autostart
+  let _ = disable_autostart();
+
+  // 2. Remove Desktop file
+  let desktop_path = get_desktop_path();
+  if desktop_path.exists() {
+    fs::remove_file(&desktop_path)?;
+    println!("✓ Removed desktop file: {:?}", desktop_path);
+  }
+
+  // 3. Remove Service file
+  let service_path = data_local_dir()
+    .expect("No XDG data directory found - is $HOME set?")
+    .join("dbus-1/services/dev.nabaxo.janq.service");
+  if service_path.exists() {
+    fs::remove_file(&service_path)?;
+    println!("✓ Removed D-Bus service file: {:?}", service_path);
+  }
+
+  // 4. Remove Icon
+  let icon_path = data_local_dir()
+    .expect("No XDG data directory found - is $HOME set?")
+    .join("icons/hicolor/scalable/apps/janq.svg");
+  if icon_path.exists() {
+    fs::remove_file(&icon_path)?;
+    println!("✓ Removed icon: {:?}", icon_path);
+  }
+
+  // 5. Purge KWin rules
+  let _ = crate::linux::kwin::purge_kwin_rules();
+
+  // 6. Refresh system caches
+  println!("Refreshing system caches...");
+  run_kbuildsycoca6();
+  run_dbus_reload();
+
+  println!(
+    "\nUninstallation complete. janq will no longer integrate with your system on next login."
+  );
+  println!("Note: Your configuration file at ~/.config/janq/janq.toml was NOT removed.");
+
+  Ok(())
+}
+
 /// Attempts to find the most likely .desktop file name for a given window class.
 ///
 /// Searches standard XDG locations (~/.local/share/applications and /usr/share/applications)

@@ -24,14 +24,14 @@
 //! - `previous_window_id` - Window to restore focus to after hide
 //! - `max_refresh_rate` - Detected system refresh rate, used when `framerate = "auto"`
 use rustc_hash::FxHashMap;
-use std::{env::temp_dir, fs, path::Path, sync::OnceLock};
+use std::{env::temp_dir, fs, path::Path, process::Command, sync::OnceLock};
 
 use tokio::{
   process::Command as TokioCommand,
   sync::Mutex,
   time::{sleep, Duration},
 };
-use zbus::{names::BusName, names::InterfaceName, zvariant::ObjectPath, Connection, Result};
+use zbus::{names::BusName, names::InterfaceName, zvariant::ObjectPath, Connection};
 
 use crate::linux::cache::{get_cached_window, remove_from_cache, update_cache};
 use crate::linux::terminal::{
@@ -39,6 +39,7 @@ use crate::linux::terminal::{
   get_pid_for_class, is_window_valid,
 };
 use janq::config::{AppConfig, Config, Framerate, PositionOffset, SlideDirection};
+use janq::error::Result;
 
 // =============================================================================
 // Linux Animation Logic
@@ -429,11 +430,7 @@ pub async fn get_visible_app() -> Option<String> {
   STATE.lock().await.visible_app.clone()
 }
 
-pub async fn toggle_quake(
-  app_name: &str,
-  config: &Config,
-  conn: &Connection,
-) -> janq::error::Result<()> {
+pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) -> Result<()> {
   let mut state = STATE.lock().await;
 
   let app_cfg = match config.app.get(app_name) {
@@ -551,7 +548,7 @@ async fn run_toggle_script(
   conn: &Connection,
   params: ToggleParams<'_>,
   refresh_rate: f64,
-) -> janq::error::Result<()> {
+) -> Result<()> {
   let duration = if matches!(config.animation.framerate, Framerate::Specific(0)) {
     0
   } else if params.visible {
@@ -608,18 +605,11 @@ async fn run_toggle_script(
     .map_err(|e| janq::format_error_boxed!("{}", e))
 }
 
-pub async fn ensure_grabbed(
-  app_cfg: &AppConfig,
-  config: &Config,
-  conn: &Connection,
-) -> janq::error::Result<()> {
+pub async fn ensure_grabbed(app_cfg: &AppConfig, config: &Config, conn: &Connection) -> Result<()> {
   grab_apps(&[(app_cfg, config)], conn).await
 }
 
-pub async fn grab_apps(
-  apps: &[(&AppConfig, &Config)],
-  conn: &Connection,
-) -> janq::error::Result<()> {
+pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Result<()> {
   println!("janq: Yoinking apps...");
   let all_windows = fetch_system_windows().await;
   let state = STATE.lock().await;
@@ -693,11 +683,7 @@ pub async fn grab_apps(
   .map_err(|e| janq::format_error_boxed!("{}", e))
 }
 
-pub async fn restore_app(
-  app_name: &str,
-  window_class: &str,
-  conn: &Connection,
-) -> janq::error::Result<()> {
+pub async fn restore_app(app_name: &str, window_class: &str, conn: &Connection) -> Result<()> {
   let (id, pid) = crate::linux::cache::get_cached_window(app_name)
     .map(|c| (c.id, c.pid))
     .unwrap_or((String::new(), 0));
@@ -734,7 +720,7 @@ pub async fn restore_app(
   .map_err(|e| janq::format_error_boxed!("{}", e))
 }
 
-pub async fn restore_quake(config: &Config, conn: &Connection) -> janq::error::Result<()> {
+pub async fn restore_quake(config: &Config, conn: &Connection) -> Result<()> {
   for (name, app_cfg) in &config.app {
     let _ = restore_app(name, &app_cfg.window_class, conn).await;
   }
@@ -762,27 +748,36 @@ pub fn clear_removed_apps_from_cache(old_config: &Config, new_config: &Config) {
   }
 }
 
-pub fn sync_kwin_rules(config: &Config) -> janq::error::Result<()> {
-  use std::process::Command;
+pub fn sync_kwin_rules(config: &Config) -> Result<()> {
+  sync_kwin_rules_impl(Some(config))
+}
+
+pub fn purge_kwin_rules() -> Result<()> {
+  sync_kwin_rules_impl(None)
+}
+
+fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
   let mut applied_any = false;
 
   // Group windows by their target desktop file to minimize the number of rules
-  let mut group_map: rustc_hash::FxHashMap<String, Vec<String>> = rustc_hash::FxHashMap::default();
+  let mut group_map: FxHashMap<String, Vec<String>> = FxHashMap::default();
 
-  if config.window.kde_window_rules.unwrap_or(true) {
-    let default_id = "dev.nabaxo.janq".to_string();
-    for app_cfg in config.app.values() {
-      let id = crate::linux::desktop::find_desktop_file_id(&app_cfg.window_class)
-        .unwrap_or_else(|| default_id.clone());
-      group_map
-        .entry(id)
-        .or_default()
-        .push(app_cfg.window_class.clone());
+  if let Some(config) = config {
+    if config.window.kde_window_rules.unwrap_or(true) {
+      let default_id = "dev.nabaxo.janq".to_string();
+      for app_cfg in config.app.values() {
+        let id = crate::linux::desktop::find_desktop_file_id(&app_cfg.window_class)
+          .unwrap_or_else(|| default_id.clone());
+        group_map
+          .entry(id)
+          .or_default()
+          .push(app_cfg.window_class.clone());
+      }
     }
   }
 
   // Identify ALL existing janq rules in the file (even if not in General.rules)
-  let mut janq_rules = rustc_hash::FxHashMap::default();
+  let mut janq_rules = FxHashMap::default();
   let kwinrulesrc_path = std::env::var_os("HOME")
     .map(std::path::PathBuf::from)
     .unwrap_or_default()
@@ -877,6 +872,9 @@ pub fn sync_kwin_rules(config: &Config) -> janq::error::Result<()> {
   let mut stale_to_purge = Vec::new();
   for stale_id in janq_rules.keys() {
     if !kept_ids.contains(stale_id) {
+      if config.is_none() {
+        println!("  - Removing rule group: {}", stale_id);
+      }
       rule_ids.retain(|x| x != stale_id);
       stale_to_purge.push(stale_id.clone());
       rules_changed = true;
@@ -937,10 +935,20 @@ pub fn sync_kwin_rules(config: &Config) -> janq::error::Result<()> {
       .status();
 
     // Ask KWin to reload its rules immediately
-    let _ = Command::new("qdbus6")
-      .args(["org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
-      .status();
+    run_kwin_reconfigure();
   }
 
   Ok(())
+}
+
+fn run_kwin_reconfigure() {
+  if Command::new("qdbus6")
+    .args(["org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+    .status()
+    .is_err()
+  {
+    let _ = Command::new("qdbus")
+      .args(["org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+      .status();
+  }
 }

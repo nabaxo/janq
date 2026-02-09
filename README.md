@@ -87,6 +87,14 @@ If you are on a fresh installation and the icon is missing or hotkeys say "name 
 
 This command reinstalls the icon, regenerates the `.desktop` and D-Bus `.service` files, and forces KDE 6 to rebuild its configuration cache and reload the D-Bus session bus. **It also automatically discovers and applies icon fixes for your managed applications (like WezTerm, Obsidian, or VS Code) using KWin Window Rules.**
 
+To completely remove janq's system integration (desktop files, services, icons, and window rules):
+
+```bash
+./janq --uninstall
+```
+
+*Note: This does not remove your configuration file at `~/.config/janq/janq.toml`.*
+
 ### Windows
 
 janq handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.
