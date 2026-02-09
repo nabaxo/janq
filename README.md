@@ -77,6 +77,16 @@ To disable it:
 
 These flags create/remove a symlink in `~/.config/autostart/` pointing to the application's desktop file.
 
+### Linux First-Run & Setup
+
+If you are on a fresh installation and the icon is missing or hotkeys say "name not activatable", you can force a full system integration refresh:
+
+```bash
+./janq --setup
+```
+
+This command reinstalls the icon, regenerates the `.desktop` and D-Bus `.service` files, and forces KDE 6 to rebuild its configuration cache and reload the D-Bus session bus.
+
 ### Windows
 
 janq handles hotkeys natively as defined in your config. Right-click the tray icon to switch apps or quit.

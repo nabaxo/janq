@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-02-09
+
+### Added
+- **Linux Setup Override**: New `--setup` CLI flag to force regeneration of desktop files, icons, and D-Bus services.
+- **D-Bus Reload Trigger**: Added automatic `org.freedesktop.DBus.ReloadConfig` calls (via `qdbus6` or `dbus-send`) when system services are installed, ensuring "activatable" services work without a logout.
+
+### Fixed
+- **Linux First-Run Reliability**: Icons and D-Bus services now index correctly on the first run of the app on fresh KDE 6 installations.
+- **Icon Cache Refresh**: Integrated `kbuildsycoca6 --noincremental` triggers into the installation flow to ensure the `janq` icon appears in the taskbar immediately.
+
 ## [1.0.0] - 2026-02-06
 
 ### Added

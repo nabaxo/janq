@@ -68,6 +68,8 @@ struct Args {
   enable_autostart: bool,
   #[cfg(target_os = "linux")]
   disable_autostart: bool,
+  #[cfg(target_os = "linux")]
+  setup: bool,
 }
 
 fn print_help() {
@@ -89,7 +91,8 @@ OPTIONS:
   {
     println!(
       "    --enable-autostart  Enable autostart (creates symlink in ~/.config/autostart)
-    --disable-autostart Disable autostart (removes symlink from ~/.config/autostart)"
+    --disable-autostart Disable autostart (removes symlink from ~/.config/autostart)
+    --setup             Force refresh of desktop, icon, and D-Bus registration"
     );
   }
 
@@ -128,6 +131,10 @@ fn parse_args() -> Args {
       #[cfg(target_os = "linux")]
       "--disable-autostart" => {
         args.disable_autostart = true;
+      }
+      #[cfg(target_os = "linux")]
+      "--setup" => {
+        args.setup = true;
       }
       _ => {
         if arg.starts_with("--app=") {
@@ -206,6 +213,15 @@ fn main() -> janq::error::Result<()> {
         show_error(&e.to_string());
         exit(1);
       }
+      return Ok(());
+    }
+    if args.setup {
+      println!("Forcing system integration refresh...");
+      if let Err(e) = linux::desktop::generate_desktop_file_force(&config) {
+        show_error(&e.to_string());
+        exit(1);
+      }
+      println!("✓ Refresh complete.");
       return Ok(());
     }
   }

@@ -50,15 +50,24 @@ pub fn disable_autostart() -> janq::error::Result<()> {
 }
 
 pub fn generate_desktop_file(config: &Config) -> janq::error::Result<()> {
-  let _ = generate_desktop_file_impl(config, true)?;
+  let _ = generate_desktop_file_impl(config, true, false)?;
+  Ok(())
+}
+
+pub fn generate_desktop_file_force(config: &Config) -> janq::error::Result<()> {
+  let _ = generate_desktop_file_impl(config, true, true)?;
   Ok(())
 }
 
 pub fn generate_desktop_file_headless(config: &Config) -> janq::error::Result<bool> {
-  generate_desktop_file_impl(config, false)
+  generate_desktop_file_impl(config, false, false)
 }
 
-fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> janq::error::Result<bool> {
+fn generate_desktop_file_impl(
+  config: &Config,
+  run_kbuild: bool,
+  force: bool,
+) -> janq::error::Result<bool> {
   let current_exe = current_exe()
     .and_then(|p| p.canonicalize())
     .unwrap_or_else(|_| PathBuf::from("janq"));
@@ -165,14 +174,54 @@ fn generate_desktop_file_impl(config: &Config, run_kbuild: bool) -> janq::error:
     fs::write(&service_path, service_content)?;
   }
 
-  let modified = changed || service_changed;
+  let modified = changed || service_changed || force;
 
-  // 4. Update KDE Sycoca if anything changed
+  // 4. Update KDE Sycoca and D-Bus if anything changed
   if modified && run_kbuild {
     run_kbuildsycoca6();
+    run_dbus_reload();
   }
 
   Ok(modified)
+}
+
+fn run_dbus_reload() {
+  // Notify dbus-daemon to reload its configuration to pick up the new .service file
+  match Command::new("qdbus6")
+    .args([
+      "org.freedesktop.DBus",
+      "/org/freedesktop/DBus",
+      "org.freedesktop.DBus.ReloadConfig",
+    ])
+    .status()
+  {
+    Ok(status) => {
+      if !status.success() {
+        // Fallback to dbus-send if qdbus6 fails or is missing
+        let _ = Command::new("dbus-send")
+          .args([
+            "--session",
+            "--type=method_call",
+            "--dest=org.freedesktop.DBus",
+            "/",
+            "org.freedesktop.DBus.ReloadConfig",
+          ])
+          .status();
+      }
+    }
+    Err(_) => {
+      // Direct fallback if qdbus6 doesn't exist at all
+      let _ = Command::new("dbus-send")
+        .args([
+          "--session",
+          "--type=method_call",
+          "--dest=org.freedesktop.DBus",
+          "/",
+          "org.freedesktop.DBus.ReloadConfig",
+        ])
+        .status();
+    }
+  }
 }
 
 fn run_kbuildsycoca6() {

@@ -21,6 +21,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 ### Cross-Platform Parity
 - **Full symmetry** between Linux (KDE Plasma 6 / Wayland) and Windows 10/11.
 - Native platform integrations—Win32 on Windows and D-Bus/KWin on Linux—ensuring you get the same performance profile (and system journal spam) regardless of your OS choice.
+- **Zero-Logout Installation (Linux)**: Integrated D-Bus config reloading and `kbuildsycoca6` triggers ensure that icons and hotkeys work on the very first run without requiring a session restart.
 - Identical TOML configuration. You only have to learn one syntax to misconfigure your workspace.
 
 ### Window Management
@@ -55,6 +56,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Linux:** Native D-Bus sync with KDE. Your hotkeys will appear in System Settings, just like the real ones.
 - **Windows:** Native Win32 registration. Instant response, unlike most things on Windows.
 - **Weighted matching** - Find windows by abbreviation or substring (e.g., `wt` → `WindowsTerminal`).
+- **New `--setup` Flag (Linux)**: A dedicated command to force a refresh of all system integrations (icons, desktop files, D-Bus services) if things get sticky.
 - **Platform-Aware Path Discovery**: janq now provides helpful, platform-specific error messages when a configuration file isn't found, correctly identifying `%APPDATA%\janq\janq.toml` as the preferred location on Windows.
 - **Platform-Specific Validation**: janq now blocks startup with a hard error if you try to use Linux-specific settings on Windows, ensuring your configuration is valid for your current platform.
 
@@ -91,8 +93,17 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 *(Sloperator note: Just download an run the binary. If you want build directions follow).*
 
 ### Prerequisites
-- **Linux:** KDE Plasma 6
+- **Linux:** KDE Plasma 6 (Wayland)
 - **Windows:** Windows 10 or 11
+
+### Linux: The "First Run" Reality Check
+If you're on a fresh KDE Plasma 6 install and janq starts up but refuses to show an icon or complains that "the name is not activatable" when you hit your hotkey—don't panic. It's not (entirely) janq's fault. D-Bus and the icon cache sometimes need a gentle, recursive shove.
+
+Run this to force the system to acknowledge janq's existence without having to log out like it's 1999:
+```bash
+./janq --setup
+```
+This re-registers the D-Bus service, re-installs the icon, and forces `kbuildsycoca6` to actually do its job. It's the "Did you try turning it off and on again?" of Linux window management.
 
 ### Building
 ```bash
