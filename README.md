@@ -85,7 +85,7 @@ If you are on a fresh installation and the icon is missing or hotkeys say "name 
 ./janq --setup
 ```
 
-This command reinstalls the icon, regenerates the `.desktop` and D-Bus `.service` files, and forces KDE 6 to rebuild its configuration cache and reload the D-Bus session bus.
+This command reinstalls the icon, regenerates the `.desktop` and D-Bus `.service` files, and forces KDE 6 to rebuild its configuration cache and reload the D-Bus session bus. **It also automatically discovers and applies icon fixes for your managed applications (like WezTerm, Obsidian, or VS Code) using KWin Window Rules.**
 
 ### Windows
 
@@ -169,14 +169,15 @@ Create `.janq.toml` in `~/.config/janq/` or your home directory.
 
 ```toml
 [window]
-display_mode = "active" # follow-mouse, specific, active
-width = "50%"           # Supports %, px, "0" or "unset" to disable resizing.
+display_mode = "active"  # follow-mouse, specific, active
+width = "50%"            # Supports %, px, "0" or "unset" to disable resizing.
 height = "600px"
-auto_show = false       # Show window on daemon startup
+auto_show = false        # Show window on daemon startup
+kde_window_rules = true  # (Linux) Manage KWin rule-based icon fixes
 
 [animation]
 duration = 350           # Sets both show and hide duration
-easing = "ease"         # Sets both show and hide easing
+easing = "ease"          # Sets both show and hide easing
 animate_opacity = true
 framerate = "auto"       # "auto", 0 (disable), or 1-1000 FPS
 ```,oldString:
@@ -228,6 +229,7 @@ hotkey = "Meta+Z"
 |               | `force_priority`     | `false`          | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps             |   ❌    |
 |               | `auto_show`          | `false`          | Show window on daemon startup                                                        |   ❌    |
 |               | `auto_hide`          | `false`          | Hide window when it loses focus                                                      |   ❌    |
+|               | `kde_window_rules`   | `true`           | (Linux) Automatically manage KWin window rules for icon fixes                        |   ❌    |
 | `[animation]` | `duration`\*         | —                | Set both show/hide duration at once                                                  |   ❌    |
 |               | `show_duration`      | `350` (ms)       | Duration of the show animation                                                       |   ❌    |
 |               | `hide_duration`      | `350` (ms)       | Duration of the hide animation                                                       |   ❌    |

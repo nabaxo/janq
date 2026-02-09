@@ -24,12 +24,19 @@ else
     exit 1
 fi
 
-# 3. Clean KWin scripts
+# 3. Clean KWin scripts and rules
 if [ -f "$DIR/cleanup_kwin.sh" ]; then
     echo "--- Running KWin script cleanup ---"
     bash "$DIR/cleanup_kwin.sh"
 else
     echo "Warning: cleanup_kwin.sh not found in $DIR, skipping KWin cleanup."
+fi
+
+if [ -f "$DIR/cleanup_kwin_rules.sh" ]; then
+    echo "--- Running KWin window rule cleanup ---"
+    bash "$DIR/cleanup_kwin_rules.sh"
+else
+    echo "Warning: cleanup_kwin_rules.sh not found in $DIR, skipping KWin rule cleanup."
 fi
 
 # 4. Clean Metadata (Trash, Crashes, Cache)

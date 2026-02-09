@@ -274,3 +274,76 @@ pub fn install_icon() -> janq::error::Result<()> {
 
   Ok(())
 }
+
+/// Attempts to find the most likely .desktop file name for a given window class.
+///
+/// Searches standard XDG locations (~/.local/share/applications and /usr/share/applications)
+/// for a file matching the class name exactly, starting with the class name, or
+/// containing a matching StartupWMClass field.
+pub fn find_desktop_file_id(window_class: &str) -> Option<String> {
+  let class_lower = window_class.to_lowercase();
+  let mut search_dirs = vec![
+    data_local_dir()
+      .map(|p| p.join("applications"))
+      .unwrap_or_default(),
+    PathBuf::from("/usr/share/applications"),
+    PathBuf::from("/usr/local/share/applications"),
+  ];
+
+  // Add Flatpak directories if they exist
+  if let Some(home) = std::env::var_os("HOME") {
+    search_dirs.push(PathBuf::from(home).join(".local/share/flatpak/exports/share/applications"));
+  }
+  search_dirs.push(PathBuf::from("/var/lib/flatpak/exports/share/applications"));
+
+  let mut candidates = Vec::new();
+
+  for dir in search_dirs {
+    if !dir.exists() {
+      continue;
+    }
+    if let Ok(entries) = fs::read_dir(dir) {
+      for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().map(|e| e == "desktop").unwrap_or(false) {
+          let file_name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+          let file_name_lower = file_name.to_lowercase();
+
+          // Priority 1: Exact match of filename to class
+          if file_name_lower == class_lower {
+            return Some(file_name);
+          }
+
+          // Priority 2: Starts with class (e.g., org.wezfurlong.wezterm vs wezterm)
+          // or reverse: class starts with file (less likely but possible)
+          if file_name_lower.contains(&class_lower) || class_lower.contains(&file_name_lower) {
+            candidates.push((file_name.clone(), 50));
+          }
+
+          // Priority 3: Deep check inside the file for StartupWMClass
+          if let Ok(content) = fs::read_to_string(&path) {
+            for line in content.lines() {
+              if line.starts_with("StartupWMClass=") {
+                let val = line.trim_start_matches("StartupWMClass=").trim();
+                // Strip optional quotes
+                let val = val.trim_matches('"').trim_matches('\'');
+                let val_lower = val.to_lowercase();
+                if val_lower == class_lower {
+                  return Some(file_name);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // If no exact match found, pick the best candidate
+  candidates.sort_by_key(|c| std::cmp::Reverse(c.1));
+  candidates.first().map(|(name, _)| name.clone())
+}

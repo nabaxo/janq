@@ -761,3 +761,186 @@ pub fn clear_removed_apps_from_cache(old_config: &Config, new_config: &Config) {
     }
   }
 }
+
+pub fn sync_kwin_rules(config: &Config) -> janq::error::Result<()> {
+  use std::process::Command;
+  let mut applied_any = false;
+
+  // Group windows by their target desktop file to minimize the number of rules
+  let mut group_map: rustc_hash::FxHashMap<String, Vec<String>> = rustc_hash::FxHashMap::default();
+
+  if config.window.kde_window_rules.unwrap_or(true) {
+    let default_id = "dev.nabaxo.janq".to_string();
+    for app_cfg in config.app.values() {
+      let id = crate::linux::desktop::find_desktop_file_id(&app_cfg.window_class)
+        .unwrap_or_else(|| default_id.clone());
+      group_map
+        .entry(id)
+        .or_default()
+        .push(app_cfg.window_class.clone());
+    }
+  }
+
+  // Identify ALL existing janq rules in the file (even if not in General.rules)
+  let mut janq_rules = rustc_hash::FxHashMap::default();
+  let kwinrulesrc_path = std::env::var_os("HOME")
+    .map(std::path::PathBuf::from)
+    .unwrap_or_default()
+    .join(".config/kwinrulesrc");
+
+  if let Ok(content) = std::fs::read_to_string(&kwinrulesrc_path) {
+    let mut current_group = String::new();
+    for line in content.lines() {
+      let line = line.trim();
+      if line.starts_with('[') && line.ends_with(']') {
+        current_group = line[1..line.len() - 1].to_string();
+      } else if line.starts_with("Description=janq automated icon fix") {
+        let desc = line.trim_start_matches("Description=").trim().to_string();
+        janq_rules.insert(current_group.clone(), desc);
+      }
+    }
+  }
+
+  // Read the current rules list to maintain order/cleanup
+  let current_rules_str = Command::new("kreadconfig6")
+    .args([
+      "--file",
+      "kwinrulesrc",
+      "--group",
+      "General",
+      "--key",
+      "rules",
+    ])
+    .output()
+    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    .unwrap_or_default();
+
+  let mut rule_ids: Vec<String> = if current_rules_str.is_empty() {
+    Vec::new()
+  } else {
+    current_rules_str
+      .split(',')
+      .map(|s| s.to_string())
+      .collect()
+  };
+
+  let mut next_id = rule_ids
+    .iter()
+    .filter_map(|s| s.parse::<u32>().ok())
+    .chain(janq_rules.keys().filter_map(|k| k.parse::<u32>().ok()))
+    .max()
+    .unwrap_or(0)
+    + 1;
+
+  let mut kept_ids = Vec::new();
+
+  for (desktop_id, classes) in group_map {
+    let target_description = format!("janq automated icon fix for {}", desktop_id);
+    let target_id = janq_rules
+      .iter()
+      .find(|(_, d)| *d == &target_description)
+      .map(|(k, _)| k.clone());
+
+    let id = target_id.unwrap_or_else(|| {
+      let id_str = next_id.to_string();
+      next_id += 1;
+      id_str
+    });
+
+    if !rule_ids.contains(&id) {
+      rule_ids.push(id.clone());
+    }
+    kept_ids.push(id.clone());
+    applied_any = true;
+
+    let regex = classes.join("|");
+    let kv = [
+      ("Description", &target_description),
+      ("enabled", &"true".to_string()),
+      ("resourceClass", &regex),
+      ("resourceClassMatch", &"3".to_string()),
+      ("wmclass", &regex),
+      ("wmclassmatch", &"3".to_string()),
+      ("desktopfile", &desktop_id),
+      ("desktopfilerule", &"2".to_string()),
+    ];
+
+    for (key, val) in kv {
+      let _ = Command::new("kwriteconfig6")
+        .args(["--file", "kwinrulesrc", "--group", &id, "--key", key, val])
+        .status();
+    }
+  }
+
+  // Remove stale or orphaned janq rules
+  let mut rules_changed = false;
+  let mut stale_to_purge = Vec::new();
+  for stale_id in janq_rules.keys() {
+    if !kept_ids.contains(stale_id) {
+      rule_ids.retain(|x| x != stale_id);
+      stale_to_purge.push(stale_id.clone());
+      rules_changed = true;
+    }
+  }
+
+  // If we have stale rules, we perform a manual "sledgehammer" deletion
+  // because kwriteconfig6 --delete often fails with "cannot mark groups as deleted"
+  if !stale_to_purge.is_empty() {
+    if let Ok(content) = std::fs::read_to_string(&kwinrulesrc_path) {
+      let mut new_lines = Vec::new();
+      let mut skip_until_next_group = false;
+
+      for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+          let group_name = &trimmed[1..trimmed.len() - 1];
+          if stale_to_purge.iter().any(|s| s == group_name) {
+            skip_until_next_group = true;
+            continue;
+          } else {
+            skip_until_next_group = false;
+          }
+        }
+
+        if !skip_until_next_group {
+          new_lines.push(line);
+        }
+      }
+
+      let _ = std::fs::write(&kwinrulesrc_path, new_lines.join("\n"));
+    }
+  }
+
+  if applied_any || rules_changed {
+    // Sync the master list of rules and the count
+    let _ = Command::new("kwriteconfig6")
+      .args([
+        "--file",
+        "kwinrulesrc",
+        "--group",
+        "General",
+        "--key",
+        "rules",
+        &rule_ids.join(","),
+      ])
+      .status();
+    let _ = Command::new("kwriteconfig6")
+      .args([
+        "--file",
+        "kwinrulesrc",
+        "--group",
+        "General",
+        "--key",
+        "count",
+        &rule_ids.len().to_string(),
+      ])
+      .status();
+
+    // Ask KWin to reload its rules immediately
+    let _ = Command::new("qdbus6")
+      .args(["org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+      .status();
+  }
+
+  Ok(())
+}

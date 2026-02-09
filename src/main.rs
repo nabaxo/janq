@@ -221,6 +221,11 @@ fn main() -> janq::error::Result<()> {
         show_error(&e.to_string());
         exit(1);
       }
+      if let Err(e) = linux::kwin::sync_kwin_rules(&config) {
+        eprintln!("Warning: Failed to sync KWin rules: {}", e);
+      } else {
+        println!("✓ KWin window rules synchronized.");
+      }
       println!("✓ Refresh complete.");
       return Ok(());
     }

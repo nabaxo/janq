@@ -450,6 +450,7 @@ pub async fn run_daemon(
   {
     let cfg = config.read().unwrap().clone();
     let _ = generate_desktop_file(&cfg);
+    let _ = crate::linux::kwin::sync_kwin_rules(&cfg);
     tokio::spawn(async move {
       let _ = sync_kde_shortcuts(&cfg, None).await;
     });
@@ -565,6 +566,9 @@ pub async fn run_daemon(
 
       reset_visibility(&new_config_in_async).await;
 
+      // Sync KWin Rules ALWAYS on any valid reload to ensure icons stay fresh
+      let _ = crate::linux::kwin::sync_kwin_rules(&new_config_in_async);
+
       // 2. Ensure all terminals are running and grabbed
       let mut apps_for_grabbing = Vec::new();
       for (name, app_cfg) in &new_config_in_async.app {
@@ -608,6 +612,7 @@ pub async fn run_daemon(
 
       if hotkeys_changed || desktop_changed {
         println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
+        let _ = crate::linux::kwin::sync_kwin_rules(&new_config_in_async);
         if let Err(e) = sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await {
           show_error(&format!("Watcher: Failed to sync shortcuts: {}", e));
         }

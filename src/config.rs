@@ -501,10 +501,13 @@ impl Config {
 
     // Platform-specific validation
     #[cfg(target_os = "windows")]
-    if self.window.all_desktops.is_some() || self.window.force_priority.is_some() {
+    if self.window.all_desktops.is_some()
+      || self.window.force_priority.is_some()
+      || self.window.kde_window_rules.is_some()
+    {
       return Err(
         crate::error::format_error(
-          "Linux-only settings (all_desktops, force_priority) are present in your config. These are not supported on Windows.",
+          "Linux-only settings (all_desktops, force_priority, kde_window_rules) are present in your config. These are not supported on Windows.",
         )
         .into(),
       );
@@ -770,6 +773,7 @@ pub struct WindowConfig {
   // This allows both "position_offset" and "offset" in TOML
   #[serde(alias = "offset")]
   pub position_offset: PositionOffset,
+  pub kde_window_rules: Option<bool>,
 }
 
 impl Default for WindowConfig {
@@ -788,6 +792,7 @@ impl Default for WindowConfig {
       auto_hide: false,
       slide_from: SlideDirection::default(),
       position_offset: PositionOffset::default(),
+      kde_window_rules: None,
     }
   }
 }
