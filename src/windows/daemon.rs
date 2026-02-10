@@ -351,14 +351,19 @@ pub async fn run_daemon(
     println!("janq: Yoinking apps...");
     let candidates = Arc::new(fetch_system_windows());
     let cfg = config.read().unwrap().clone();
-    for (name, app_cfg) in &cfg.app {
+    for (i, (name, app_cfg)) in cfg.app.iter().enumerate() {
+      if i > 0 {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+      }
       let name = name.clone();
       let app_cfg = app_cfg.clone();
       let cfg_copy = cfg.clone();
       let candidates_clone = candidates.clone();
       tokio::task::spawn_blocking(move || {
         ensure_terminal_running(&name, &app_cfg, &cfg_copy, Some(&candidates_clone[..]));
-      });
+      })
+      .await
+      .ok();
     }
 
     if cfg.window.auto_show {

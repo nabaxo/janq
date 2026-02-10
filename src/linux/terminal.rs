@@ -25,7 +25,10 @@ use std::{
   fmt::Write,
   fs,
   process::{id, Stdio},
-  sync::{Mutex, OnceLock},
+  sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex, OnceLock,
+  },
   time::Duration,
 };
 
@@ -288,14 +291,11 @@ pub async fn fetch_system_windows() -> Vec<FoundWindow> {
   fetch_system_windows_async().await
 }
 
-pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
-  let mut windows = Vec::with_capacity(128);
+static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-  // 1. Setup waiter with unique ID (timestamp based)
-  let request_id = std::time::SystemTime::now()
-    .duration_since(std::time::UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_millis() as u64;
+pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
+  let mut windows = Vec::new();
+  let request_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
   let (tx, rx) = oneshot::channel();
   {
     let mut waiters = get_metadata_waiters().lock().unwrap();

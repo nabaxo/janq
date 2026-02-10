@@ -24,7 +24,14 @@
 //! - `previous_window_id` - Window to restore focus to after hide
 //! - `max_refresh_rate` - Detected system refresh rate, used when `framerate = "auto"`
 use rustc_hash::FxHashMap;
-use std::{env::temp_dir, fs, path::Path, process::Command, sync::OnceLock};
+use std::{
+  env::temp_dir,
+  fs,
+  path::Path,
+  process::Command,
+  sync::atomic::{AtomicU64, Ordering},
+  sync::{Mutex as StdMutex, OnceLock},
+};
 
 use tokio::{
   process::Command as TokioCommand,
@@ -293,7 +300,7 @@ pub async fn trigger_fetch_windows(conn: &Connection, request_id: u64) -> Result
 // Active Window Fetcher (D-Bus callback infrastructure)
 // =============================================================================
 
-use std::sync::Mutex as StdMutex;
+// StdMutex already imported at the top
 use tokio::sync::oneshot;
 
 struct ActiveWindowInfo {
@@ -334,11 +341,10 @@ pub async fn report_active_window(payload: String) {
   }
 }
 
+static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 async fn fetch_active_window(conn: &Connection) -> Option<(String, String)> {
-  let request_id = std::time::SystemTime::now()
-    .duration_since(std::time::UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_nanos() as u64;
+  let request_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
 
   let (tx, rx) = oneshot::channel();
   {
@@ -756,7 +762,10 @@ pub fn purge_kwin_rules() -> Result<()> {
   sync_kwin_rules_impl(None)
 }
 
+static RULE_SYNC_MUTEX: StdMutex<()> = StdMutex::new(());
+
 fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
+  let _lock = RULE_SYNC_MUTEX.lock().unwrap();
   let mut applied_any = false;
 
   // Group windows by their target desktop file to minimize the number of rules
