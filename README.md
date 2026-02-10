@@ -52,7 +52,6 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 - Start via your desktop or run `./janq` to start the daemon.
 - Subsequent calls toggle the primary window.
 - Use `./janq --app name` to toggle a specific application from your config.
-- You can specify which app to show on startup via `./janq --daemon --app name` (if `auto_show = true` is set in your config).
 
 > [!TIP]
 > **Single-App Peace of Mind**: If you only have one app configured, janq ignores typos and always picks that app. In multi-app mode, it validates your input and shows a helpful error window if an app isn't found.
@@ -60,6 +59,24 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 ### Linux (KDE)
 
 janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
+
+#### Linux First-Run & Setup
+
+If you are on a fresh installation and the icon is missing or hotkeys say "name not activatable", you can force a full system integration refresh:
+
+```bash
+./janq --setup
+```
+
+This command reinstalls the icon, regenerates the `.desktop` and D-Bus `.service` files, and forces KDE 6 to rebuild its configuration cache and reload the D-Bus session bus. **It also automatically discovers and applies icon fixes for your managed applications (like WezTerm, Obsidian, or VS Code) using KWin Window Rules.**
+
+To completely remove janq's system integration (desktop files, services, icons, and window rules):
+
+```bash
+./janq --cleanup
+```
+
+*Note: This does not remove your configuration file at `~/.config/janq/janq.toml`.*
 
 #### Linux Startup (Automatic)
 
@@ -76,24 +93,6 @@ To disable it:
 ```
 
 These flags create/remove a symlink in `~/.config/autostart/` pointing to the application's desktop file.
-
-### Linux First-Run & Setup
-
-If you are on a fresh installation and the icon is missing or hotkeys say "name not activatable", you can force a full system integration refresh:
-
-```bash
-./janq --setup
-```
-
-This command reinstalls the icon, regenerates the `.desktop` and D-Bus `.service` files, and forces KDE 6 to rebuild its configuration cache and reload the D-Bus session bus. **It also automatically discovers and applies icon fixes for your managed applications (like WezTerm, Obsidian, or VS Code) using KWin Window Rules.**
-
-To completely remove janq's system integration (desktop files, services, icons, and window rules):
-
-```bash
-./janq --uninstall
-```
-
-*Note: This does not remove your configuration file at `~/.config/janq/janq.toml`.*
 
 ### Windows
 

@@ -75,31 +75,40 @@ struct Args {
 }
 
 fn print_help() {
+  const HDR: &str = "\x1b[1;93m"; // Bold, Bright Yellow
+  const CMD: &str = "\x1b[36m"; //Cyan
+  const ARG: &str = "\x1b[33m"; // Yellow
+  const LGO: &str = "\x1b[1;91m"; // Bold, Bright Red
+  const RST: &str = "\x1b[0m"; // Reset
+
+  // Using numbered arguments {1}, {2}, etc. makes the template much cleaner
   println!(
-    "janq {} - Quake-style dropdown terminal manager
+    "{5}janq{2} {0} - A Quake-style dropdown terminal manager
 
-USAGE:
-    janq [OPTIONS]
+{1}USAGE:{2}
+  {5}janq{2} {3}[OPTION]{2}
 
-OPTIONS:
-    --daemon            Run as a persistent process (Server Mode)
-    --app <NAME>        Name of the app to toggle (from config)
-    --help              Print help information
-    --version           Print version information",
-    env!("CARGO_PKG_VERSION")
+{1}OPTIONS:{2}
+  {4}-D, --daemon{2}          Run as a persistent process (Server Mode)
+  {4}-a, --app{2} {3}[NAME]{2}      Name of the app to toggle (from config)
+  {4}-h, --help{2}            Print help information
+  {4}-V, --version{2}         Print version information",
+    env!("CARGO_PKG_VERSION"), // {0}
+    HDR,                       // {1}
+    RST,                       // {2}
+    ARG,                       // {3}
+    CMD,                       // {4}
+    LGO                        // {5}
   );
 
   #[cfg(target_os = "linux")]
-  {
-    println!(
-      "    --enable-autostart  Enable autostart (creates symlink in ~/.config/autostart)
-    --disable-autostart Disable autostart (removes symlink from ~/.config/autostart)
-    --setup             Force refresh of desktop, icon, and D-Bus registration
-    --uninstall         Remove all janq system integration (desktop, icons, rules)"
-    );
-  }
-
-  println!("\nAliases: --demon, --deamon for --daemon");
+  println!(
+    "\n  {0}-i, --setup{1}           Force refresh of system/desktop/D-Bus
+  {0}-u, --cleanup{1}         Remove all janq system integration
+  {0}--enable-autostart{1}    Enable autostart (creates symlink)
+  {0}--disable-autostart{1}   Disable autostart (removes symlink)",
+    CMD, RST
+  );
 }
 
 fn parse_args() -> Args {
@@ -116,10 +125,10 @@ fn parse_args() -> Args {
         println!("janq {}", env!("CARGO_PKG_VERSION"));
         exit(0);
       }
-      "--daemon" | "--demon" | "--deamon" => {
+      "--daemon" | "--demon" | "--deamon" | "-D" => {
         args.daemon = true;
       }
-      "--app" => {
+      "--app" | "-a" => {
         if let Some(val) = iter.next() {
           args.app = Some(val);
         } else {
@@ -136,11 +145,11 @@ fn parse_args() -> Args {
         args.disable_autostart = true;
       }
       #[cfg(target_os = "linux")]
-      "--setup" => {
+      "--setup" | "-i" => {
         args.setup = true;
       }
       #[cfg(target_os = "linux")]
-      "--uninstall" => {
+      "--cleanup" | "-u" => {
         args.uninstall = true;
       }
       _ => {

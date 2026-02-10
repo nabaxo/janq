@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Automated KWin Rule Lifecycle**: Implemented a sophisticated rule synchronization engine that manages `kwinrulesrc` automatically. It groups managed apps by desktop ID, applies regex-based matching, and surgically prunes stale or redundant janq rules directly from the filesystem to bypass KConfig errors.
 - **`kde_window_rules` Setting**: New configuration option under `[window]` (defaulting to `true`) to control whether janq manages system window rules for taskbar icon fixes.
-- **Linux Setup & Cleanup**: New `--setup` CLI flag to force regeneration of desktop files, icons, and D-Bus services, and a `--uninstall` flag to completely purge janq system integration (rules, desktop files, services).
+- **Linux Setup & Cleanup**: New `--setup` CLI flag to force regeneration of desktop files, icons, and D-Bus services, and a `--cleanup` flag to completely purge janq system integration (rules, desktop files, services).
 - **D-Bus Reload Trigger**: Added automatic `org.freedesktop.DBus.ReloadConfig` calls (via `qdbus6` or `dbus-send`) when system services are installed, ensuring "activatable" services work without a logout.
 - **KWin Icon Rule Automation**: Added `desktop_file_id` configuration field to support forced icon association via KWin Window Rules.
 - **Auto-Discovery of Desktop Files**: `janq` now automatically searches for the correct `.desktop` association for your managed apps based on their `window_class`, fixing generic Wayland icons without any manual configuration required.

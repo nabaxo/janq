@@ -305,7 +305,8 @@ pub fn purge_system_integration() -> janq::error::Result<()> {
   }
 
   // 5. Purge KWin rules
-  let _ = crate::linux::kwin::purge_kwin_rules();
+  crate::linux::kwin::purge_kwin_rules()?;
+  println!("✓ Purged KWin window rules");
 
   // 6. Refresh system caches
   println!("Refreshing system caches...");
