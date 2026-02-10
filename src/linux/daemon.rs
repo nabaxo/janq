@@ -57,9 +57,8 @@ use crate::linux::kwin::{
   clear_removed_apps_from_cache, get_visible_app, grab_apps, init as init_kwin, reset_visibility,
   restore_app, restore_quake, toggle_quake,
 };
-use crate::linux::terminal::{
-  ensure_terminal_running, ensure_terminal_running_with_candidates, fetch_system_windows_async,
-};
+use crate::linux::terminal::ensure_terminal_running;
+
 use janq::config::Config;
 use janq::error::show_error;
 use janq::shutdown::{print_shutdown_message, print_termination_complete};
@@ -458,34 +457,16 @@ pub async fn run_daemon(
 
   // Small delay to ensure D-Bus service is fully registered before KWin scripts call back
   sleep(Duration::from_millis(100)).await;
-
-  // Initial setup (Parallel)
+  // Initial setup (Sequential with stagger to reduce KWin contention)
   {
     let cfg = config.read().unwrap().clone();
-    let initial_candidates = Arc::new(fetch_system_windows_async().await);
-
-    let mut terminal_tasks = Vec::new();
-    for name in cfg.app.keys() {
-      if let Some(app_cfg) = cfg.app.get(name) {
-        let app_cfg_owned = app_cfg.clone();
-        let cfg_clone = cfg.clone();
-        let conn_clone = conn.clone();
-        let candidates_clone = initial_candidates.clone();
-
-        terminal_tasks.push(tokio::spawn(async move {
-          let _ = ensure_terminal_running_with_candidates(
-            &app_cfg_owned,
-            &cfg_clone,
-            &conn_clone,
-            Some(&candidates_clone[..]),
-          )
-          .await;
-        }));
+    for (i, name) in cfg.app.keys().enumerate() {
+      if i > 0 {
+        sleep(Duration::from_millis(200)).await;
       }
-    }
-
-    for task in terminal_tasks {
-      let _ = task.await;
+      if let Some(app_cfg) = cfg.app.get(name) {
+        let _ = ensure_terminal_running(app_cfg, &cfg, &conn).await;
+      }
     }
 
     // Grabbing apps (now using the pre-fetched list is too old, grab_apps will do its own scan if needed)
