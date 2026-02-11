@@ -2,6 +2,7 @@
 
 ### *janq is 100%, unadulterated vibe coded slop. User discretion is advised.*
 
+
 <img src="icon.svg" width="190" height="190" align="left">
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
@@ -16,24 +17,38 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 > [!CAUTION]
 > I have only tested this on two machines, your mileage may vary and all that.
 
+## Table of Contents
+
+- [Supported Platforms](#supported-platforms)
+- [Key Features](#key-features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Command-Line Arguments](#command-line-arguments)
+- [Linux (KDE)](#linux-kde)
+- [Windows](#windows)
+- [Systray Behavior](#systray-behavior)
+- [Configuration](#configuration)
+- [Building](#building)
+- [Related Projects](#related-projects)
+- [Technical Implementation](#technical-implementation)
+- [Troubleshooting & Recovery](#troubleshooting--recovery)
+- [Known Issues and other notes](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes)
+- [License](#license)
+
 ## Supported Platforms
 
 - **Linux**: KDE Plasma 6 (Wayland via KWin scripts, D-Bus activation, and StatusNotifierItem)
 - **Windows**: Windows 10/11 (Native WinAPI)
 
 ## Key Features
-
 - **Atomic Switching**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows. (See [Sibling Animation Duration Divergence](#sibling-animation-duration-divergence))
-- **Zero-Config Hotkeys**: janq automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your TOML configuration directly with the system via D-Bus.
+- **Zero-Config Hotkeys**: Automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your configuration via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
-- **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu. The topmost application is the one that toggles when left-clicking the systray icon.
-- **Auto-Hide**: Automatically hides the managed window when it loses focus, allowing for a more seamless "pull-down/auto-up" experience.
-- **Robust Identification**: Advanced weighted scoring system (Exact > Substring > Boundary > Subsequence) to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
-- **High-Performance Linux Engine**: Zero-IPC liveness checks and batched window retrieval for near-instant toggling response.
-- **Premium Animations**: Hardware-accelerated sliding with customizable easing (15+ curves including the "premium" `impulse` curve).
-- **Focus Restoration**: Remembers your previous window and restores focus instantly.
-- **CLI Power**: Control your setup via `./janq --app <name>`.
-- **Intelligent Window Matching**: Advanced weighted fuzzy scoring for abbreviations (e.g., `wt` → `WindowsTerminal`) with ultra-fast <0.1ms Zero-IPC liveness verification.
+- **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu.
+- **Auto-Hide**: If configured, automatically hides the managed window when it loses focus for a seamless experience.
+- **Robust Identification**: Advanced weighted scoring system to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
+- **High-Performance**: Ultra-fast response with hardware-accelerated sliding animations and focus restoration.
+- **CLI Power**: Control your setup via the [terminal](#command-line-arguments).
 
 ## Installation
 
@@ -49,20 +64,31 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 
 ### Smart Startup & Toggling
 
-- Start via your desktop or run `./janq` to start the daemon.
-- Subsequent calls toggle the primary window.
-- Use `./janq --app name` to toggle a specific application from your config.
+- Start via your desktop or see the [Command-Line Arguments](#command-line-arguments) for manual daemon control and app toggling.
 
 > [!TIP]
 > **Single-App Peace of Mind**: If you only have one app configured, janq ignores typos and always picks that app. In multi-app mode, it validates your input and shows a helpful error window if an app isn't found.
+
+## Command-Line Arguments
+
+| Argument | Shorthand | Description |
+| :------- | :-------- | :---------- |
+| `--daemon` | `-D` | Run as a persistent process (Server Mode). |
+| `--app [NAME]` | `-a` | Toggle a specific application from your config. |
+| `--help` | `-h` | Print help information. |
+| `--version` | `-V` | Print version information. |
+| **Linux Specific Arguments** |
+| `--setup` | `-i` | Force refresh of system/desktop/D-Bus/Rules. |
+| `--cleanup` | `-u` | Remove all janq system integration. |
+| `--enable-autostart` | — | Enable autostart (creates symlink to .desktop-file). |
+| `--disable-autostart` | — | Disable autostart (removes symlink). |
 
 ### Linux (KDE)
 
 janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
 
-#### Linux First-Run & Setup
+If you are on a fresh installation and the icon is missing or hotkeys say "name not activatable", you can force a full system integration refresh using the `--setup` [flag](#command-line-arguments).
 
-If you are on a fresh installation and the icon is missing or hotkeys say "name not activatable", you can force a full system integration refresh:
 
 ```bash
 ./janq --setup
@@ -70,7 +96,7 @@ If you are on a fresh installation and the icon is missing or hotkeys say "name 
 
 This command reinstalls the icon, regenerates the `.desktop` and D-Bus `.service` files, and forces KDE 6 to rebuild its configuration cache and reload the D-Bus session bus. **It also automatically discovers and applies icon fixes for your managed applications (like WezTerm, Obsidian, or VS Code) using KWin Window Rules.**
 
-To completely remove janq's system integration (desktop files, services, icons, and window rules):
+To completely remove janq's system integration (desktop files, services, icons, and window rules), use the `--cleanup` [flag](#command-line-arguments).
 
 ```bash
 ./janq --cleanup
@@ -78,19 +104,9 @@ To completely remove janq's system integration (desktop files, services, icons, 
 
 *Note: This does not remove your configuration file at `~/.config/janq/janq.toml`.*
 
-#### Linux Startup (Automatic)
+**Linux Startup (Automatic)**
 
-To make janq start automatically on login:
-
-```bash
-./janq --enable-autostart
-```
-
-To disable it:
-
-```bash
-./janq --disable-autostart
-```
+To make janq start automatically on login (or to disable it), use the `--enable-autostart` and `--disable-autostart` [flags](#command-line-arguments).
 
 These flags create/remove a symlink in `~/.config/autostart/` pointing to the application's desktop file.
 
@@ -105,7 +121,7 @@ To make janq start automatically when you log in:
 1.  Press `Win + R`, type `shell:startup`, and press Enter.
 2.  Right-click in the folder and select **New > Shortcut**.
 3.  Browse to your `janq.exe` location.
-4.  **Important**: To start in server mode, right-click the new shortcut, select **Properties**, and add ` --daemon` to the end of the **Target** field (e.g., `"C:\path\to\janq.exe" --daemon`).
+4.  **Important**: To start in server mode, right-click the new shortcut, select **Properties**, and add the `--daemon` [flag](#command-line-arguments) to the end of the **Target** field.
 
 #### Recommended setup for Windows Terminal:
 
@@ -187,12 +203,13 @@ duration = 350           # Sets both show and hide duration
 easing = "ease"          # Sets both show and hide easing
 animate_opacity = true
 framerate = "auto"       # "auto", 0 (disable), or 1-1000 FPS
-```,oldString:
+```
 
 #### Single App configuration
 
 ```toml
-[app]
+# You can omit the ".wezquake" in single app configs
+[app.wezquake]
 # On Windows: Matches Process Name (e.g. "wezterm-gui") OR Window Class
 window_class = "wezquake"
 start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
@@ -202,7 +219,7 @@ hotkey = "Meta+Grave"
 #### Multi-App configuration
 
 ```toml
-[app.terminal]
+[app.wezquake]
 window_class = "wezquake"
 start_command = "wezterm --config initial_cols=160 --config initial_rows=40 start --class wezquake"
 hotkey = ["Meta+Grave", "Ctrl+Grave"]
@@ -285,16 +302,16 @@ The `offset` option controls where along the edge the window is positioned:
 | Mode           | Description                                               |
 | :------------- | :-------------------------------------------------------- |
 | `impulse`      | Cubic-bezier curve matching modern Windows 11 animations. |
-| `expo`\*       | Exponential curve for a snappier, "high-speed" feeling.   |
 | `linear`       | Direct, constant movement.                                |
 | `ease`\*       | Smooth acceleration and deceleration.                     |
 | `sine`\*       | Subtler sine-wave curve.                                  |
 | `cubic`\*      | Sharper deceleration.                                     |
 | `quart`\*      | Very sharp deceleration (popular for UI).                 |
+| `expo`\*       | Exponential curve for a snappier, "high-speed" feeling.   |
 | `back`\*       | Overshoots slightly before settling.                      |
 | `cubic-bezier` | Custom CSS-style curve: `cubic-bezier(x1, y1, x2, y2)`.   |
 
-\* Supports `ease-in`, `ease-out`, and `ease-in-out` variants (and short-hands like `in-` and `out-`, e.g., `ease-in-sine`, `in-sine`). The base name (e.g., `sine`) defaults to `in-out`. **Note: janq validates easing curves on startup; while running, invalid configurations during hot-reload throws an error, but the daemon continues with the last valid state.**
+\* Supports `ease-in`, `ease-out`, and `ease-in-out` variants (and short-hands like `in-` and `out-`, e.g., `ease-in-sine`, `in-sine`). The base name (e.g., `sine`) defaults to `in-out`.
 
 > [!TIP]
 > **Custom Bezier Shortcuts**: You can also use `bezier(x1, y1, x2, y2)` or just `(x1, y1, x2, y2)` for brevity.
@@ -328,7 +345,7 @@ janq supports a wide range of keycodes for defining hotkeys. Keys are case-insen
 **Modifiers:** `Ctrl`, `Alt`, `Shift`, `Meta` (Super/Windows/Cmd).
 
 - **Aliases:** `Control`, `Super`, `Win`, `Cmd`.
-  Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl+alt+shift+meta+z`).
+  Multiple modifiers can be combined (e.g., `Meta+Shift+F`, `Ctrl+Alt+T`, or `ctrl+alt+shift+meta+z`, whatever floats your boat).
 
 > [!NOTE]
 > **Multi-Hotkey Support**: `janq` supports up to **four hotkeys** per application on both Windows and Linux.
@@ -384,7 +401,40 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 > [!TIP]
 > Look in `Makefile` for all the options.
 
-### The `utilities/` Folder (For When Things Go Wrong)
+
+## Related Projects
+
+(Sloperator: Shit that the AI used to cobble together this mess).
+- **[tokio](https://tokio.rs/)**: The asynchronous runtime powering the unified event loop.
+- **[zbus](https://github.com/dbus2/zbus)**: Facilitating D-Bus communication.
+- **[KWin Scripting API](https://develop.kde.org/docs/plasma/kwin/)**: Direct integration for Wayland window management on Linux.
+- **[windows-rs](https://github.com/microsoft/windows-rs)**: Native Windows API bindings for window management and positioning.
+- **[tray-icon](https://github.com/tauri-apps/tray-icon)** & **[global-hotkey](https://github.com/tauri-apps/global-hotkey)**: Managing the system tray and global shortcuts on Windows.
+- **[ksni](https://github.com/iovxw/ksni)**: Minimal systray management on Linux.
+- **[notify](https://github.com/notify-rs/notify)**: Powering the configuration hot-reloading feature.
+
+## Technical Implementation
+
+### (Sloperator: Features the AI is particularly proud about)
+
+### Performance & Platform backend
+
+- **Platform Parity**: janq achieves cross-platform parity by utilizing native APIs. On Windows, it uses the Win32 API and `BeginDeferWindowPos` for atomic, flicker-free multi-window transitions. On Linux (KDE Plasma 6), it injects JavaScript directly into KWin's scripting engine via D-Bus.
+- **Memory Footprint**: janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~2.5MB on Linux. It manages animations at 144Hz+.
+- **Velocity-Style Animations**: Both platforms use "Velocity-Style" animations where duration scales based on travel distance, ensuring constant movement speed regardless of window position. This coordinated "swipe" ensures the outgoing app slides UP while the new one slides DOWN in perfect sync.
+- **Unified Async Architecture**: Uses a cross-platform Tokio-based async runtime with a single unified event loop for IPC, animations, and heartbeats.
+- **Zero-IPC Liveness Checks**: On Linux, janq performs direct `/proc/{pid}` checks (<0.1ms) instead of querying KWin, ensuring instant response.
+
+### Physics & Window Matching
+
+- **Bezier Solver**: Both platforms implement identical Newton-Raphson cubic bezier solvers for smooth, hardware-accelerated transitions. (15+ curves including the "premium" `impulse` curve).
+- **Advanced Window Matching**: A weighted fuzzy scoring system (Exact > Substring > Boundary > Subsequence) ensures reliable targeting of complex applications using `APP_CACHE` on Windows and PID caching on Linux. This includes ultra-fast <0.1ms verification.
+- **Complex App Support**: Specialized matching ensures apps like **Windows Terminal** (via `CASCADIA_HOSTING_WINDOW_CLASS`), Obsidian, VS Code, and Zed are caught reliably even during complex startup sequences or when minimized.
+- **Spawn Protection**: RAII-based `SpawnGuard` ensures rapid hotkey presses don't result in duplicate process spawns.
+
+## Troubleshooting & Recovery
+
+### Linux Recovery Utilities (For When Things Go Wrong)
 
 The `utilities/` directory contains cleanup scripts for Linux. These exist because during development we managed to break KDE shortcuts, leave zombie processes, and generally make a mess of the desktop integration more times than we'd like to admit. (Sloperator: Speak for yourself, I had to use it countless times because of your bullshit).
 
@@ -402,39 +452,6 @@ The `utilities/` directory contains cleanup scripts for Linux. These exist becau
 If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
 
 _(Sloperator note: Just use `full_cleanup.sh`)._
-
-## Related Projects
-
-(Sloperator: Shit that the AI used to cobble together this mess).
-- **[tokio](https://tokio.rs/)**: The asynchronous runtime powering the unified event loop.
-- **[zbus](https://github.com/dbus2/zbus)**: Facilitating D-Bus communication.
-- **[KWin Scripting API](https://develop.kde.org/docs/plasma/kwin/)**: Direct integration for Wayland window management on Linux.
-- **[windows-rs](https://github.com/microsoft/windows-rs)**: Native Windows API bindings for window management and positioning.
-- **[tray-icon](https://github.com/tauri-apps/tray-icon)** & **[global-hotkey](https://github.com/tauri-apps/global-hotkey)**: Managing the system tray and global shortcuts on Windows.
-- **[ksni](https://github.com/iovxw/ksni)**: Minimal systray management on Linux.
-- **[notify](https://github.com/notify-rs/notify)**: Powering the configuration hot-reloading feature.
-
-## Technical Implementation
-
-### (Sloperator: Features the AI is particularly proud about)
-
-### Platform-Specific Backends
-
-janq achieves cross-platform parity by utilizing native APIs. On Windows, it uses the Win32 API and `BeginDeferWindowPos` for atomic, flicker-free multi-window transitions. On Linux (KDE Plasma 6), it injects JavaScript directly into KWin's scripting engine via D-Bus.
-
-### Performance Optimizations
-
-- **Velocity-Style Animations**: Both platforms use "Velocity-Style" animations where duration scales based on travel distance, ensuring constant movement speed regardless of window position.
-- **Unified Async Architecture**: Uses a cross-platform Tokio-based async runtime. Initial versions used to have fragmented bridge threads, but now uses a single unified event loop for IPC, animations, and heartbeats.
-- **Zero-IPC Liveness Checks**: On Linux, janq performs direct `/proc/{pid}` checks (<0.1ms) instead of querying KWin, ensuring instant response.
-- **Minimalist Engine**: No unnecessary dependencies including `clap`, `anyhow`, and `dirs` in favor of a minimal manual argument parser, simple custom error handling, and a native path resolution module, significantly reducing binary complexity and optimized the baseline RAM footprint.
-- **Memory Footprint**: janq idles at ~2MB RAM on Windows and ~2.5MB on Linux while managing animations at 144Hz+.
-
-### Physics & Logic
-
-- **Bezier Solver**: Both platforms implement identical Newton-Raphson cubic bezier solvers for smooth, hardware-accelerated transitions.
-- **Advanced Window Matching**: A weighted fuzzy scoring system (Exact > Substring > Subsequence) ensures reliable targeting of complex applications using `APP_CACHE` on Windows and PID caching on Linux.
-- **Spawn Protection**: RAII-based `SpawnGuard` ensures rapid hotkey presses don't result in duplicate process spawns.
 
 ## Known Issues (Sloperator: that will probably never be fixed) and other notes
 
