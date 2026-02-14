@@ -241,12 +241,25 @@ pub fn strip_ansi(s: &str) -> String {
 }
 
 pub fn show_warning(message: &str) {
+  use std::io::IsTerminal;
+
   let styled = if message.contains("\x1b[1;33mwarning\x1b[0m") {
     message.to_string()
   } else {
     format_warning(message)
   };
   eprintln!("{}", styled);
+
+  // Only spawn a GUI warning window if we're not already in an interactive terminal
+  #[cfg(target_os = "linux")]
+  if !std::io::stderr().is_terminal() {
+    show_warning_linux(&styled);
+  }
+
+  #[cfg(target_os = "windows")]
+  if !std::io::stderr().is_terminal() {
+    show_warning_windows(&styled);
+  }
 }
 
 pub fn show_error(message: &str) {
@@ -374,6 +387,50 @@ fn show_error_windows(styled: &str) {
       &msg,
       &title,
       MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST,
+    );
+  }
+}
+
+#[cfg(target_os = "linux")]
+fn show_warning_linux(styled: &str) {
+  let clean_message = strip_ansi(styled);
+
+  // Fallback to a desktop alert if possible (zenity/kdialog)
+  // Warning versions use --warning instead of --error
+  if let Ok(mut child) = Command::new("zenity")
+    .args(["--warning", "--text", &clean_message])
+    .spawn()
+  {
+    let _ = child.wait();
+    return;
+  }
+  if let Ok(mut child) = Command::new("kdialog")
+    .args(["--warning", &clean_message])
+    .spawn()
+  {
+    let _ = child.wait();
+    return;
+  }
+}
+
+#[cfg(target_os = "windows")]
+fn show_warning_windows(styled: &str) {
+  use windows::core::HSTRING;
+  use windows::Win32::UI::WindowsAndMessaging::{
+    MessageBoxW, MB_ICONWARNING, MB_OK, MB_SETFOREGROUND, MB_TOPMOST,
+  };
+
+  let clean_message = strip_ansi(styled);
+
+  let title = HSTRING::from("janq Warning");
+  let msg = HSTRING::from(clean_message);
+
+  unsafe {
+    MessageBoxW(
+      None,
+      &msg,
+      &title,
+      MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST,
     );
   }
 }

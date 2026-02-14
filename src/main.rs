@@ -111,23 +111,56 @@ fn print_help() {
   );
 }
 
+macro_rules! define_flags {
+  ($arg:expr, $args:expr, $iter:expr, [
+    $($(#[$m:meta])* $long:literal $(| $short:literal)* => $logic:expr),* $(,)?
+  ]) => {
+    match $arg {
+      $(
+        $(#[$m])*
+        $long $(| $short)* => {
+          $logic
+        }
+      )*
+      _ => {
+        if $arg.starts_with("--app=") {
+          $args.app = Some($arg.trim_start_matches("--app=").to_string());
+        } else {
+          let mut valid: Vec<&str> = Vec::new();
+          $(
+            $(#[$m])*
+            valid.push($long);
+          )*
+
+          let mut msg = format!("Unknown argument '{}'", $arg);
+          if let Some(suggestion) = janq::matching::suggest_similar($arg, &valid) {
+            msg.push_str(&format!(". Did you mean '{}'?", suggestion));
+          }
+          show_error(&msg);
+          exit(1);
+        }
+      }
+    }
+  }
+}
+
 fn parse_args() -> Args {
   let mut args = Args::default();
   let mut iter = env::args().skip(1);
 
   while let Some(arg) = iter.next() {
-    match arg.as_str() {
+    define_flags!(arg.as_str(), args, iter, [
       "--help" | "-h" => {
         print_help();
         exit(0);
-      }
+      },
       "--version" | "-V" => {
         println!("janq {}", env!("CARGO_PKG_VERSION"));
         exit(0);
-      }
+      },
       "--daemon" | "--demon" | "--deamon" | "-D" => {
         args.daemon = true;
-      }
+      },
       "--app" | "-a" => {
         if let Some(val) = iter.next() {
           args.app = Some(val);
@@ -135,32 +168,24 @@ fn parse_args() -> Args {
           show_error("Error: --app requires a value");
           exit(1);
         }
-      }
+      },
       #[cfg(target_os = "linux")]
-      "--enable-autostart" => {
+      "--enable-autostart" | "--enableautostart" => {
         args.enable_autostart = true;
-      }
+      },
       #[cfg(target_os = "linux")]
-      "--disable-autostart" => {
+      "--disable-autostart" | "--disableautostart" => {
         args.disable_autostart = true;
-      }
+      },
       #[cfg(target_os = "linux")]
       "--setup" | "-i" => {
         args.setup = true;
-      }
+      },
       #[cfg(target_os = "linux")]
       "--cleanup" | "-u" => {
         args.uninstall = true;
-      }
-      _ => {
-        if arg.starts_with("--app=") {
-          args.app = Some(arg.trim_start_matches("--app=").to_string());
-        } else {
-          // Ignore unknown args to be more lax than clap
-          eprintln!("Warning: Unknown argument '{}'", arg);
-        }
-      }
-    }
+      },
+    ]);
   }
   args
 }
@@ -238,7 +263,7 @@ fn main() -> janq::error::Result<()> {
         exit(1);
       }
       if let Err(e) = linux::kwin::sync_kwin_rules(&config) {
-        eprintln!("Warning: Failed to sync KWin rules: {}", e);
+        janq::error::show_warning(&format!("Failed to sync KWin rules: {}", e));
       } else {
         println!("✓ KWin window rules synchronized.");
       }
