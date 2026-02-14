@@ -164,10 +164,10 @@ pub fn ensure_terminal_running(
   }
 
   if !found {
-    eprintln!(
-      "janq: Failed to detect window for '{}' after spawning.",
+    crate::windows::show_error(&format!(
+      "janq: Failed to detect window for '{}' after spawning.\n\nPlease check if 'start_command' is correct and executable.",
       app_name
-    );
+    ));
   }
   found
 }

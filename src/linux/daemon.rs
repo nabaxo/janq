@@ -566,7 +566,7 @@ pub async fn run_daemon(
       let desktop_changed = match generate_desktop_file_headless(&new_config_in_async) {
         Ok(changed) => changed,
         Err(e) => {
-          eprintln!("Watcher: Desktop file generation failed: {}", e);
+          show_error(&format!("Watcher: Desktop file generation failed: {}", e));
           false
         }
       };

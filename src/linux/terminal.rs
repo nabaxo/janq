@@ -232,10 +232,10 @@ pub async fn ensure_terminal_running_with_candidates(
     return false; // Return false so the next toggle can try to find/spawn it again properly
   }
 
-  eprintln!(
-    "janq: Failed to detect process or window for '{}' after spawning.",
+  show_error(&format!(
+    "janq: Failed to detect process or window for '{}' after spawning.\n\nPlease check if 'start_command' is correct and executable.",
     window_class
-  );
+  ));
   false
 }
 
