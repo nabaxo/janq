@@ -10,18 +10,35 @@ pub mod validation;
 
 use crate::config::Config;
 use fs4::fs_std::FileExt;
-use std::env::temp_dir;
-use std::fs::File;
 
-pub fn acquire_lock_file() -> crate::error::Result<File> {
-  let lock_path = temp_dir().join("janq.lock");
-  let lock_file = File::create(&lock_path)?;
-  if lock_file.try_lock_exclusive().is_err() {
+pub fn acquire_lock_file() -> crate::error::Result<()> {
+  let lock_dir = crate::paths::cache_dir()
+    .ok_or_else(|| crate::format_error_boxed!("Could not determine cache directory"))?
+    .join("janq");
+
+  std::fs::create_dir_all(&lock_dir)?;
+
+  let lock_path = lock_dir.join("janq.lock");
+  let lock_file = std::fs::OpenOptions::new()
+    .read(true)
+    .write(true)
+    .create(true)
+    .truncate(false)
+    .open(&lock_path)?;
+
+  let lock_res = lock_file.try_lock_exclusive();
+
+  if lock_res.is_err() || lock_res.ok() == Some(false) {
     return Err(crate::format_error_boxed!(
       "janq is already running (lock file active)."
     ));
   }
-  Ok(lock_file)
+
+  // Leak the file handle to ensure it lives as long as the process.
+  // This prevents the Rust compiler from optimizing out the variable
+  // during async yields, which was previously releasing the lock.
+  Box::leak(Box::new(lock_file));
+  Ok(())
 }
 
 pub fn resolve_target_app(msg: &str, cfg: &Config) -> Option<String> {

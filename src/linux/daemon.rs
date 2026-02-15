@@ -356,10 +356,7 @@ pub async fn run_daemon(
   config_path: Option<PathBuf>,
   target_app: Option<String>,
 ) -> janq::error::Result<()> {
-  // 0. Acquire Lock File
-  let _lock_file = janq::acquire_lock_file()?;
-
-  println!("Starting janq daemon...");
+  println!("Starting janq daemon (PID {})...", std::process::id());
   init_kwin().await;
   let config = Arc::new(RwLock::new(initial_config));
   let conn = zbus::connection::Builder::session()?
@@ -418,16 +415,16 @@ pub async fn run_daemon(
       .await;
 
     if let Err(e) = r1 {
-      eprintln!(
+      show_error(&format!(
         "janq: Failed to register Application interface at {}: {}",
         path, e
-      );
+      ));
     }
     if let Err(e) = r2 {
-      eprintln!(
+      show_error(&format!(
         "janq: Failed to register Daemon interface at {}: {}",
         path, e
-      );
+      ));
     }
   }
 
@@ -619,7 +616,6 @@ pub async fn run_daemon(
   // Ensure scripts have time to finish before process exit
   tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
   print_termination_complete();
-
   Ok(())
 }
 

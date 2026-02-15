@@ -226,6 +226,11 @@ fn resolve_app(config: &Config, requested: Option<String>) -> Result<Option<&str
 }
 
 fn main() -> janq::error::Result<()> {
+  // Acquire lock synchronously at the very start to prevent any async-related drop race.
+  janq::acquire_lock_file()?;
+
+  println!("janq (PID {}): Initializing...", std::process::id());
+
   #[cfg(target_os = "windows")]
   attach_parent_console();
 

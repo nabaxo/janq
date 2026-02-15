@@ -309,7 +309,10 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
   };
 
   if let Err(e) = crate::linux::kwin::trigger_fetch_windows(&conn, request_id).await {
-    eprintln!("janq: Failed to trigger window fetch script: {}", e);
+    show_error(&format!(
+      "janq: Failed to trigger window fetch script: {}",
+      e
+    ));
     let mut waiters = get_metadata_waiters().lock().unwrap();
     waiters.remove(&request_id);
     return windows;
@@ -318,10 +321,10 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
   let batch = match tokio::time::timeout(Duration::from_millis(2000), rx).await {
     Ok(Ok(b)) => b,
     _ => {
-      eprintln!(
+      show_error(&format!(
         "janq: Timeout waiting for window metadata ID {} from KWin.",
         request_id
-      );
+      ));
       let mut waiters = get_metadata_waiters().lock().unwrap();
       waiters.remove(&request_id);
       return windows;

@@ -287,9 +287,6 @@ pub fn show_error(message: &str) {
 #[cfg(target_os = "linux")]
 fn show_error_linux(styled: &str) {
   use std::io::Write;
-  use std::time::Duration;
-
-  let clean_message = strip_ansi(styled);
 
   // Write message to temp file to preserve ANSI codes perfectly
   let temp_path = std::env::temp_dir().join("janq_error.txt");
@@ -322,51 +319,13 @@ fn show_error_linux(styled: &str) {
   ];
 
   for (cmd, args) in terminals {
-    if let Ok(mut child) = Command::new(cmd).args(args).spawn() {
-      // Wait for terminal to close before continuing
-      // Use a timeout to avoid hanging forever if something goes wrong
-      let start = std::time::Instant::now();
-      let timeout = Duration::from_secs(60); // 1 minute timeout
-      loop {
-        match child.try_wait() {
-          Ok(Some(_)) => break, // Process exited
-          Ok(None) => {
-            if start.elapsed() > timeout {
-              let _ = child.kill();
-              break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-          }
-          Err(_) => break,
-        }
-      }
-      // Clean up temp file
-      let _ = std::fs::remove_file(&temp_path);
+    if let Ok(_) = Command::new(cmd).args(args).spawn() {
+      // Return immediately after spawning the terminal window.
+      // The terminal should be configured to stay open (e.g., -hold or read)
+      // until the user manually closes it.
       return;
     }
   }
-
-  // Fallback to a desktop alert if possible (zenity/kdialog)
-  // These are modal dialogs so they block until closed
-  if let Ok(mut child) = Command::new("zenity")
-    .args(["--error", "--text", &clean_message])
-    .spawn()
-  {
-    let _ = child.wait();
-    let _ = std::fs::remove_file(&temp_path);
-    return;
-  }
-  if let Ok(mut child) = Command::new("kdialog")
-    .args(["--error", &clean_message])
-    .spawn()
-  {
-    let _ = child.wait();
-    let _ = std::fs::remove_file(&temp_path);
-    return;
-  }
-
-  // If nothing worked, at least clean up
-  let _ = std::fs::remove_file(&temp_path);
 }
 
 #[cfg(target_os = "windows")]
@@ -392,25 +351,9 @@ fn show_error_windows(styled: &str) {
 }
 
 #[cfg(target_os = "linux")]
-fn show_warning_linux(styled: &str) {
-  let clean_message = strip_ansi(styled);
-
-  // Fallback to a desktop alert if possible (zenity/kdialog)
-  // Warning versions use --warning instead of --error
-  if let Ok(mut child) = Command::new("zenity")
-    .args(["--warning", "--text", &clean_message])
-    .spawn()
-  {
-    let _ = child.wait();
-    return;
-  }
-  if let Ok(mut child) = Command::new("kdialog")
-    .args(["--warning", &clean_message])
-    .spawn()
-  {
-    let _ = child.wait();
-    return;
-  }
+fn show_warning_linux(_styled: &str) {
+  // Warnings are suppressed when not in a terminal to avoid spamming the desktop.
+  // Native janq warnings are already printed to stderr.
 }
 
 #[cfg(target_os = "windows")]

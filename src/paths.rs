@@ -40,3 +40,17 @@ pub fn data_local_dir() -> Option<PathBuf> {
       .or_else(|| home_dir().map(|h| h.join(".local/share")))
   }
 }
+
+/// Returns the cache directory of the current user.
+pub fn cache_dir() -> Option<PathBuf> {
+  #[cfg(target_os = "windows")]
+  {
+    env::var_os("LOCALAPPDATA").map(PathBuf::from)
+  }
+  #[cfg(target_os = "linux")]
+  {
+    env::var_os("XDG_CACHE_HOME")
+      .map(PathBuf::from)
+      .or_else(|| home_dir().map(|h| h.join(".cache")))
+  }
+}
