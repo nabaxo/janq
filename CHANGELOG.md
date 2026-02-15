@@ -5,7 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-02-09
+## [1.0.0] - 2026-02-15
+
+### Added
+- **GUI Warning Pop-ups**: Warnings now display as GUI pop-ups in non-interactive sessions (Windows/Linux).
+- **Improved CLI Error Handling**: Enhanced argument parsing with suggestions for unknown arguments using fuzzy matching.
+
+### Fixed
+- **Single-Instance Lock**: Fixed lock file mechanism to correctly handle platform-specific `fs4` behavior. On Linux (MUSL), the lock now properly detects `Ok(false)` return values. Lock acquisition now only occurs when starting a daemon process, not during client IPC operations.
+- **Windows Error Visibility**: Lock file errors and other critical errors during daemon startup now properly invoke `show_error()` instead of silently propagating through the async runtime, ensuring users see error dialogs on Windows.
+- **Error Display**: Converted silent `eprintln!` error messages to user-visible GUI notifications for non-terminal sessions.
+- **Lock File Lifetime**: Lock file handle is now leaked using `Box::leak()` to ensure it persists for the entire process lifetime, preventing premature release during async yields.
+
+### Changed
+- **Lock File Storage**: Moved lock file from config directory to cache directory (`XDG_CACHE_HOME` on Linux, `LOCALAPPDATA` on Windows) to follow platform conventions.
+- **Import Cleanup**: Refactored internal module imports across `main.rs` and daemon modules to use consolidated `janq::` import blocks instead of fully-qualified paths, improving code readability and maintainability.
+- **Linux Error Handling**: Simplified Linux error and warning display by removing unused `kdialog` and `zenity` fallbacks and non-blocking terminal spawn logic.
 
 ### Added
 - **Automated KWin Rule Lifecycle**: Implemented a sophisticated rule synchronization engine that manages `kwinrulesrc` automatically. It groups managed apps by desktop ID, applies regex-based matching, and surgically prunes stale or redundant janq rules directly from the filesystem to bypass KConfig errors.

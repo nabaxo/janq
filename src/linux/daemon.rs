@@ -55,12 +55,13 @@ use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headles
 use crate::linux::hotkey::sync_kde_shortcuts;
 use crate::linux::kwin::{
   clear_removed_apps_from_cache, get_visible_app, grab_apps, init as init_kwin, reset_visibility,
-  restore_app, restore_quake, toggle_quake,
+  restore_app, restore_quake, sync_kwin_rules, toggle_quake,
 };
 use crate::linux::terminal::ensure_terminal_running;
 
 use janq::config::Config;
-use janq::error::show_error;
+use janq::config_watcher;
+use janq::error::{self, show_error};
 use janq::shutdown::{print_shutdown_message, print_termination_complete};
 
 // =============================================================================
@@ -355,7 +356,7 @@ pub async fn run_daemon(
   initial_config: Config,
   config_path: Option<PathBuf>,
   target_app: Option<String>,
-) -> janq::error::Result<()> {
+) -> error::Result<()> {
   println!("Starting janq daemon (PID {})...", std::process::id());
   init_kwin().await;
   let config = Arc::new(RwLock::new(initial_config));
@@ -446,7 +447,7 @@ pub async fn run_daemon(
   {
     let cfg = config.read().unwrap().clone();
     let _ = generate_desktop_file(&cfg);
-    let _ = crate::linux::kwin::sync_kwin_rules(&cfg);
+    let _ = sync_kwin_rules(&cfg);
     tokio::spawn(async move {
       let _ = sync_kde_shortcuts(&cfg, None).await;
     });
@@ -496,7 +497,7 @@ pub async fn run_daemon(
   #[cfg(feature = "systray")]
   let tray_handle_for_watcher = tray_handle.clone();
 
-  janq::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
+  config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
     let path_to_watch = path_to_watch.clone();
     let config_for_watcher = config_for_watcher.clone();
     let conn_for_watcher = conn_for_watcher.clone();
@@ -504,13 +505,11 @@ pub async fn run_daemon(
     let tray_handle = tray_handle_for_watcher.clone();
 
     async move {
-      let old_config = match janq::config_watcher::reload_shared_config(
-        path_to_watch.clone(),
-        &*config_for_watcher,
-      ) {
-        Some(old) => old,
-        None => return,
-      };
+      let old_config =
+        match config_watcher::reload_shared_config(path_to_watch.clone(), &*config_for_watcher) {
+          Some(old) => old,
+          None => return,
+        };
 
       let new_config = config_for_watcher.read().unwrap().clone();
 
@@ -619,7 +618,7 @@ pub async fn run_daemon(
   Ok(())
 }
 
-pub async fn send_toggle(app_name: Option<String>) -> janq::error::Result<()> {
+pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
   let conn = zbus::connection::Builder::session()?
     .internal_executor(false)
     .build()

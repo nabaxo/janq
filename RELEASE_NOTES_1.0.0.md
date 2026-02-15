@@ -83,9 +83,13 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
   - **Zero-Allocation Discovery**: Windows window enumeration now filters "junk" classes directly on stack-allocated buffers. Thousands of transient `String` allocations and `.to_lowercase()` calls were eliminated.
   - **Atomic Startup Guards**: Added thread-level atomicity to window discovery. Spamming a hotkey while an app is starting now results in graceful event-dropping instead of a race condition that could "grab" transient utility windows.
   - **Linear Backoff Polling**: Polling for new windows on Windows now scales from 100ms up to 1000ms, heavily reducing CPU overhead during application launch.
-  - **Async KWin Initialization**: KDE display queries are now fully non-blocking, preventing initialization-time executor stalls.
+- **Async KWin Initialization**: KDE display queries are now fully non-blocking, preventing initialization-time executor stalls.
   - **Window ID-Strictness**: Replaced probabilistic PID-based sibling matching on Linux with strict internal window ID tracking to handle multi-vault Obsidian setups and Electron-based "hidden" windows.
 - **Library Split & Refactor**: Extracted shared core logic into a dedicated library crate (`src/lib.rs`), reducing binary size and eliminating platform-specific code duplication.
+- **Error Handling Polish**:
+  - **GUI Notifications**: Critical errors now display as GUI pop-ups (MessageBox on Windows, terminal on Linux) when running in non-interactive sessions, preventing silent failures. Warning pop-ups added for non-critical issues.
+  - **Single-Instance Lock Hardening**: Lock file mechanism now correctly handles platform-specific `fs4` behavior. Lock acquisition moved to cache directory and only occurs when starting daemon, not during client IPC. Lock handle lifetime fixed using `Box::leak()` to prevent premature release during async yields.
+  - **CLI Error Feedback**: Enhanced argument parsing with fuzzy-match suggestions for unknown flags.
 
 ---
 

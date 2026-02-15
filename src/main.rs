@@ -20,8 +20,12 @@
 
 use std::process::exit;
 
-use janq::config::{self, Config};
-use janq::error::show_error;
+use janq::{
+  acquire_lock_file,
+  config::{self, Config},
+  error::{self, show_error},
+  matching::suggest_similar,
+};
 use std::env;
 use tokio::runtime::Builder;
 
@@ -133,7 +137,7 @@ macro_rules! define_flags {
           )*
 
           let mut msg = format!("Unknown argument '{}'", $arg);
-          if let Some(suggestion) = janq::matching::suggest_similar($arg, &valid) {
+          if let Some(suggestion) = suggest_similar($arg, &valid) {
             msg.push_str(&format!(". Did you mean '{}'?", suggestion));
           }
           show_error(&msg);
@@ -208,10 +212,9 @@ fn resolve_app(config: &Config, requested: Option<String>) -> Result<Option<&str
         // Find the key in the map to return a reference with the lifetime of config
         Ok(app.get_key_value(&name).map(|(k, _)| k.as_str()))
       } else {
-        // Build error message only on failure path
         let mut available: Vec<&str> = app.keys().map(|s| s.as_str()).collect();
         available.sort_unstable();
-        Err(janq::error::format_error(&format!(
+        Err(error::format_error(&format!(
           "App '{}' not found in config.\nAvailable: {}",
           name,
           available.join(", ")
@@ -225,10 +228,7 @@ fn resolve_app(config: &Config, requested: Option<String>) -> Result<Option<&str
   }
 }
 
-fn main() -> janq::error::Result<()> {
-  // Acquire lock synchronously at the very start to prevent any async-related drop race.
-  janq::acquire_lock_file()?;
-
+fn main() -> error::Result<()> {
   println!("janq (PID {}): Initializing...", std::process::id());
 
   #[cfg(target_os = "windows")]
@@ -268,7 +268,7 @@ fn main() -> janq::error::Result<()> {
         exit(1);
       }
       if let Err(e) = linux::kwin::sync_kwin_rules(&config) {
-        janq::error::show_warning(&format!("Failed to sync KWin rules: {}", e));
+        error::show_warning(&format!("Failed to sync KWin rules: {}", e));
       } else {
         println!("✓ KWin window rules synchronized.");
       }
@@ -309,6 +309,10 @@ fn main() -> janq::error::Result<()> {
 
     let target_app_owned = target_app.map(|s| s.to_string());
     if args.daemon {
+      if let Err(e) = acquire_lock_file() {
+        show_error(&e.to_string());
+        exit(1);
+      }
       if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
         show_error(&e.to_string());
         exit(1);
@@ -321,6 +325,10 @@ fn main() -> janq::error::Result<()> {
     }
 
     println!("Daemon not running (or reachable). Starting new daemon instance...");
+    if let Err(e) = acquire_lock_file() {
+      show_error(&e.to_string());
+      exit(1);
+    }
     if let Err(e) = daemon::run_daemon(config, config_path, target_app_owned).await {
       #[cfg(target_os = "windows")]
       windows::show_error(&e.to_string());

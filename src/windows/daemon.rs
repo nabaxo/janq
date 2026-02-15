@@ -61,9 +61,12 @@ use crate::windows::{
     BRIDGE_HWND,
   },
 };
-use janq::config::Config;
-use janq::shutdown::{print_shutdown_message, print_termination_complete};
-use janq::spawn_guard::get_spawning_apps;
+use janq::{
+  config::Config,
+  config_watcher, error, process,
+  shutdown::{print_shutdown_message, print_termination_complete},
+  spawn_guard::get_spawning_apps,
+};
 
 // =============================================================================
 // IPC Constants
@@ -170,8 +173,6 @@ pub async fn run_daemon(
   crate::windows::window::MAIN_THREAD_ID
     .set(main_thread_id)
     .unwrap();
-  // 0. Acquire Lock File
-  let _lock_file = janq::acquire_lock_file()?;
 
   // Enable DPI Awareness
   unsafe {
@@ -270,18 +271,16 @@ pub async fn run_daemon(
     post_wake_message(WM_USER + 1);
   });
 
-  janq::config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
+  config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
     let path_to_watch = path_to_watch.clone();
     let config_clone_watcher = config_clone_watcher.clone();
     let event_tx_watcher = event_tx_watcher.clone();
     async move {
-      let old_config = match janq::config_watcher::reload_shared_config(
-        path_to_watch.clone(),
-        &*config_clone_watcher,
-      ) {
-        Some(old) => old,
-        None => return,
-      };
+      let old_config =
+        match config_watcher::reload_shared_config(path_to_watch.clone(), &*config_clone_watcher) {
+          Some(old) => old,
+          None => return,
+        };
 
       let new_config = config_clone_watcher.read().unwrap().clone();
       {
@@ -610,7 +609,7 @@ pub async fn run_daemon(
                   if is_alive {
                     let mut pid = 0;
                     GetWindowThreadProcessId(hwnd.hwnd, Some(&mut pid));
-                    !janq::process::is_process_running(pid, None)
+                    !process::is_process_running(pid, None)
                   } else {
                     true
                   }
@@ -652,7 +651,7 @@ pub async fn run_daemon(
 // IPC Client
 // =============================================================================
 
-pub async fn send_toggle(app_name: Option<String>) -> janq::error::Result<()> {
+pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
   use tokio::io::AsyncWriteExt;
   use tokio::net::windows::named_pipe::ClientOptions;
 
