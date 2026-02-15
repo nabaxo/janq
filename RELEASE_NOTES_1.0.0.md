@@ -95,7 +95,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 
 ## 📦 Installation
 
-*(Sloperator note: Just download an run the binary. If you want build directions follow).*
+*(Sloperator note: If on windows Just download an run the binary (x64). If on Linux (also x64), run the install script: `curl -f https://git.nabaxo.dev/nabaxo/janq/raw/branch/main/install.sh | sh -s -- --help`. If you want build directions follow).*
 
 ### Prerequisites
 - **Linux:** KDE Plasma 6 (Wayland)

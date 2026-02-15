@@ -52,10 +52,22 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 
 ## Installation
 
-- Download the binary from [releases](/nabaxo/janq/releases).
-- [Create a janq.toml](#configuration) with [your config](#setup)
-- [Run](#usage)
-- Enjoy
+1. - **Windows:**
+Download the binary from [releases](/nabaxo/janq/releases).
+   - **Linux:**
+Run the install-script like so:
+```sh
+curl -f https://git.nabaxo.dev/nabaxo/janq/raw/branch/main/install.sh | sh -s -- --help
+```
+
+Check [Command Line Arguhments](#command-line-arguments) for more flags to use. Note that it's not recommened to run the `--setup` argument directly, unless you already have a [`~/.config/janq/janq.toml`](#setup) ready to go, since that forces a refresh of kwin rules etc based on your config.
+
+> [!IMPORTANT]
+> Both distributed binaries are for x86; I'm afraid you have to build it yourself for that fancy ARM CPU of yours.
+
+2. [Create a janq.toml](#configuration) with [your config](#setup)
+3. [Run](#usage)
+4. Enjoy
 
 > [!TIP]
 > If Windows refuses to run the downloaded .exe; Right click on the file, choose properties, tick the `unblock` checkbox at the bottom, (the one that comes with scary security warnings), then click apply, OK, and you're good to go.
@@ -78,10 +90,12 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 | `--help` | `-h` | Print help information. |
 | `--version` | `-V` | Print version information. |
 | **Linux Specific Arguments** |
-| `--setup` | `-i` | Force refresh of system/desktop/D-Bus/Rules. |
+| `--setup` | `-i` | Force refresh of system/desktop/D-Bus/Rules.\* |
 | `--cleanup` | `-u` | Remove all janq system integration. |
 | `--enable-autostart` | — | Enable autostart (creates symlink to .desktop-file). |
 | `--disable-autostart` | — | Disable autostart (removes symlink). |
+
+\* This creates a `.desktop` file, adds whatever is in your config as kwin-rules for nice icon integration.
 
 ### Linux (KDE)
 
@@ -176,7 +190,7 @@ janq searches for a configuration file _(janq.toml or .janq.toml)_ in the follow
     - `~/`
     - _On Windows_: `%UserProfile%\`
 
-(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. Option 3, the AI told me is stupid, since the crate we're using checks any changes to containing _folder_. I only left it for completeness).
+(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. Option 3, the AI told me is stupid, since the crate we're using checks _any changes_ to containing _folder_. I only left it for completeness).
 
 > [!NOTE]
 > **Platform Validation**: janq validates your configuration against your current operating system. If you attempt to use Linux-specific settings (like `all_desktops` or `force_priority`) on Windows, janq will block startup with an error and explain which settings are incompatible.
