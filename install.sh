@@ -38,6 +38,7 @@ else
 fi
 
 echo "Installing to ${INSTALL_DIR}..."
+mkdir -p "${INSTALL_DIR}"
 mv "/tmp/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
