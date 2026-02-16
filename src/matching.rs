@@ -117,10 +117,21 @@ pub fn u16_eq_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
   })
 }
 
-/// Calculates the Levenshtein distance between two strings.
+/// Calculates the Levenshtein distance between two strings using a stack-based buffer.
 fn levenshtein_distance(a: &str, b: &str) -> usize {
   let b_len = b.chars().count();
-  let mut row: Vec<usize> = (0..=b_len).collect();
+  if b_len == 0 {
+    return a.chars().count();
+  }
+  if b_len > 64 {
+    return 64; // Cap for safety, flags/apps aren't this long
+  }
+
+  let mut row = [0usize; 65];
+  for i in 0..=b_len {
+    row[i] = i;
+  }
+
   for (i, ca) in a.chars().enumerate() {
     let mut prev = i + 1;
     for (j, cb) in b.chars().enumerate() {
