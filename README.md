@@ -43,7 +43,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 ## Key Features
 - **Atomic Switching**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows. (See [Sibling Animation Duration Divergence](#sibling-animation-duration-divergence))
 - **Zero-Config Hotkeys**: Automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your configuration via D-Bus.
-- **Intelligent App Resolution**: Smart fallback logic for single-app setups and strict validation for multi-app configurations.
+- **Intelligent App Resolution**: Smart fallback logic for single-app setups and typo-tolerant validation (via Levenshtein distance) for flags, app names, and configuration values in multi-app setups.
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu.
 - **Auto-Hide**: If configured, automatically hides the managed window when it loses focus for a seamless experience.
 - **Robust Identification**: Advanced weighted scoring system to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.

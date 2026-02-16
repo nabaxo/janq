@@ -117,6 +117,23 @@ pub fn u16_eq_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
   })
 }
 
+/// Calculates the Levenshtein distance between two strings.
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+  let b_len = b.chars().count();
+  let mut row: Vec<usize> = (0..=b_len).collect();
+  for (i, ca) in a.chars().enumerate() {
+    let mut prev = i + 1;
+    for (j, cb) in b.chars().enumerate() {
+      let cost = if ca == cb { 0 } else { 1 };
+      let current = (row[j + 1] + 1).min(prev + 1).min(row[j] + cost);
+      row[j] = prev;
+      prev = current;
+    }
+    row[b_len] = prev;
+  }
+  row[b_len]
+}
+
 // =============================================================================
 // Matching Algorithm
 // =============================================================================
@@ -175,18 +192,26 @@ pub fn fuzzy_match_window(target: &str, candidates: &[FoundWindow]) -> Option<Fo
 
 /// Scores how well a lowercased haystack (window class/process name) matches the target.
 fn score_haystack_lowercased(lower_target: &str, lower_haystack: &str) -> i32 {
-  // Exact match
+  // 1. Exact match
   if lower_haystack == lower_target {
     return SCORE_EXACT_MATCH;
   }
 
-  // Substring match
+  // 2. Substring match
   if lower_haystack.contains(lower_target) {
     return SCORE_SUBSTRING_MATCH;
   }
 
-  // Fuzzy subsequence matching
-  score_subsequence(lower_target, lower_haystack)
+  // 3. Fuzzy subsequence matching
+  let subseq_score = score_subsequence(lower_target, lower_haystack);
+  if subseq_score > 0 {
+    return subseq_score;
+  }
+
+  // 4. Edit distance for typos (lower priority than subsequence)
+  let dist = levenshtein_distance(lower_target, lower_haystack);
+  let typo_score = 900 - (dist as i32 * 100);
+  typo_score.max(0)
 }
 
 /// Scores how well a haystack (window class/process name) matches the target.
@@ -293,10 +318,8 @@ pub fn suggest_similar<'a>(input: &str, valid_options: &[&'a str]) -> Option<&'a
   let mut best_option = None;
 
   for &option in valid_options {
-    // Symmetry check: catches both 'activ' -> 'active' AND 'actives' -> 'active'
-    let score_a = score_haystack(&lower_input, option);
-    let score_b = score_haystack(option, &lower_input);
-    let score = score_a.max(score_b);
+    // Both directions: catches 'activ' -> 'active' AND 'actives' -> 'active'
+    let score = score_haystack(&lower_input, option).max(score_haystack(option, &lower_input));
 
     if score > best_score {
       best_score = score;
@@ -396,5 +419,23 @@ mod tests {
     let candidates = vec![make_window("1", "some-class", "wezterm-gui", true, false)];
     let result = fuzzy_match_window("wezterm", &candidates);
     assert!(result.is_some());
+  }
+
+  #[test]
+  fn test_window_typo_matching() {
+    // "weztrem" (typo) should match "wezterm" window if no better match exists
+    let candidates = vec![make_window("1", "wezterm", "", true, false)];
+    let result = fuzzy_match_window("weztrem", &candidates);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().id, "1");
+  }
+
+  #[test]
+  fn test_suggest_similar_typo() {
+    let options = vec!["help", "active", "follow-mouse"];
+    // "hlep" is a typo for "help"
+    assert_eq!(suggest_similar("hlep", &options), Some("help"));
+    // "activ" is a substring/subsequence
+    assert_eq!(suggest_similar("activ", &options), Some("active"));
   }
 }

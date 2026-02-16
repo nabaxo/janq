@@ -214,11 +214,14 @@ fn resolve_app(config: &Config, requested: Option<String>) -> Result<Option<&str
       } else {
         let mut available: Vec<&str> = app.keys().map(|s| s.as_str()).collect();
         available.sort_unstable();
-        Err(error::format_error(&format!(
-          "App '{}' not found in config.\nAvailable: {}",
-          name,
-          available.join(", ")
-        )))
+
+        let mut msg = format!("App '{}' not found in config.", name);
+        if let Some(suggestion) = suggest_similar(&name, &available) {
+          msg.push_str(&format!(" Did you mean '{}'?", suggestion));
+        } else {
+          msg.push_str(&format!("\nAvailable: {}", available.join(", ")));
+        }
+        Err(msg)
       }
     }
     None => {

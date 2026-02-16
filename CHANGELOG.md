@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Install script**: For easy installation and system integration on Linux.
+- **Typo-Tolerant Suggestions**: Integrated Levenshtein distance algorithm for command-line arguments, app names, and configuration values (modifiers, keys, and enums).
 
 ### Added
 - **GUI Warning Pop-ups**: Warnings now display as GUI pop-ups in non-interactive sessions (Windows/Linux).
-- **Improved CLI Error Handling**: Enhanced argument parsing with suggestions for unknown arguments using fuzzy matching.
+- **Improved CLI Error Handling**: Enhanced argument parsing with suggestions for unknown arguments. Now tolerates transpositions and small typos (e.g., `--hlep` suggests `--help`).
 
 ### Fixed
 - **Single-Instance Lock**: Fixed lock file mechanism to correctly handle platform-specific `fs4` behavior. On Linux (MUSL), the lock now properly detects `Ok(false)` return values. Lock acquisition now only occurs when starting a daemon process, not during client IPC operations.
