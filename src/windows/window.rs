@@ -212,8 +212,8 @@ pub struct AnimationState {
 }
 
 static ANIMATION_TASK_CANCEL: OnceLock<std::sync::atomic::AtomicBool> = OnceLock::new();
-static VISIBLE_APP: OnceLock<RwLock<Option<String>>> = OnceLock::new();
-static APP_CACHE: OnceLock<RwLock<FxHashMap<String, CachedWindow>>> = OnceLock::new();
+static VISIBLE_APP: OnceLock<RwLock<Option<std::sync::Arc<str>>>> = OnceLock::new();
+static APP_CACHE: OnceLock<RwLock<FxHashMap<std::sync::Arc<str>, CachedWindow>>> = OnceLock::new();
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
 static LAST_EXTERNAL_FOCUS: AtomicIsize = AtomicIsize::new(0);
 static MANAGED_APP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
@@ -249,22 +249,6 @@ pub fn is_internal_window(hwnd: HWND) -> bool {
   false
 }
 
-pub fn is_managed_process(pid: u32) -> bool {
-  if pid == 0 {
-    return false;
-  }
-  // Fast check against cache
-  let exists = MANAGED_PIDS_CACHE
-    .iter()
-    .any(|slot| slot.load(Ordering::Relaxed) == pid);
-
-  if exists {
-    // Verify it isn't a recycled PID
-    return janq::process::is_process_running(pid, None);
-  }
-  false
-}
-
 pub fn update_managed_hwnds_cache() {
   let mut to_remove = Vec::new();
   let mut pids = Vec::with_capacity(64);
@@ -274,7 +258,7 @@ pub fn update_managed_hwnds_cache() {
     for (name, cw) in cache.iter() {
       unsafe {
         if !IsWindow(Some(cw.hwnd)).as_bool() {
-          to_remove.push(name.clone());
+          to_remove.push(std::sync::Arc::clone(name));
           continue;
         }
 
@@ -286,7 +270,7 @@ pub fn update_managed_hwnds_cache() {
               pids.push(pid);
             }
           } else {
-            to_remove.push(name.clone());
+            to_remove.push(std::sync::Arc::clone(name));
           }
         }
       }
@@ -382,7 +366,7 @@ pub unsafe extern "system" fn focus_hook_proc(
       if let Some(visible_app) = get_visible_app() {
         // Double-check visibility to prevent race with hotkey hide
         let mut cached_hwnd = None;
-        if let Some(cw) = get_app_cache().read().unwrap().get(&visible_app) {
+        if let Some(cw) = get_app_cache().read().unwrap().get(visible_app.as_ref()) {
           if IsWindowVisible(cw.hwnd).as_bool() {
             cached_hwnd = Some(cw.hwnd);
           }
@@ -419,15 +403,15 @@ pub fn get_animation_cancel() -> &'static std::sync::atomic::AtomicBool {
   ANIMATION_TASK_CANCEL.get_or_init(|| std::sync::atomic::AtomicBool::new(false))
 }
 
-pub fn visible_app_lock() -> &'static RwLock<Option<String>> {
+pub fn visible_app_lock() -> &'static RwLock<Option<std::sync::Arc<str>>> {
   VISIBLE_APP.get_or_init(|| RwLock::new(None))
 }
 
-pub fn get_visible_app() -> Option<String> {
+pub fn get_visible_app() -> Option<std::sync::Arc<str>> {
   visible_app_lock().read().unwrap().clone()
 }
 
-pub fn get_app_cache() -> &'static RwLock<FxHashMap<String, CachedWindow>> {
+pub fn get_app_cache() -> &'static RwLock<FxHashMap<std::sync::Arc<str>, CachedWindow>> {
   APP_CACHE.get_or_init(|| RwLock::new(FxHashMap::default()))
 }
 
@@ -523,21 +507,15 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
       }
     }
 
-    match find_window_by_process(&app_cfg.window_class, None) {
+    match find_window_by_process(&app_cfg.window_class, None, Some(app_name)) {
       Some(cw) => {
         let mut cache = get_app_cache().write().unwrap();
-        cache.insert(app_name.to_string(), cw);
+        cache.insert(std::sync::Arc::from(app_name), cw);
         drop(cache);
         update_managed_hwnds_cache();
         cw
       }
-      None => {
-        crate::windows::show_error(&format!(
-          "janq: Window not found for app: {} (class: {})\n\nIf the app is not running, janq will attempt to start it on the next toggle.",
-          app_name, app_cfg.window_class
-        ));
-        return false;
-      }
+      None => return false,
     }
   };
 
@@ -546,7 +524,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   {
     let cache = get_app_cache().read().unwrap();
     for (name, cw) in cache.iter() {
-      if name == app_name {
+      if &**name == app_name {
         continue;
       }
       unsafe {
@@ -566,7 +544,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   {
     let mut v = visible_app_lock().write().unwrap();
     if should_show {
-      *v = Some(app_name.to_string());
+      *v = Some(std::sync::Arc::from(app_name));
     } else {
       *v = None;
       let fg_window = unsafe { GetForegroundWindow() };
@@ -584,7 +562,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
   // The animation task will use get_last_external_focus() to know where to return.
 
   let config_shared = config.clone();
-  let app_name_clone = app_name.to_string();
+  let app_name_clone: std::sync::Arc<str> = std::sync::Arc::from(app_name);
 
   // Ensure the animation cancel flag is reset before starting a new task.
   get_animation_cancel().store(false, std::sync::atomic::Ordering::SeqCst);

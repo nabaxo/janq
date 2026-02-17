@@ -294,14 +294,14 @@ pub async fn run_daemon(
                 // App still exists, but check if class changed
                 if new_app_cfg.window_class != old_app_cfg.window_class {
                   // Collect cached HWND before removing
-                  if let Some(cw) = cache.remove(name) {
+                  if let Some(cw) = cache.remove(name.as_str()) {
                     to_restore.push(cw);
                   }
                 }
               }
               None => {
                 // App removed - collect cached HWND and clear cache
-                if let Some(cw) = cache.remove(name) {
+                if let Some(cw) = cache.remove(name.as_str()) {
                   to_restore.push(cw);
                 }
               }
@@ -490,7 +490,7 @@ pub async fn run_daemon(
             if cfg.window.auto_hide {
               if let Some(visible_app) = crate::windows::window::get_visible_app() {
                 let cfg_clone = cfg.clone();
-                let app_name = visible_app.clone();
+                let app_name = visible_app.to_string();
                 tokio::task::spawn_blocking(move || {
                   // Final safety check: Only toggle if the window is STILL the visible app.
                   // If the user hotkeyed to hide, VISIBLE_APP is already None.
@@ -575,6 +575,7 @@ pub async fn run_daemon(
                 exit(0);
               } else {
                 let target = crate::windows::window::get_visible_app()
+                  .map(|a| a.to_string())
                   .or_else(|| cfg.app.keys().next().cloned());
 
                 if let Some(app_name) = target {
@@ -604,7 +605,7 @@ pub async fn run_daemon(
 
                 if already_spawning {
                   false
-                } else if let Some(hwnd) = cache.get(name) {
+                } else if let Some(hwnd) = cache.get(name.as_str()) {
                   let is_alive = IsWindow(Some(hwnd.hwnd)).as_bool();
                   if is_alive {
                     let mut pid = 0;

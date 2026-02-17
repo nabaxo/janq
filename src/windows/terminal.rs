@@ -55,10 +55,10 @@ pub fn ensure_terminal_running(
   }
 
   // 1. Check if window already exists
-  if let Some(cw) = find_window_by_process(&app_cfg.window_class, candidates) {
+  if let Some(cw) = find_window_by_process(&app_cfg.window_class, candidates, Some(app_name)) {
     {
       let mut cache = get_app_cache().write().unwrap();
-      cache.insert(app_name.to_string(), cw);
+      cache.insert(std::sync::Arc::from(app_name), cw);
     }
     update_managed_hwnds_cache();
 
@@ -122,12 +122,12 @@ pub fn ensure_terminal_running(
     // Poll for window with linear backoff to save CPU/Battery
     std::thread::sleep(Duration::from_millis(current_delay));
     let cw = {
-      if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None) {
+      if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None, Some(app_name)) {
         if unsafe { IsWindowVisible(found_cw.hwnd).as_bool() } {
           found = true;
           {
             let mut cache = get_app_cache().write().unwrap();
-            cache.insert(app_name.to_string(), found_cw);
+            cache.insert(std::sync::Arc::from(app_name), found_cw);
           }
           update_managed_hwnds_cache();
           Some(found_cw)

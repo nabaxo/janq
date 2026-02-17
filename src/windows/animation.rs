@@ -257,7 +257,7 @@ pub fn run_animation_task_sync(
             };
             let sib_slide = sib_app_name
               .as_ref()
-              .and_then(|name| config.app.get(name))
+              .and_then(|name| config.app.get(name.as_ref()))
               .map(|a| a.resolve_slide_config(&config.window))
               .unwrap_or_else(|| (SlideDirection::Top, PositionOffset::Center));
 
@@ -280,7 +280,7 @@ pub fn run_animation_task_sync(
 
             let (target_dur_ms, target_easing, sib_anim_op, sib_no_brd) = sib_app_name
               .as_ref()
-              .and_then(|name| config.app.get(name))
+              .and_then(|name| config.app.get(name.as_ref()))
               .map(|a| {
                 (
                   config.animation.hide_duration,

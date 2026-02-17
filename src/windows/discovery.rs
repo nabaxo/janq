@@ -13,12 +13,15 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::windows::window::{is_managed_process, is_suitable_target, CachedWindow};
+use crate::windows::window::{is_suitable_target, CachedWindow};
 use janq::matching::{fuzzy_match_window, FoundWindow};
+
+use std::sync::Arc;
 
 /// Context struct for EnumWindows callback.
 pub struct TargetSearch {
   pub found_data: Vec<FoundWindow>,
+  pub cache_snapshot: Vec<(Arc<str>, usize)>, // app_name, hwnd
 }
 
 /// EnumWindows callback that collects window information for fuzzy matching.
@@ -57,13 +60,21 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
 
   let is_visible = unsafe { IsWindowVisible(hwnd).as_bool() };
 
+  let hwnd_val = hwnd.0 as usize;
+  let manager = target_struct
+    .cache_snapshot
+    .iter()
+    .find(|(_, h)| *h == hwnd_val)
+    .map(|(name, _)| Arc::clone(name));
+
   target_struct.found_data.push(FoundWindow {
-    id: (hwnd.0 as usize).to_string(),
-    class_lowercase: class_name,
-    proc_lowercase: proc_name,
+    id: hwnd_val.to_string().into(),
+    class_lowercase: class_name.into(),
+    proc_lowercase: proc_name.into(),
     pid,
     is_visible,
-    is_managed: is_managed_process(pid),
+    is_managed: manager.is_some(),
+    managed_by: manager,
   });
 
   BOOL(1)
@@ -71,8 +82,17 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
 
 /// Fetches all visible windows from the system for fuzzy matching.
 pub fn fetch_system_windows() -> Vec<FoundWindow> {
+  let cache_snapshot = {
+    let cache = crate::windows::window::get_app_cache().read().unwrap();
+    cache
+      .iter()
+      .map(|(name, cw)| (Arc::clone(name), cw.hwnd.0 as usize))
+      .collect()
+  };
+
   let mut search = TargetSearch {
     found_data: Vec::with_capacity(128),
+    cache_snapshot,
   };
   unsafe {
     let _ = EnumWindows(
@@ -87,6 +107,7 @@ pub fn fetch_system_windows() -> Vec<FoundWindow> {
 pub fn find_window_by_process(
   name: &str,
   candidates: Option<&[FoundWindow]>,
+  requesting_app: Option<&str>,
 ) -> Option<CachedWindow> {
   let binding;
   let list = match candidates {
@@ -97,7 +118,7 @@ pub fn find_window_by_process(
     }
   };
 
-  if let Some(best) = fuzzy_match_window(name, list) {
+  if let Some(best) = fuzzy_match_window(name, list, requesting_app) {
     if let Ok(hwnd_val) = best.id.parse::<usize>() {
       return Some(CachedWindow {
         hwnd: HWND(hwnd_val as *mut _),

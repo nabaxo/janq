@@ -4,26 +4,26 @@
 //! of truth, used by both the hot-path (liveness checks) and KWin scripts.
 
 use rustc_hash::FxHashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Debug)]
 pub struct CachedWindow {
   /// The KWin window ID (e.g., "{abc-123}")
-  pub id: String,
+  pub id: Box<str>,
   /// The process ID for liveness checks via /proc
   pub pid: u32,
 }
 
-static CACHE: OnceLock<Mutex<FxHashMap<String, CachedWindow>>> = OnceLock::new();
+static CACHE: OnceLock<Mutex<FxHashMap<Arc<str>, CachedWindow>>> = OnceLock::new();
 
-pub fn get_cache() -> &'static Mutex<FxHashMap<String, CachedWindow>> {
+pub fn get_cache() -> &'static Mutex<FxHashMap<Arc<str>, CachedWindow>> {
   CACHE.get_or_init(|| Mutex::new(FxHashMap::default()))
 }
 
 /// Updates or inserts a window into the cache.
-pub fn update_cache(app_name: &str, window_id: String, pid: u32) {
+pub fn update_cache(app_name: &str, window_id: Box<str>, pid: u32) {
   let mut cache = get_cache().lock().unwrap();
-  cache.insert(app_name.to_string(), CachedWindow { id: window_id, pid });
+  cache.insert(Arc::from(app_name), CachedWindow { id: window_id, pid });
 }
 
 /// Retrieves a cached window by app name.

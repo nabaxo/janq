@@ -37,6 +37,7 @@ use tokio::time::sleep;
 use zbus::Connection;
 
 use crate::linux::cache::{get_cache, get_cached_window, remove_from_cache, update_cache};
+use crate::linux::kwin::{ensure_grabbed, restore_app, trigger_fetch_windows};
 use janq::config::{AppConfig, Config, FoundWindow};
 use janq::error::show_error;
 use janq::matching::fuzzy_match_window;
@@ -104,14 +105,16 @@ pub async fn report_metadata(payload: String) {
 ///
 /// Returns `true` if a new process was spawned, `false` if already running.
 pub async fn ensure_terminal_running(
+  app_name: &str,
   app_cfg: &AppConfig,
   config: &Config,
   conn: &Connection,
 ) -> bool {
-  ensure_terminal_running_with_candidates(app_cfg, config, conn, None).await
+  ensure_terminal_running_with_candidates(app_name, app_cfg, config, conn, None).await
 }
 
 pub async fn ensure_terminal_running_with_candidates(
+  app_name: &str,
   app_cfg: &AppConfig,
   config: &Config,
   conn: &Connection,
@@ -121,7 +124,7 @@ pub async fn ensure_terminal_running_with_candidates(
   let start_command = &app_cfg.start_command;
 
   // 1. Check if window already exists
-  if check_window_exists_with_candidates_and_managed(window_class, candidates)
+  if check_window_exists_with_candidates_and_managed(app_name, window_class, candidates)
     .await
     .is_some()
   {
@@ -144,7 +147,7 @@ pub async fn ensure_terminal_running_with_candidates(
 
     // Wait and re-check if the window exists (the other track might have finished)
     sleep(Duration::from_millis(200)).await;
-    if check_window_exists(window_class).await.is_some() {
+    if check_window_exists(app_name, window_class).await.is_some() {
       return false;
     }
   }
@@ -152,7 +155,7 @@ pub async fn ensure_terminal_running_with_candidates(
   let _guard = SpawnGuard::new(window_class);
 
   // 3. Check if process is already running
-  let process_running = check_process_running(window_class);
+  let process_running = check_process_running(app_name, window_class);
 
   if start_command.is_empty() {
     show_error(&format!(
@@ -164,16 +167,18 @@ pub async fn ensure_terminal_running_with_candidates(
 
   // 3. Process is running but no window found: Prioritize Release (un-quake)
   if process_running {
-    let _ = crate::linux::kwin::restore_app("", window_class, conn).await;
+    let _ = restore_app(app_name, window_class, conn).await;
     sleep(Duration::from_millis(400)).await;
 
     // If release uncovered an existing window, reuse it immediately
-    if let Some(id) = check_window_exists_with_candidates_and_managed(window_class, None).await {
+    if let Some(id) =
+      check_window_exists_with_candidates_and_managed(app_name, window_class, None).await
+    {
       println!(
         "janq: Recovering window {} for '{}' after release.",
         id, window_class
       );
-      let _ = crate::linux::kwin::ensure_grabbed(app_cfg, config, conn).await;
+      let _ = ensure_grabbed(app_cfg, config, conn).await;
       return true;
     }
   }
@@ -207,11 +212,13 @@ pub async fn ensure_terminal_running_with_candidates(
 
   // Wait for window to appear (more reliable than just process)
   for i in 0..20 {
-    if let Some(_id) = check_window_exists_with_candidates_and_managed(window_class, None).await {
+    if let Some(_id) =
+      check_window_exists_with_candidates_and_managed(app_name, window_class, None).await
+    {
       // Give it a moment to finalize
       tokio::time::sleep(Duration::from_millis(500)).await;
       // Call ensure_grabbed (async)
-      let _ = crate::linux::kwin::ensure_grabbed(app_cfg, config, conn).await;
+      let _ = ensure_grabbed(app_cfg, config, conn).await;
       return true;
     }
     if i % 5 == 0 && i > 0 {
@@ -224,7 +231,7 @@ pub async fn ensure_terminal_running_with_candidates(
   }
 
   // Fallback: check if process is at least running
-  if check_process_running(window_class) {
+  if check_process_running(app_name, window_class) {
     println!(
       "janq: Process for '{}' is running, but no window appeared after 8 seconds. This might be a configuration issue. Retrying next toggle.",
       window_class
@@ -243,29 +250,31 @@ pub async fn ensure_terminal_running_with_candidates(
 // Window Discovery
 // =============================================================================
 
-pub async fn check_window_exists(target_class: &str) -> Option<String> {
-  check_window_exists_with_candidates(target_class, None).await
+pub async fn check_window_exists(app_name: &str, target_class: &str) -> Option<Box<str>> {
+  check_window_exists_with_candidates(app_name, target_class, None).await
 }
 
 pub async fn check_window_exists_with_candidates(
+  app_name: &str,
   target_class: &str,
   candidates: Option<&[FoundWindow]>,
-) -> Option<String> {
-  check_window_exists_with_candidates_and_managed(target_class, candidates).await
+) -> Option<Box<str>> {
+  check_window_exists_with_candidates_and_managed(app_name, target_class, candidates).await
 }
 
 pub async fn check_window_exists_with_candidates_and_managed(
+  app_name: &str,
   target_class: &str,
   candidates: Option<&[FoundWindow]>,
-) -> Option<String> {
+) -> Option<Box<str>> {
   // 1. If candidates are provided (batch search), use them immediately
   if let Some(list) = candidates {
-    return fuzzy_match_window(target_class, list).map(|w| w.id);
+    return fuzzy_match_window(target_class, list, Some(app_name)).map(|w| w.id.clone());
   }
 
   // 2. Hot path: Check cache and verify liveness
   {
-    if let Some(cached) = get_cached_window(target_class) {
+    if let Some(cached) = get_cached_window(app_name) {
       if !cached.id.is_empty() && process::is_process_running(cached.pid, None) {
         // Process is alive, trust the cached window ID
         return Some(cached.id.clone());
@@ -278,10 +287,10 @@ pub async fn check_window_exists_with_candidates_and_managed(
   // 3. Fallback: Full system fetch and fuzzy match
   let all_windows = fetch_system_windows_async().await;
 
-  if let Some(best) = fuzzy_match_window(target_class, &all_windows) {
+  if let Some(best) = fuzzy_match_window(target_class, &all_windows, Some(app_name)) {
     // Update cache
-    update_cache(target_class, best.id.clone(), best.pid);
-    return Some(best.id);
+    update_cache(app_name, best.id.clone(), best.pid);
+    return Some(best.id.clone());
   }
 
   None
@@ -308,7 +317,7 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
     None => return windows,
   };
 
-  if let Err(e) = crate::linux::kwin::trigger_fetch_windows(&conn, request_id).await {
+  if let Err(e) = trigger_fetch_windows(&conn, request_id).await {
     show_error(&format!(
       "janq: Failed to trigger window fetch script: {}",
       e
@@ -331,7 +340,17 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
     }
   };
 
+  use std::sync::Arc;
+
   // 4. Transform into FoundWindow objects
+  let cache_snapshot: Vec<(Arc<str>, Box<str>)> = {
+    let cache = get_cache().lock().unwrap();
+    cache
+      .iter()
+      .map(|(k, v)| (Arc::clone(k), v.id.clone()))
+      .collect()
+  };
+
   for line in batch.raw.split(';') {
     if line.is_empty() {
       continue;
@@ -367,52 +386,55 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
       }
     }
 
+    let manager = cache_snapshot
+      .iter()
+      .find(|(_, cached_id)| &**cached_id == id)
+      .map(|(name, _)| Arc::clone(name));
+
     windows.push(FoundWindow {
-      id: id.to_string(),
-      class_lowercase: class,
-      proc_lowercase,
+      id: id.into(),
+      class_lowercase: class.into(),
+      proc_lowercase: proc_lowercase.into(),
       pid,
       is_visible,
-      is_managed: {
-        let cache = get_cache().lock().unwrap();
-        cache.values().any(|c| c.id == id)
-      },
+      is_managed: manager.is_some(),
+      managed_by: manager,
     });
   }
 
   windows
 }
 
-pub async fn is_window_valid(window_class: &str, id: &str) -> bool {
+pub async fn is_window_valid(app_name: &str, id: &str) -> bool {
   if id.is_empty() {
     return false;
   }
 
   // 1. Fast path: Check cache
-  if let Some(cached) = get_cached_window(window_class) {
-    if cached.id == id && process::is_process_running(cached.pid, None) {
+  if let Some(cached) = get_cached_window(app_name) {
+    if &*cached.id == id && process::is_process_running(cached.pid, None) {
       return true;
     }
   }
 
   // 2. Fallback: full system fetch
   let windows = fetch_system_windows_async().await;
-  windows.iter().any(|w| w.id == id)
+  windows.iter().any(|w| &*w.id == id)
 }
 
-pub fn get_pid_for_class(target_class: &str) -> Option<u32> {
-  get_cached_window(target_class).map(|c| c.pid)
+pub fn get_pid_for_app(app_name: &str) -> Option<u32> {
+  get_cached_window(app_name).map(|c| c.pid)
 }
 
-pub fn check_process_running(target_class: &str) -> bool {
-  // 1. Fast path: Check cached PID for this specific class
-  if let Some(cached) = get_cached_window(target_class) {
+pub fn check_process_running(app_name: &str, target_class: &str) -> bool {
+  // 1. Fast path: Check cached PID for this specific app
+  if let Some(cached) = get_cached_window(app_name) {
     if process::is_process_running(cached.pid, None) {
       return true;
     }
   }
-  // If we're here, cache was invalid or empty for this class
-  remove_from_cache(target_class);
+  // If we're here, cache was invalid or empty for this app
+  remove_from_cache(app_name);
 
   // 2. Slow path: Iterate /proc
   let procs = match fs::read_dir("/proc") {
@@ -430,8 +452,19 @@ pub fn check_process_running(target_class: &str) -> bool {
         }
 
         if verify_pid_matches(pid, target_class) {
-          update_cache(target_class, String::new(), pid);
-          return true;
+          // Identity Guard: Only claim this PID if it's not already owned by another app.
+          // This prevents apps from "stealing" each other's processes if they share a class.
+          let already_owned = {
+            let cache = get_cache().lock().unwrap();
+            cache
+              .iter()
+              .any(|(name, c)| c.pid == pid && &**name != app_name)
+          };
+
+          if !already_owned {
+            update_cache(app_name, String::new().into(), pid);
+            return true;
+          }
         }
       }
     }

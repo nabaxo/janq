@@ -52,12 +52,15 @@ use ksni::{self, MenuItem, Tray, TrayMethods};
 use std::process::id;
 
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
-use crate::linux::hotkey::sync_kde_shortcuts;
+use crate::linux::hotkey::{normalize_shortcut_for_kde, sync_kde_shortcuts};
 use crate::linux::kwin::{
-  clear_removed_apps_from_cache, get_visible_app, grab_apps, init as init_kwin, reset_visibility,
-  restore_app, restore_quake, sync_kwin_rules, toggle_quake,
+  clear_removed_apps_from_cache, get_visible_app, grab_apps, init as init_kwin,
+  report_active_window as kwin_report_active, reset_visibility, restore_app, restore_quake,
+  sync_kwin_rules, toggle_quake,
 };
-use crate::linux::terminal::ensure_terminal_running;
+use crate::linux::terminal::{
+  ensure_terminal_running, report_metadata as terminal_report_metadata,
+};
 
 use janq::config::Config;
 use janq::config_watcher;
@@ -107,7 +110,7 @@ impl QuakeApplication {
     // Ensure the app is running before toggling (critical for D-Bus activation)
     let config = { self.config.read().unwrap().clone() };
     if let Some(app_cfg) = config.app.get(&action_name) {
-      let _ = ensure_terminal_running(app_cfg, &config, &self.conn).await;
+      let _ = ensure_terminal_running(&action_name, app_cfg, &config, &self.conn).await;
     }
 
     let daemon = QuakeDaemon {
@@ -152,12 +155,12 @@ impl QuakeDaemon {
 
   #[zbus(name = "ReportWindowMetadata")]
   async fn report_window_metadata(&self, payload: String) {
-    crate::linux::terminal::report_metadata(payload).await;
+    terminal_report_metadata(payload).await;
   }
 
   #[zbus(name = "ReportActiveWindow")]
   async fn report_active_window(&self, payload: String) {
-    crate::linux::kwin::report_active_window(payload).await;
+    kwin_report_active(payload).await;
   }
 }
 
@@ -240,6 +243,7 @@ impl Tray for JanqTray {
     tokio::spawn(async move {
       let target = get_visible_app()
         .await
+        .map(|a| a.to_string())
         .or_else(|| config.app.keys().next().cloned());
 
       if let Some(app_name) = target {
@@ -287,7 +291,7 @@ impl Tray for JanqTray {
       // 1. Get and normalize the shortcut using hotkey.rs logic
       let hotkeys = config.app.get(&name).unwrap().hotkey.as_vec();
       let (shortcut_vec, normalized_str) = if !hotkeys.is_empty() {
-        let normalized = crate::linux::hotkey::normalize_shortcut_for_kde(&hotkeys[0]);
+        let normalized = normalize_shortcut_for_kde(&hotkeys[0]);
 
         // Just split and trim, no more "Super" or "Control" hardcoding
         let parts: Vec<String> = normalized
@@ -463,7 +467,7 @@ pub async fn run_daemon(
         sleep(Duration::from_millis(200)).await;
       }
       if let Some(app_cfg) = cfg.app.get(name) {
-        let _ = ensure_terminal_running(app_cfg, &cfg, &conn).await;
+        let _ = ensure_terminal_running(name, app_cfg, &cfg, &conn).await;
       }
     }
 
@@ -544,7 +548,7 @@ pub async fn run_daemon(
       reset_visibility(&new_config_in_async).await;
 
       // Sync KWin Rules ALWAYS on any valid reload to ensure icons stay fresh
-      let _ = crate::linux::kwin::sync_kwin_rules(&new_config_in_async);
+      let _ = sync_kwin_rules(&new_config_in_async);
 
       // 2. Ensure all terminals are running and grabbed
       let mut apps_for_grabbing = Vec::new();
@@ -553,7 +557,7 @@ pub async fn run_daemon(
           println!("Watcher: New app detected: {}. Starting terminal...", name);
         }
         // We ensure terminal is running for ALL apps (in case one crashed)
-        let _ = ensure_terminal_running(app_cfg, &new_config_in_async, &conn_in_async).await;
+        let _ = ensure_terminal_running(name, app_cfg, &new_config_in_async, &conn_in_async).await;
         apps_for_grabbing.push((app_cfg, &new_config_in_async));
       }
       let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
@@ -589,7 +593,7 @@ pub async fn run_daemon(
 
       if hotkeys_changed || desktop_changed {
         println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
-        let _ = crate::linux::kwin::sync_kwin_rules(&new_config_in_async);
+        let _ = sync_kwin_rules(&new_config_in_async);
         if let Err(e) = sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await {
           show_error(&format!("Watcher: Failed to sync shortcuts: {}", e));
         }

@@ -41,12 +41,14 @@ use tokio::{
 use zbus::{names::BusName, names::InterfaceName, zvariant::ObjectPath, Connection};
 
 use crate::linux::cache::{get_cached_window, remove_from_cache, update_cache};
+use crate::linux::desktop::find_desktop_file_id;
 use crate::linux::terminal::{
-  check_window_exists, check_window_exists_with_candidates, fetch_system_windows,
-  get_pid_for_class, is_window_valid,
+  check_window_exists, check_window_exists_with_candidates, ensure_terminal_running,
+  fetch_system_windows, get_pid_for_app, is_window_valid,
 };
 use janq::config::{AppConfig, Config, Framerate, PositionOffset, SlideDirection};
 use janq::error::Result;
+use janq::format_error_boxed;
 
 // =============================================================================
 // Linux Animation Logic
@@ -189,17 +191,17 @@ async fn run_kwin_script(
 /// Internal state tracking for the toggle engine.
 struct KWinState {
   /// Currently visible janq app name, or None if all hidden.
-  visible_app: Option<String>,
+  visible_app: Option<std::sync::Arc<str>>,
   /// Window ID that had focus before janq showed a window.
   /// Used to restore focus when hiding.
-  previous_window_id: String,
+  previous_window_id: Option<Box<str>>,
   /// Maximum detected display refresh rate for smooth animation.
   max_refresh_rate: f64,
 }
 
 static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
   visible_app: None,
-  previous_window_id: String::new(),
+  previous_window_id: None,
   max_refresh_rate: 60.0,
 });
 
@@ -406,10 +408,10 @@ async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn
   }
 
   // Focus is on an external window, save it as the restoration target
-  state.previous_window_id = current_id;
+  state.previous_window_id = Some(current_id.into());
 }
 
-async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u32)> {
+async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(Box<str>, u32)> {
   // 1. Check Cache
   if let Some(cached) = get_cached_window(app_name) {
     // Verify PID liveness via /proc
@@ -419,8 +421,8 @@ async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u
   }
 
   // 2. Fallback to Search
-  if let Some(id) = check_window_exists(class).await {
-    let pid = get_pid_for_class(class).unwrap_or(0);
+  if let Some(id) = check_window_exists(app_name, class).await {
+    let pid = get_pid_for_app(app_name).unwrap_or(0);
     // 3. Update Cache
     update_cache(app_name, id.clone(), pid);
     return Some((id, pid));
@@ -432,7 +434,7 @@ async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(String, u
 // Toggle Logic
 // =============================================================================
 
-pub async fn get_visible_app() -> Option<String> {
+pub async fn get_visible_app() -> Option<std::sync::Arc<str>> {
   STATE.lock().await.visible_app.clone()
 }
 
@@ -444,16 +446,16 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     None => return Ok(()),
   };
 
-  let is_currently_visible = state.visible_app.as_deref() == Some(app_name);
+  let mut is_currently_visible = state.visible_app.as_deref() == Some(app_name);
 
   // If we think it's visible, verify the window still exists
   if is_currently_visible {
     let (target_id, _) = get_window_id_and_pid(app_name, &app_cfg.window_class)
       .await
-      .unwrap_or((String::new(), 0));
-    if target_id.is_empty() || !is_window_valid(&app_cfg.window_class, &target_id).await {
+      .unwrap_or_else(|| ("".into(), 0));
+    if target_id.is_empty() || !is_window_valid(app_name, &target_id).await {
       state.visible_app = None;
-      return Ok(()); // Just reset state, don't immediately try to show/spawn.
+      is_currently_visible = false;
     }
   }
 
@@ -467,7 +469,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     }
 
     // Check cache for this sibling's window ID
-    if let Some(cached) = crate::linux::cache::get_cached_window(name) {
+    if let Some(cached) = get_cached_window(name) {
       if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
         let anim_parts = get_animation_parts(other_app, config);
 
@@ -487,11 +489,11 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     .collect();
 
   if should_show {
-    let _ = crate::linux::terminal::ensure_terminal_running(app_cfg, config, conn).await;
+    let _ = ensure_terminal_running(app_name, app_cfg, config, conn).await;
     update_focus_state(&mut state, &janq_classes, conn).await;
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class)
       .await
-      .unwrap_or((String::new(), 0));
+      .unwrap_or(("".into(), 0));
 
     let effective_hz = match config.animation.framerate {
       Framerate::Auto => state.max_refresh_rate,
@@ -514,13 +516,17 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
       effective_hz,
     )
     .await?;
-    state.visible_app = Some(app_name.to_string());
+    state.visible_app = Some(app_name.into());
   } else {
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class)
       .await
-      .unwrap_or((String::new(), 0));
+      .unwrap_or(("".into(), 0));
 
-    let prev_id = state.previous_window_id.clone();
+    let prev_id = state
+      .previous_window_id
+      .as_deref()
+      .unwrap_or("")
+      .to_string();
 
     let effective_hz = match config.animation.framerate {
       Framerate::Auto => state.max_refresh_rate,
@@ -608,7 +614,7 @@ async fn run_toggle_script(
 
   run_kwin_script(conn, "janq_toggle_engine", &script_content, None)
     .await
-    .map_err(|e| janq::format_error_boxed!("{}", e))
+    .map_err(|e| format_error_boxed!("{}", e))
 }
 
 pub async fn ensure_grabbed(app_cfg: &AppConfig, config: &Config, conn: &Connection) -> Result<()> {
@@ -630,15 +636,16 @@ pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Res
       .unwrap_or("");
 
     let (target_id, target_pid) = if let Some(id) =
-      check_window_exists_with_candidates(&app_cfg.window_class, Some(&all_windows[..])).await
+      check_window_exists_with_candidates(app_name, &app_cfg.window_class, Some(&all_windows[..]))
+        .await
     {
-      let pid = get_pid_for_class(&app_cfg.window_class).unwrap_or(0);
+      let pid = get_pid_for_app(app_name).unwrap_or(0);
       if !app_name.is_empty() {
         update_cache(app_name, id.clone(), pid);
       }
       (id, pid)
     } else {
-      (String::new(), 0)
+      ("".into(), 0)
     };
 
     let (width_res, height_res) = app_cfg.resolve_dimensions(&config.window);
@@ -686,13 +693,13 @@ pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Res
     Some(Duration::ZERO),
   )
   .await
-  .map_err(|e| janq::format_error_boxed!("{}", e))
+  .map_err(|e| format_error_boxed!("{}", e))
 }
 
 pub async fn restore_app(app_name: &str, window_class: &str, conn: &Connection) -> Result<()> {
-  let (id, pid) = crate::linux::cache::get_cached_window(app_name)
+  let (id, pid) = get_cached_window(app_name)
     .map(|c| (c.id, c.pid))
-    .unwrap_or((String::new(), 0));
+    .unwrap_or_else(|| ("".into(), 0));
 
   let mut script_content =
     String::with_capacity(RESTORE_TEMPLATE.len() + COMMON_KWIN_JS.len() + 128);
@@ -736,7 +743,7 @@ pub async fn restore_quake(config: &Config, conn: &Connection) -> Result<()> {
 pub async fn reset_visibility(config: &Config) {
   let mut state = STATE.lock().await;
   if let Some(app) = &state.visible_app {
-    if !config.app.contains_key(app) {
+    if !config.app.contains_key(&**app) {
       println!(
         "Visibility: Currently visible app '{}' removed from config, resetting state.",
         app
@@ -775,8 +782,7 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
     if config.window.kde_window_rules.unwrap_or(true) {
       let default_id = "dev.nabaxo.janq".to_string();
       for app_cfg in config.app.values() {
-        let id = crate::linux::desktop::find_desktop_file_id(&app_cfg.window_class)
-          .unwrap_or_else(|| default_id.clone());
+        let id = find_desktop_file_id(&app_cfg.window_class).unwrap_or_else(|| default_id.clone());
         group_map
           .entry(id)
           .or_default()
