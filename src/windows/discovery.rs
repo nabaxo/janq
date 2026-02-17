@@ -6,7 +6,6 @@
 use windows::core::BOOL;
 use windows::Win32::{
   Foundation::{CloseHandle, HWND, LPARAM},
-  Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED},
   System::{
     ProcessStatus::GetModuleBaseNameW,
     Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
@@ -14,10 +13,8 @@ use windows::Win32::{
   UI::WindowsAndMessaging::*,
 };
 
-use crate::windows::window::{get_hidden_owner, is_managed_process, CachedWindow};
-use janq::matching::{
-  fuzzy_match_window, u16_contains_ascii_ignore_case, u16_eq_ascii_ignore_case, FoundWindow,
-};
+use crate::windows::window::{is_managed_process, is_suitable_target, CachedWindow};
+use janq::matching::{fuzzy_match_window, FoundWindow};
 
 /// Context struct for EnumWindows callback.
 pub struct TargetSearch {
@@ -28,39 +25,8 @@ pub struct TargetSearch {
 pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
   let target_struct = &mut *(lparam.0 as *mut TargetSearch);
 
-  unsafe {
-    // 1. Instant check: Style (ignore tool windows, shadows, etc)
-    let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-    if (style & WS_EX_TOOLWINDOW.0) != 0 {
-      return BOOL(1);
-    }
-
-    // 2. Instant check: Ownership (ignore child/helper windows that have an owner)
-    // Most 'main' app windows are unowned (GetWindow(hwnd, GW_OWNER) == NULL)
-    // Exception: Allow windows owned by our hidden owner (already managed by janq)
-    let owner = GetWindow(hwnd, GW_OWNER).map(|h| h.0 as usize).unwrap_or(0);
-    if owner != 0 {
-      let our_owner = get_hidden_owner().map(|h| h.0 as usize).unwrap_or(0);
-      if owner != our_owner {
-        return BOOL(1);
-      }
-    }
-
-    // 2. Instant check: Visibility
-    // Note: We still want to catch windows that are "parked" (IsWindowVisible == false)
-    // but for the INITIAL enumeration during hotkey trigger,
-    // we often prioritize visible ones. Actually, the current logic is to collect
-    // ALL so we can fuzzy match them. But we can skip obvious system "ghost" windows.
-    let mut cloaked: u32 = 0;
-    let dwm_result = DwmGetWindowAttribute(
-      hwnd,
-      DWMWA_CLOAKED,
-      &mut cloaked as *mut u32 as *mut _,
-      std::mem::size_of::<u32>() as u32,
-    );
-    if dwm_result.is_ok() && cloaked != 0 {
-      return BOOL(1);
-    }
+  if !is_suitable_target(hwnd) {
+    return BOOL(1);
   }
 
   let mut pid = 0;
@@ -72,30 +38,6 @@ pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> B
   let mut class_buffer = [0u16; 256];
   let class_len = unsafe { GetClassNameW(hwnd, &mut class_buffer) } as usize;
   let class_slice = &class_buffer[..class_len];
-
-  let mut title_buf = [0u16; 512];
-  let title_len = unsafe { GetWindowTextW(hwnd, &mut title_buf) };
-  let has_title = title_len > 0;
-
-  // Filter out known junk classes (Case-insensitive ASCII comparisons on u16 stack buffer)
-  if u16_contains_ascii_ignore_case(class_slice, "nvopengl")
-    || u16_contains_ascii_ignore_case(class_slice, "wgpu")
-    || u16_eq_ascii_ignore_case(class_slice, "ime")
-    || u16_eq_ascii_ignore_case(class_slice, "msctfime ui")
-    || u16_contains_ascii_ignore_case(class_slice, "gdi+ hooks")
-    || u16_eq_ascii_ignore_case(class_slice, "progman")
-    || u16_eq_ascii_ignore_case(class_slice, "workerw")
-    || u16_contains_ascii_ignore_case(class_slice, "shell_traywnd")
-    || u16_contains_ascii_ignore_case(class_slice, "shell_secondarytraywnd")
-    || u16_contains_ascii_ignore_case(class_slice, "windows.ui.core.corewindow")
-    || ((u16_contains_ascii_ignore_case(class_slice, "chrome_widgetwin")
-      || u16_contains_ascii_ignore_case(class_slice, "nativehwndhost"))
-      && !has_title)
-    || u16_contains_ascii_ignore_case(class_slice, "tooltip")
-    || u16_contains_ascii_ignore_case(class_slice, "ghost")
-  {
-    return BOOL(1);
-  }
 
   // Only allocate and convert strings if we passed the initial junk filter
   let class_name = String::from_utf16_lossy(class_slice).to_lowercase();

@@ -20,24 +20,34 @@
 //! `HWND_CACHE` maps app names to their window handles for fast toggle
 //! and restoration on daemon exit.
 
-use rustc_hash::FxHashMap;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::{Mutex, OnceLock, RwLock};
-
-use windows::core::BOOL;
-use windows::Win32::{
-  Foundation::{HWND, LPARAM, RECT, WPARAM},
-  Graphics::Gdi::{HDC, HMONITOR},
-  System::Threading::AttachThreadInput,
-  UI::{Accessibility::*, WindowsAndMessaging::*},
+use std::sync::{
+  atomic::{AtomicBool, AtomicIsize, Ordering},
+  Mutex, OnceLock, RwLock,
 };
 
-use janq::config::Config;
+use rustc_hash::FxHashMap;
+use windows::{
+  core::BOOL,
+  Win32::{
+    Foundation::{HWND, LPARAM, RECT, WPARAM},
+    Graphics::{
+      Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED},
+      Gdi::{HDC, HMONITOR},
+    },
+    System::Threading::{AttachThreadInput, GetCurrentThreadId},
+    UI::{Accessibility::*, WindowsAndMessaging::*},
+  },
+};
+
+use janq::{
+  config::Config,
+  matching::{u16_contains_ascii_ignore_case, u16_eq_ascii_ignore_case},
+};
 
 // Re-export from submodules
-pub use super::discovery::{fetch_system_windows, find_window_by_process};
-pub use super::parking::{
-  park_window, release_windows, reset_visible_app, restore_window_visibility,
+pub use super::{
+  discovery::{fetch_system_windows, find_window_by_process},
+  parking::{park_window, release_windows, reset_visible_app, restore_window_visibility},
 };
 
 // =============================================================================
@@ -63,18 +73,82 @@ pub fn is_shell_window(hwnd: HWND) -> bool {
     return true;
   }
   unsafe {
-    let mut class_buf = [0u16; 256];
-    let len = GetClassNameW(hwnd, &mut class_buf);
+    let mut class_buffer = [0u16; 256];
+    let len = GetClassNameW(hwnd, &mut class_buffer);
     if len == 0 {
       return false;
     }
-    let class_name = String::from_utf16_lossy(&class_buf[..len as usize]).to_lowercase();
-    class_name == "progman"
-      || class_name == "workerw"
-      || class_name == "shell_traywnd"
-      || class_name == "shell_secondarytraywnd"
-      || class_name == "#32768" // Menu
-      || class_name == "windows.ui.core.corewindow"
+    let class_slice = &class_buffer[..len as usize];
+
+    if
+    // 1. Core Shell Components
+    u16_eq_ascii_ignore_case(class_slice, "progman")
+        || u16_eq_ascii_ignore_case(class_slice, "workerw")
+        || u16_eq_ascii_ignore_case(class_slice, "shell_traywnd")
+        || u16_eq_ascii_ignore_case(class_slice, "shell_secondarytraywnd")
+        || u16_eq_ascii_ignore_case(class_slice, "windows.ui.core.corewindow")
+        // 2. Transients & Overlays (Alt-Tab, Menus, Tooltips)
+        || u16_eq_ascii_ignore_case(class_slice, "#32768") // Menu
+        || u16_eq_ascii_ignore_case(class_slice, "multitaskingviewframe")
+        || u16_eq_ascii_ignore_case(class_slice, "taskswitcherwnd")
+        || u16_eq_ascii_ignore_case(class_slice, "droplist")
+        || u16_contains_ascii_ignore_case(class_slice, "tooltip")
+        || u16_contains_ascii_ignore_case(class_slice, "ghost")
+        // 3. Technical junk (Graphics hooks, IMEs)
+        || u16_contains_ascii_ignore_case(class_slice, "nvopengl")
+        || u16_contains_ascii_ignore_case(class_slice, "wgpu")
+        || u16_eq_ascii_ignore_case(class_slice, "ime")
+        || u16_eq_ascii_ignore_case(class_slice, "msctfime ui")
+        || u16_contains_ascii_ignore_case(class_slice, "gdi+ hooks")
+        // 4. Browsers/Frameworks often have un-titled helper windows
+        || ((u16_contains_ascii_ignore_case(class_slice, "chrome_widgetwin")
+          || u16_contains_ascii_ignore_case(class_slice, "nativehwndhost"))
+          && GetWindowTextW(hwnd, &mut [0u16; 128]) == 0)
+    {
+      return true;
+    }
+
+    false
+  }
+}
+
+/// Determines if a window is a legitimate top-level application window
+/// suitable for discovery or focus restoration.
+pub fn is_suitable_target(hwnd: HWND) -> bool {
+  if hwnd.0.is_null() || is_internal_window(hwnd) || is_shell_window(hwnd) {
+    return false;
+  }
+
+  unsafe {
+    // 1. Style check: Ignore tool windows, shadows, etc.
+    let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    if (style & WS_EX_TOOLWINDOW.0) != 0 {
+      return false;
+    }
+
+    // 2. Ownership check: Most app windows are unowned.
+    // We allow windows owned by our hidden owner (already managed).
+    let owner = GetWindow(hwnd, GW_OWNER).map(|h| h.0 as usize).unwrap_or(0);
+    if owner != 0 {
+      let our_owner = get_hidden_owner().map(|h| h.0 as usize).unwrap_or(0);
+      if owner != our_owner {
+        return false;
+      }
+    }
+
+    // 3. Cloak check: Ignore windows that are rendered but hidden (Windows 10+ states).
+    let mut cloaked: u32 = 0;
+    let dwm_result = DwmGetWindowAttribute(
+      hwnd,
+      DWMWA_CLOAKED,
+      &mut cloaked as *mut u32 as *mut _,
+      std::mem::size_of::<u32>() as u32,
+    );
+    if dwm_result.is_ok() && cloaked != 0 {
+      return false;
+    }
+
+    true
   }
 }
 
@@ -299,8 +373,8 @@ pub unsafe extern "system" fn focus_hook_proc(
     } else {
       MANAGED_APP_HAS_FOCUS.store(false, Ordering::Relaxed);
 
-      // 1. Record restoration target (skip shell/janq/menus)
-      if !is_shell_window(hwnd) && !is_internal_window(hwnd) {
+      // 1. Record restoration target (skip shell/transient/internal)
+      if is_suitable_target(hwnd) {
         LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
       }
 
@@ -380,17 +454,16 @@ pub fn force_focus(hwnd: HWND) {
       return;
     }
 
-    // 3. Robust attempt: Attach to the current foreground thread
+    // 3. Robust attempt: "Borrow" foreground status from current foreground thread
     let fg_window = GetForegroundWindow();
-    if !fg_window.0.is_null() && fg_window != hwnd {
-      let target_thread_id = GetWindowThreadProcessId(hwnd, None);
-      let current_fg_thread_id = GetWindowThreadProcessId(fg_window, None);
-
-      if target_thread_id != current_fg_thread_id {
-        let _ = AttachThreadInput(current_fg_thread_id, target_thread_id, true);
+    let current_thread_id = GetCurrentThreadId();
+    if !fg_window.0.is_null() {
+      let fg_thread_id = GetWindowThreadProcessId(fg_window, None);
+      if fg_thread_id != current_thread_id {
+        let _ = AttachThreadInput(current_thread_id, fg_thread_id, true);
         let _ = SetForegroundWindow(hwnd);
         let _ = BringWindowToTop(hwnd);
-        let _ = AttachThreadInput(current_fg_thread_id, target_thread_id, false);
+        let _ = AttachThreadInput(current_thread_id, fg_thread_id, false);
       }
     }
 

@@ -745,7 +745,7 @@ pub fn run_animation_task_sync(
         final_target_y,
         target_w,
         target_h,
-        SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOZORDER,
+        SWP_SHOWWINDOW,
       );
       let _ = ShowWindow(target_hwnd.inner(), SW_SHOW);
       force_focus(target_hwnd.inner());
