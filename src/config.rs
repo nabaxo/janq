@@ -607,7 +607,7 @@ pub enum HotkeyConfig {
 
 impl Default for HotkeyConfig {
   fn default() -> Self {
-    HotkeyConfig::Single(default_hotkey())
+    HotkeyConfig::Single(default_hotkey().to_string())
   }
 }
 
@@ -1040,8 +1040,8 @@ impl Default for AnimationConfig {
 // Defaults
 // =============================================================================
 
-fn default_hotkey() -> String {
-  "Meta+Grave".to_string()
+fn default_hotkey() -> &'static str {
+  "Meta+Grave"
 }
 
 // =============================================================================
@@ -1406,7 +1406,7 @@ mod tests {
     assert!(err
       .unwrap_err()
       .to_string()
-      .contains("Must end with '%' or 'px'"));
+      .contains("must end with '%' or 'px'"));
   }
 
   #[test]

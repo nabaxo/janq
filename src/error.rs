@@ -68,7 +68,7 @@ pub fn format_error_with_span(
 
   let mut pointer = " ".repeat(col_no.saturating_sub(1));
   pointer.push('^');
-  for _ in 1..visual_width.saturating_sub(1) {
+  for _ in 0..visual_width {
     pointer.push('~');
   }
 
@@ -100,7 +100,7 @@ pub fn format_error_with_multi_span(
 
     let mut pointer = " ".repeat(col_no.saturating_sub(1));
     pointer.push('^');
-    for _ in 1..visual_width.saturating_sub(1) {
+    for _ in 0..visual_width {
       pointer.push('~');
     }
 

@@ -32,37 +32,37 @@
 // =============================================================================
 
 /// Score for exact case-insensitive match (e.g., "wezterm" matches "wezterm")
-const SCORE_EXACT_MATCH: i32 = 10000;
+pub const SCORE_EXACT_MATCH: i32 = 10000;
 
 /// Score for substring match (e.g., "term" matches "wezterm")
-const SCORE_SUBSTRING_MATCH: i32 = 5000;
+pub const SCORE_SUBSTRING_MATCH: i32 = 5000;
 
 /// Base score for matching all characters as subsequence
-const SCORE_SUBSEQUENCE_BASE: i32 = 1000;
+pub const SCORE_SUBSEQUENCE_BASE: i32 = 1000;
 
 /// Bonus for match at start of string
-const BONUS_BOUNDARY_START: i32 = 300;
+pub const BONUS_BOUNDARY_START: i32 = 300;
 
 /// Bonus for match after separator character
-const BONUS_BOUNDARY_SEPARATOR: i32 = 250;
+pub const BONUS_BOUNDARY_SEPARATOR: i32 = 250;
 
 /// Bonus per consecutive character match (multiplied by streak count)
-const BONUS_CONSECUTIVE: i32 = 100;
+pub const BONUS_CONSECUTIVE: i32 = 100;
 
 /// Penalty per skipped character in subsequence matching
-const PENALTY_GAP: i32 = 50;
+pub const PENALTY_GAP: i32 = 50;
 
 /// Bonus for visible windows
-const BONUS_VISIBILITY: i32 = 2000;
+pub const BONUS_VISIBILITY: i32 = 2000;
 
 /// Bonus for windows already managed by janq
-const BONUS_MANAGED: i32 = 1000;
+pub const BONUS_MANAGED: i32 = 1000;
 
 /// Minimum score threshold to accept a match for a window
-const THRESHOLD_WINDOW_MATCH: i32 = 500;
+pub const THRESHOLD_WINDOW_MATCH: i32 = 500;
 
 /// Minimum score threshold for config suggestions
-const THRESHOLD_SUGGESTION: i32 = 300;
+pub const THRESHOLD_SUGGESTION: i32 = 300;
 
 // =============================================================================
 // Types
@@ -121,6 +121,54 @@ pub fn u16_eq_ascii_ignore_case(haystack: &[u16], needle: &str) -> bool {
     };
     h_lower == n.to_ascii_lowercase() as u16
   })
+}
+
+#[cfg(target_os = "windows")]
+pub fn u16_score_haystack_ascii_ignore_case(haystack: &[u16], lower_target: &str) -> i32 {
+  if haystack.is_empty() {
+    return 0;
+  }
+
+  // 1. Exact match
+  if u16_eq_ascii_ignore_case(haystack, lower_target) {
+    return SCORE_EXACT_MATCH;
+  }
+
+  // 2. Substring match
+  if u16_contains_ascii_ignore_case(haystack, lower_target) {
+    return SCORE_SUBSTRING_MATCH;
+  }
+
+  // 3. Fuzzy matching (subsequence and Levenshtein)
+  // Use a stack buffer to avoid heap allocation for the lowercased haystack.
+  // Most window classes/process names are well under 256 characters.
+  let mut buf = [0u8; 256];
+  let mut len = 0;
+  for &h in haystack.iter().take(255) {
+    let c = if h <= 127 {
+      (h as u8).to_ascii_lowercase()
+    } else {
+      // Fallback for non-ASCII: just treat as-is (best effort without full unicode table)
+      h as u8
+    };
+    buf[len] = c;
+    len += 1;
+  }
+
+  if let Ok(haystack_s) = std::str::from_utf8(&buf[..len]) {
+    // 3. Fuzzy subsequence matching
+    let score = score_subsequence(lower_target, haystack_s);
+    if score > 0 {
+      return score;
+    }
+
+    // 4. Edit distance for typos
+    let dist = levenshtein_distance(lower_target, haystack_s);
+    let typo_score = 800 - (dist as i32 * 100);
+    typo_score.max(0)
+  } else {
+    0
+  }
 }
 
 /// Calculates the Levenshtein distance between two strings using a stack-based buffer.
@@ -182,7 +230,7 @@ pub fn fuzzy_match_window(
     //    a) Are not managed by anyone yet
     //    b) Are managed by THIS requesting app
     if let Some(ref manager) = win.managed_by {
-      if requesting_app != Some(manager) {
+      if requesting_app.is_some() && requesting_app != Some(manager) {
         continue;
       }
     }
@@ -211,11 +259,10 @@ pub fn fuzzy_match_window(
       score += BONUS_VISIBILITY;
     }
 
-    // 4. Managed Bonus: Only give bonus if it's managed by the SAME app
-    if let Some(ref manager) = win.managed_by {
-      if requesting_app == Some(manager) {
-        score += BONUS_MANAGED;
-      }
+    // 4. Managed Bonus: Prefer windows already known by janq.
+    // If requesting_app is None, we apply the bonus to ANY managed window.
+    if win.is_managed && (requesting_app.is_none() || requesting_app == win.managed_by.as_deref()) {
+      score += BONUS_MANAGED;
     }
 
     if score > best_score {
@@ -247,7 +294,7 @@ fn score_haystack_lowercased(lower_target: &str, lower_haystack: &str) -> i32 {
 
   // 4. Edit distance for typos (lower priority than subsequence)
   let dist = levenshtein_distance(lower_target, lower_haystack);
-  let typo_score = 900 - (dist as i32 * 100);
+  let typo_score = 800 - (dist as i32 * 100);
   typo_score.max(0)
 }
 
@@ -364,7 +411,13 @@ pub fn suggest_similar<'a>(input: &str, valid_options: &[&'a str]) -> Option<&'a
   let mut best_option = None;
 
   for &option in valid_options {
-    let lower_option = option.to_lowercase();
+    // Optimization: avoid extra allocation if option is already lowercase
+    let lower_option = if option.chars().all(|c| !c.is_uppercase()) {
+      std::borrow::Cow::Borrowed(option)
+    } else {
+      std::borrow::Cow::Owned(option.to_lowercase())
+    };
+
     // Both directions: catches 'activ' -> 'active' AND 'actives' -> 'active'
     let score = score_haystack_with_typos(&lower_input, &lower_option)
       .max(score_haystack_with_typos(&lower_option, &lower_input));
@@ -538,15 +591,6 @@ mod tests {
     // "hlep" is a typo for "help"
     assert_eq!(suggest_similar("hlep", &options), Some("help"));
     // "activ" is substring
-    assert_eq!(suggest_similar("activ", &options), Some("active"));
-  }
-
-  #[test]
-  fn test_suggest_similar_typo() {
-    let options = vec!["help", "active", "follow-mouse"];
-    // "hlep" is a typo for "help"
-    assert_eq!(suggest_similar("hlep", &options), Some("help"));
-    // "activ" is a substring/subsequence
     assert_eq!(suggest_similar("activ", &options), Some("active"));
   }
 }

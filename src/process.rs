@@ -21,17 +21,26 @@ pub fn is_process_running(pid: u32, expected_name: Option<&str>) -> bool {
       if let Ok(handle) = handle_res {
         let mut exit_code: u32 = 0;
         let success = GetExitCodeProcess(handle, &mut exit_code);
-        let _ = CloseHandle(handle);
 
         // STILL_ACTIVE is 259
         if success.is_ok() && exit_code == 259 {
           if let Some(name) = expected_name {
-            return get_process_name(pid)
-              .map(|n| n.to_lowercase().contains(&name.to_lowercase()))
-              .unwrap_or(false);
+            let mut buffer = [0u16; 256];
+            let len =
+              windows::Win32::System::ProcessStatus::GetModuleBaseNameW(handle, None, &mut buffer);
+            let _ = CloseHandle(handle);
+            if len > 0 {
+              return crate::matching::u16_contains_ascii_ignore_case(
+                &buffer[..len as usize],
+                name,
+              );
+            }
+            return false;
           }
+          let _ = CloseHandle(handle);
           return true;
         }
+        let _ = CloseHandle(handle);
       }
     }
     false
@@ -39,17 +48,48 @@ pub fn is_process_running(pid: u32, expected_name: Option<&str>) -> bool {
 
   #[cfg(target_os = "linux")]
   {
-    let proc_path = format!("/proc/{}", pid);
-    if !std::path::Path::new(&proc_path).exists() {
+    use std::io::Read;
+
+    let mut path_buf = [0u8; 32];
+    let path = if let Ok(n) = format_proc_path(&mut path_buf, pid, "") {
+      n
+    } else {
+      return false;
+    };
+
+    if !std::path::Path::new(path).exists() {
       return false;
     }
 
     if let Some(name) = expected_name {
-      return get_process_name(pid)
-        .map(|n| n.to_lowercase().contains(&name.to_lowercase()))
-        .unwrap_or(false);
+      let mut cmd_buf = [0u8; 32];
+      if let Ok(cmd_path) = format_proc_path(&mut cmd_buf, pid, "/cmdline") {
+        if let Ok(mut f) = std::fs::File::open(cmd_path) {
+          let mut buffer = [0u8; 512];
+          if let Ok(n) = f.read(&mut buffer) {
+            if let Some(part) = buffer[..n].split(|&b| b == 0).next() {
+              if let Some(comm) = part.split(|&b| b == b'/').next_back() {
+                return comm.eq_ignore_ascii_case(name.as_bytes());
+              }
+            }
+          }
+        }
+      }
+      return false;
     }
     true
+  }
+}
+
+#[cfg(target_os = "linux")]
+fn format_proc_path<'a>(buf: &'a mut [u8], pid: u32, suffix: &str) -> Result<&'a str, ()> {
+  use std::io::Write;
+  let mut cursor = std::io::Cursor::new(buf);
+  if write!(cursor, "/proc/{}{}", pid, suffix).is_ok() {
+    let len = cursor.position() as usize;
+    std::str::from_utf8(&cursor.into_inner()[..len]).map_err(|_| ())
+  } else {
+    Err(())
   }
 }
 

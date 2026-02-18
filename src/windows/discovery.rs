@@ -109,15 +109,38 @@ pub fn find_window_by_process(
   candidates: Option<&[FoundWindow]>,
   requesting_app: Option<&str>,
 ) -> Option<CachedWindow> {
-  let binding;
-  let list = match candidates {
-    Some(c) => c,
-    None => {
-      binding = fetch_system_windows();
-      &binding
-    }
-  };
+  // Optimization: If no candidates provided, we can search directly without
+  // allocating a full Vec of all windows.
+  if candidates.is_none() {
+    let cache_snapshot = {
+      let cache = crate::windows::window::get_app_cache().read().unwrap();
+      cache
+        .iter()
+        .map(|(name, cw)| (Arc::clone(name), cw.hwnd.0 as usize))
+        .collect()
+    };
 
+    let mut search = TargetSearchDirect {
+      lower_target: name.to_lowercase(),
+      requesting_app,
+      best_score: janq::matching::THRESHOLD_WINDOW_MATCH,
+      best_hwnd: None,
+      cache_snapshot,
+    };
+
+    unsafe {
+      let _ = EnumWindows(
+        Some(enum_windows_proc_direct),
+        LPARAM(&mut search as *mut _ as isize),
+      );
+    }
+
+    return search.best_hwnd.map(|h| CachedWindow {
+      hwnd: HWND(h as *mut _),
+    });
+  }
+
+  let list = candidates.unwrap();
   if let Some(best) = fuzzy_match_window(name, list, requesting_app) {
     if let Ok(hwnd_val) = best.id.parse::<usize>() {
       return Some(CachedWindow {
@@ -127,4 +150,79 @@ pub fn find_window_by_process(
   }
 
   None
+}
+
+struct TargetSearchDirect<'a> {
+  lower_target: String,
+  requesting_app: Option<&'a str>,
+  best_score: i32,
+  best_hwnd: Option<usize>,
+  cache_snapshot: Vec<(Arc<str>, usize)>,
+}
+
+unsafe extern "system" fn enum_windows_proc_direct(hwnd: HWND, lparam: LPARAM) -> BOOL {
+  let search = &mut *(lparam.0 as *mut TargetSearchDirect);
+
+  if !is_suitable_target(hwnd) {
+    return BOOL(1);
+  }
+
+  let mut pid = 0;
+  GetWindowThreadProcessId(hwnd, Some(&mut pid));
+  if pid == 0 {
+    return BOOL(1);
+  }
+
+  let hwnd_val = hwnd.0 as usize;
+  let manager = search
+    .cache_snapshot
+    .iter()
+    .find(|(_, h)| *h == hwnd_val)
+    .map(|(name, _)| &**name);
+
+  // Identity Guard
+  if let Some(m) = manager {
+    if search.requesting_app != Some(m) {
+      return BOOL(1);
+    }
+  }
+
+  let mut class_buffer = [0u16; 256];
+  let class_len = GetClassNameW(hwnd, &mut class_buffer) as usize;
+
+  let mut proc_buffer = [0u16; 256];
+  let mut proc_len = 0;
+  if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+    proc_len = GetModuleBaseNameW(process, None, &mut proc_buffer) as usize;
+    let _ = CloseHandle(process);
+  }
+
+  let mut score = 0;
+  for (buf, len) in &[(&class_buffer, class_len), (&proc_buffer, proc_len)] {
+    if *len == 0 {
+      continue;
+    }
+    let haystack_score =
+      janq::matching::u16_score_haystack_ascii_ignore_case(&buf[..*len], &search.lower_target);
+    score = score.max(haystack_score);
+  }
+
+  if score < janq::matching::THRESHOLD_WINDOW_MATCH {
+    return BOOL(1);
+  }
+
+  if IsWindowVisible(hwnd).as_bool() {
+    score += janq::matching::BONUS_VISIBILITY;
+  }
+
+  if manager.is_some() && search.requesting_app == manager {
+    score += janq::matching::BONUS_MANAGED;
+  }
+
+  if score > search.best_score {
+    search.best_score = score;
+    search.best_hwnd = Some(hwnd_val);
+  }
+
+  BOOL(1)
 }

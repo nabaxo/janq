@@ -22,7 +22,6 @@
 
 use rustc_hash::FxHashMap;
 use std::{
-  fmt::Write,
   fs,
   process::{id, Stdio},
   sync::{
@@ -374,13 +373,21 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
 
     let mut proc_lowercase = String::new();
     if pid > 0 {
-      let mut proc_path = String::with_capacity(32);
-      let _ = write!(proc_path, "/proc/{}/cmdline", pid);
-      if let Ok(cmdline) = fs::read(&proc_path) {
-        if let Some(part) = cmdline.split(|&b| b == 0).next() {
-          let s = String::from_utf8_lossy(part);
-          if let Some(name) = s.split('/').next_back() {
-            proc_lowercase = name.to_lowercase();
+      let mut buf = [0u8; 64];
+      let path = {
+        use std::io::Write;
+        let mut cursor = std::io::Cursor::new(&mut buf[..]);
+        let _ = write!(cursor, "/proc/{}/cmdline", pid);
+        let len = cursor.position() as usize;
+        std::str::from_utf8(&buf[..len]).unwrap_or("")
+      };
+      if !path.is_empty() {
+        if let Ok(cmdline) = fs::read(path) {
+          if let Some(part) = cmdline.split(|&b| b == 0).next() {
+            let s = String::from_utf8_lossy(part);
+            if let Some(name) = s.split('/').next_back() {
+              proc_lowercase = name.to_lowercase();
+            }
           }
         }
       }
@@ -473,36 +480,54 @@ pub fn check_process_running(app_name: &str, target_class: &str) -> bool {
 }
 
 fn verify_pid_matches(pid: u32, target_class: &str) -> bool {
-  let mut path_buf = String::with_capacity(32);
-  let _ = write!(path_buf, "/proc/{}/cmdline", pid);
+  use std::io::Write;
+  let mut buf = [0u8; 64];
+  let path_len = {
+    let mut cursor = std::io::Cursor::new(&mut buf[..]);
+    let _ = write!(cursor, "/proc/{}/cmdline", pid);
+    cursor.position() as usize
+  };
+  let path = match std::str::from_utf8(&buf[..path_len]) {
+    Ok(p) => p,
+    Err(_) => return false,
+  };
 
-  if let Ok(cmdline) = fs::read(&path_buf) {
+  if let Ok(cmdline) = fs::read(path) {
     let mut iter = cmdline.split(|&b| b == 0);
     while let Some(part) = iter.next() {
-      let s = String::from_utf8_lossy(part);
-      if s == "--class" {
-        if let Some(next_part) = iter.next() {
-          if String::from_utf8_lossy(next_part).eq_ignore_ascii_case(target_class) {
+      if let Ok(s) = std::str::from_utf8(part) {
+        if s == "--class" {
+          if let Some(next_part) = iter.next() {
+            if let Ok(ns) = std::str::from_utf8(next_part) {
+              if ns.eq_ignore_ascii_case(target_class) {
+                return true;
+              }
+            }
+          }
+        } else if s.len() >= 8 && s[..8].eq_ignore_ascii_case("--class=") {
+          if s[8..].eq_ignore_ascii_case(target_class) {
             return true;
           }
-        }
-      } else if s.to_lowercase().starts_with("--class=") {
-        if s[8..].eq_ignore_ascii_case(target_class) {
-          return true;
         }
       }
     }
 
     // Binary name match: Strict or known variations (like wezterm-gui)
-    path_buf.clear();
-    let _ = write!(path_buf, "/proc/{}/exe", pid);
-    if let Ok(exe) = fs::read_link(&path_buf) {
-      if let Some(name) = exe.file_name().and_then(|n| n.to_str()) {
-        if name.eq_ignore_ascii_case(target_class)
-          || (target_class.eq_ignore_ascii_case("wezterm")
-            && name.eq_ignore_ascii_case("wezterm-gui"))
-        {
-          return true;
+    let mut exe_buf = [0u8; 64];
+    let exe_len = {
+      let mut exe_cursor = std::io::Cursor::new(&mut exe_buf[..]);
+      let _ = write!(exe_cursor, "/proc/{}/exe", pid);
+      exe_cursor.position() as usize
+    };
+    if let Ok(exe_path) = std::str::from_utf8(&exe_buf[..exe_len]) {
+      if let Ok(exe) = fs::read_link(exe_path) {
+        if let Some(name) = exe.file_name().and_then(|n| n.to_str()) {
+          if name.eq_ignore_ascii_case(target_class)
+            || (target_class.eq_ignore_ascii_case("wezterm")
+              && name.eq_ignore_ascii_case("wezterm-gui"))
+          {
+            return true;
+          }
         }
       }
     }
