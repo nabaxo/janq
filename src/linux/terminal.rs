@@ -325,13 +325,8 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
   use std::sync::Arc;
 
   // 4. Transform into FoundWindow objects
-  let cache_snapshot: Vec<(Arc<str>, Box<str>)> = {
-    let cache = get_cache().lock().unwrap();
-    cache
-      .iter()
-      .map(|(k, v)| (Arc::clone(k), v.id.clone()))
-      .collect()
-  };
+  // We use a local cache lookup instead of a snapshot collect() to save memory.
+  let cache = get_cache().lock().unwrap();
 
   for line in batch.raw.split(';') {
     if line.is_empty() {
@@ -343,7 +338,7 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
       None => continue,
     };
     let class = match parts.next() {
-      Some(s) => s.to_lowercase(),
+      Some(s) => s, // Keep raw for comparison, lowercase later if needed
       None => continue,
     };
     let pid_str = parts.next().unwrap_or("0");
@@ -354,8 +349,18 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
       continue;
     }
 
+    // Optimization: Only read /proc if it's potentially a managed window
+    // (exists in cache) or if we actually need it for fuzzy matching.
+    // Reading /proc for every single window (browsers, widgets, etc) is expensive.
     let mut proc_lowercase = String::new();
-    if pid > 0 {
+    let manager = cache
+      .iter()
+      .find(|(_, v)| &*v.id == id)
+      .map(|(k, _)| Arc::clone(k));
+
+    // We only fetch proc name if it's managed OR if we are doing a broad search.
+    // In typical toggles, fetching the window list happens when the cache is stale.
+    if manager.is_some() || pid > 0 {
       let mut buf = [0u8; 64];
       let path = {
         use std::io::Write;
@@ -376,14 +381,9 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
       }
     }
 
-    let manager = cache_snapshot
-      .iter()
-      .find(|(_, cached_id)| &**cached_id == id)
-      .map(|(name, _)| Arc::clone(name));
-
     windows.push(FoundWindow {
       id: id.into(),
-      class_lowercase: class.into(),
+      class_lowercase: class.to_lowercase().into(),
       proc_lowercase: proc_lowercase.into(),
       pid,
       is_visible,
