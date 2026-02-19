@@ -62,14 +62,15 @@ fn get_metadata_waiters() -> &'static Mutex<FxHashMap<u64, oneshot::Sender<Windo
   METADATA_WAITERS.get_or_init(|| Mutex::new(FxHashMap::default()))
 }
 
-pub async fn report_metadata(payload: String) {
-  if let Some((id_str, raw)) = payload.split_once(':') {
+pub async fn report_metadata(mut payload: String) {
+  if let Some(pos) = payload.find(':') {
+    let id_str = &payload[..pos];
     if let Ok(request_id) = id_str.parse::<u64>() {
       let mut waiters = get_metadata_waiters().lock().unwrap();
       if let Some(tx) = waiters.remove(&request_id) {
-        let _ = tx.send(WindowMetadataBatch {
-          raw: raw.to_string(),
-        });
+        // Use in-place drain to remove the "id:" prefix without a new allocation
+        payload.drain(..pos + 1);
+        let _ = tx.send(WindowMetadataBatch { raw: payload });
       }
     }
   }
