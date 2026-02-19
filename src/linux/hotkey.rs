@@ -254,13 +254,10 @@ trait KGlobalAccel {
 pub async fn register_via_dbus(
   config: &Config,
   old_config: Option<&Config>,
+  conn: &zbus::Connection,
 ) -> janq::error::Result<()> {
   let component = "dev.nabaxo.janq.desktop";
-  let conn = zbus::connection::Builder::session()?
-    .internal_executor(false)
-    .build()
-    .await?;
-  let proxy = KGlobalAccelProxy::new(&conn).await?;
+  let proxy = KGlobalAccelProxy::new(conn).await?;
 
   // 1. FAST PATH: Return immediately if state is correct
   let mut needs_refresh = false;
@@ -404,9 +401,10 @@ pub async fn register_via_dbus(
 pub async fn sync_kde_shortcuts(
   config: &Config,
   old_config: Option<&Config>,
+  conn: &zbus::Connection,
 ) -> janq::error::Result<()> {
   tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-  register_via_dbus(config, old_config).await
+  register_via_dbus(config, old_config, conn).await
 }
 
 #[cfg(test)]

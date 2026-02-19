@@ -392,21 +392,30 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
       continue;
     }
 
-    let mut proc_lowercase = String::new();
     let mut managed_by = None;
+    let mut proc_lowercase: Box<str> = "".into();
 
-    if let Some((app_name, proc_name)) = managed_lookup.get(id) {
+    if let Some((app_name, cached_proc)) = managed_lookup.get(id) {
       managed_by = Some(Arc::clone(app_name));
-      proc_lowercase = proc_name.to_string();
+      proc_lowercase = cached_proc.clone();
     } else if pid > 0 {
       // Optimization: Only read /proc for windows with a valid PID and not in cache.
-      proc_lowercase = get_proc_name_by_pid(pid).unwrap_or_default();
+      if let Some(name) = get_proc_name_by_pid(pid) {
+        proc_lowercase = name.into();
+      }
     }
+
+    // Optimization: Avoid to_lowercase() and double-allocation if the class is already lowercase.
+    let class_lowercase: Box<str> = if class.as_bytes().iter().any(|b| b.is_ascii_uppercase()) {
+      class.to_lowercase().into()
+    } else {
+      class.into()
+    };
 
     windows.push(FoundWindow {
       id: id.into(),
-      class_lowercase: class.to_lowercase().into(),
-      proc_lowercase: proc_lowercase.into(),
+      class_lowercase,
+      proc_lowercase,
       pid,
       is_visible,
       is_managed: managed_by.is_some(),

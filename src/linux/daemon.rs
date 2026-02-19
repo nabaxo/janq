@@ -452,8 +452,9 @@ pub async fn run_daemon(
     let cfg = config.read().unwrap().clone();
     let _ = generate_desktop_file(&cfg);
     let _ = sync_kwin_rules(&cfg);
+    let conn_for_shortcuts = conn.clone();
     tokio::spawn(async move {
-      let _ = sync_kde_shortcuts(&cfg, None).await;
+      let _ = sync_kde_shortcuts(&cfg, None, &conn_for_shortcuts).await;
     });
   }
 
@@ -594,7 +595,9 @@ pub async fn run_daemon(
       if hotkeys_changed || desktop_changed {
         println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
         let _ = sync_kwin_rules(&new_config_in_async);
-        if let Err(e) = sync_kde_shortcuts(&new_config_in_async, Some(&old_config)).await {
+        if let Err(e) =
+          sync_kde_shortcuts(&new_config_in_async, Some(&old_config), &conn_in_async).await
+        {
           show_error(&format!("Watcher: Failed to sync shortcuts: {}", e));
         }
       } else {
