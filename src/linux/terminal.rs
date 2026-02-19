@@ -44,27 +44,6 @@ use janq::process;
 use janq::spawn_guard::{get_spawning_apps, SpawnGuard};
 
 // =============================================================================
-// D-Bus Connection Cache (shared for window discovery)
-// =============================================================================
-
-/// Cached D-Bus connection for window discovery operations.
-/// Reusing the connection avoids repeated handshake overhead.
-static DISCOVERY_CONN: OnceLock<Connection> = OnceLock::new();
-
-async fn get_discovery_conn() -> Option<Connection> {
-  if let Some(conn) = DISCOVERY_CONN.get() {
-    return Some(conn.clone());
-  }
-  if let Ok(builder) = zbus::connection::Builder::session() {
-    if let Ok(conn) = builder.internal_executor(false).build().await {
-      let _ = DISCOVERY_CONN.set(conn.clone());
-      return Some(conn);
-    }
-  }
-  None
-}
-
-// =============================================================================
 // Batch Metadata Fetcher (D-Bus callback infrastructure)
 // =============================================================================
 
@@ -123,7 +102,7 @@ pub async fn ensure_terminal_running_with_candidates(
   let start_command = &app_cfg.start_command;
 
   // 1. Check if window already exists
-  if check_window_exists_with_candidates_and_managed(app_name, window_class, candidates)
+  if check_window_exists_with_candidates_and_managed(app_name, window_class, conn, candidates)
     .await
     .is_some()
   {
@@ -146,7 +125,10 @@ pub async fn ensure_terminal_running_with_candidates(
 
     // Wait and re-check if the window exists (the other track might have finished)
     sleep(Duration::from_millis(200)).await;
-    if check_window_exists(app_name, window_class).await.is_some() {
+    if check_window_exists(app_name, window_class, conn)
+      .await
+      .is_some()
+    {
       return false;
     }
   }
@@ -171,7 +153,7 @@ pub async fn ensure_terminal_running_with_candidates(
 
     // If release uncovered an existing window, reuse it immediately
     if let Some(id) =
-      check_window_exists_with_candidates_and_managed(app_name, window_class, None).await
+      check_window_exists_with_candidates_and_managed(app_name, window_class, conn, None).await
     {
       println!(
         "janq: Recovering window {} for '{}' after release.",
@@ -212,7 +194,7 @@ pub async fn ensure_terminal_running_with_candidates(
   // Wait for window to appear (more reliable than just process)
   for i in 0..20 {
     if let Some(_id) =
-      check_window_exists_with_candidates_and_managed(app_name, window_class, None).await
+      check_window_exists_with_candidates_and_managed(app_name, window_class, conn, None).await
     {
       // Give it a moment to finalize
       tokio::time::sleep(Duration::from_millis(500)).await;
@@ -249,21 +231,27 @@ pub async fn ensure_terminal_running_with_candidates(
 // Window Discovery
 // =============================================================================
 
-pub async fn check_window_exists(app_name: &str, target_class: &str) -> Option<Box<str>> {
-  check_window_exists_with_candidates(app_name, target_class, None).await
+pub async fn check_window_exists(
+  app_name: &str,
+  target_class: &str,
+  conn: &Connection,
+) -> Option<Box<str>> {
+  check_window_exists_with_candidates(app_name, target_class, conn, None).await
 }
 
 pub async fn check_window_exists_with_candidates(
   app_name: &str,
   target_class: &str,
+  conn: &Connection,
   candidates: Option<&[FoundWindow]>,
 ) -> Option<Box<str>> {
-  check_window_exists_with_candidates_and_managed(app_name, target_class, candidates).await
+  check_window_exists_with_candidates_and_managed(app_name, target_class, conn, candidates).await
 }
 
 pub async fn check_window_exists_with_candidates_and_managed(
   app_name: &str,
   target_class: &str,
+  conn: &Connection,
   candidates: Option<&[FoundWindow]>,
 ) -> Option<Box<str>> {
   // 1. If candidates are provided (batch search), use them immediately
@@ -284,7 +272,7 @@ pub async fn check_window_exists_with_candidates_and_managed(
   // Dead cache entry will be cleaned up in the fallback path below
 
   // 3. Fallback: Full system fetch and fuzzy match
-  let all_windows = fetch_system_windows_async().await;
+  let all_windows = fetch_system_windows_async(conn).await;
 
   if let Some(best) = fuzzy_match_window(target_class, &all_windows, Some(app_name)) {
     // Update cache
@@ -295,13 +283,13 @@ pub async fn check_window_exists_with_candidates_and_managed(
   None
 }
 
-pub async fn fetch_system_windows() -> Vec<FoundWindow> {
-  fetch_system_windows_async().await
+pub async fn fetch_system_windows(conn: &Connection) -> Vec<FoundWindow> {
+  fetch_system_windows_async(conn).await
 }
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
+pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
   let mut windows = Vec::new();
   let request_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
   let (tx, rx) = oneshot::channel();
@@ -310,13 +298,8 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
     waiters.insert(request_id, tx);
   }
 
-  // 2. Trigger KWin script (Reuse shared connection)
-  let conn = match get_discovery_conn().await {
-    Some(c) => c,
-    None => return windows,
-  };
-
-  if let Err(e) = trigger_fetch_windows(&conn, request_id).await {
+  // 2. Trigger KWin script (Use provided connection)
+  if let Err(e) = trigger_fetch_windows(conn, request_id).await {
     show_error(&format!(
       "janq: Failed to trigger window fetch script: {}",
       e
@@ -412,7 +395,7 @@ pub async fn fetch_system_windows_async() -> Vec<FoundWindow> {
   windows
 }
 
-pub async fn is_window_valid(app_name: &str, id: &str) -> bool {
+pub async fn is_window_valid(app_name: &str, id: &str, conn: &Connection) -> bool {
   if id.is_empty() {
     return false;
   }
@@ -425,7 +408,7 @@ pub async fn is_window_valid(app_name: &str, id: &str) -> bool {
   }
 
   // 2. Fallback: full system fetch
-  let windows = fetch_system_windows_async().await;
+  let windows = fetch_system_windows_async(conn).await;
   windows.iter().any(|w| &*w.id == id)
 }
 

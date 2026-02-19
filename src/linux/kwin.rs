@@ -27,7 +27,6 @@ use rustc_hash::FxHashMap;
 use std::{
   env::temp_dir,
   fs,
-  path::Path,
   process::Command,
   sync::atomic::{AtomicU64, Ordering},
   sync::{Mutex as StdMutex, OnceLock},
@@ -411,17 +410,21 @@ async fn update_focus_state(state: &mut KWinState, janq_classes: &[String], conn
   state.previous_window_id = Some(current_id.into());
 }
 
-async fn get_window_id_and_pid(app_name: &str, class: &str) -> Option<(Box<str>, u32)> {
+async fn get_window_id_and_pid(
+  app_name: &str,
+  class: &str,
+  conn: &Connection,
+) -> Option<(Box<str>, u32)> {
   // 1. Check Cache
   if let Some(cached) = get_cached_window(app_name) {
     // Verify PID liveness via /proc
-    if Path::new(&format!("/proc/{}", cached.pid)).exists() {
+    if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
       return Some((cached.id.clone(), cached.pid));
     }
   }
 
   // 2. Fallback to Search
-  if let Some(id) = check_window_exists(app_name, class).await {
+  if let Some(id) = check_window_exists(app_name, class, conn).await {
     let pid = get_pid_for_app(app_name).unwrap_or(0);
     // 3. Update Cache
     update_cache(app_name, id.clone(), pid);
@@ -450,10 +453,10 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
 
   // If we think it's visible, verify the window still exists
   if is_currently_visible {
-    let (target_id, _) = get_window_id_and_pid(app_name, &app_cfg.window_class)
+    let (target_id, _) = get_window_id_and_pid(app_name, &app_cfg.window_class, conn)
       .await
       .unwrap_or_else(|| ("".into(), 0));
-    if target_id.is_empty() || !is_window_valid(app_name, &target_id).await {
+    if target_id.is_empty() || !is_window_valid(app_name, &target_id, conn).await {
       state.visible_app = None;
       is_currently_visible = false;
     }
@@ -491,7 +494,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
   if should_show {
     let _ = ensure_terminal_running(app_name, app_cfg, config, conn).await;
     update_focus_state(&mut state, &janq_classes, conn).await;
-    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class)
+    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class, conn)
       .await
       .unwrap_or(("".into(), 0));
 
@@ -518,7 +521,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     .await?;
     state.visible_app = Some(app_name.into());
   } else {
-    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class)
+    let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class, conn)
       .await
       .unwrap_or(("".into(), 0));
 
@@ -623,7 +626,7 @@ pub async fn ensure_grabbed(app_cfg: &AppConfig, config: &Config, conn: &Connect
 
 pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Result<()> {
   println!("janq: Yoinking apps...");
-  let all_windows = fetch_system_windows().await;
+  let all_windows = fetch_system_windows(conn).await;
   let state = STATE.lock().await;
 
   let mut apps_json = Vec::new();
@@ -635,9 +638,13 @@ pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Res
       .map(|(name, _)| name.as_str())
       .unwrap_or("");
 
-    let (target_id, target_pid) = if let Some(id) =
-      check_window_exists_with_candidates(app_name, &app_cfg.window_class, Some(&all_windows[..]))
-        .await
+    let (target_id, target_pid) = if let Some(id) = check_window_exists_with_candidates(
+      app_name,
+      &app_cfg.window_class,
+      conn,
+      Some(&all_windows[..]),
+    )
+    .await
     {
       let pid = get_pid_for_app(app_name).unwrap_or(0);
       if !app_name.is_empty() {
