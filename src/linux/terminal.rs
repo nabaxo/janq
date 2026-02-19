@@ -75,6 +75,32 @@ pub async fn report_metadata(payload: String) {
   }
 }
 
+fn get_proc_name_by_pid(pid: u32) -> Option<String> {
+  if pid == 0 {
+    return None;
+  }
+  let mut buf = [0u8; 64];
+  let path = {
+    use std::io::Write;
+    let mut cursor = std::io::Cursor::new(&mut buf[..]);
+    let _ = write!(cursor, "/proc/{}/cmdline", pid);
+    let len = cursor.position() as usize;
+    std::str::from_utf8(&buf[..len]).unwrap_or("")
+  };
+
+  if !path.is_empty() {
+    if let Ok(cmdline) = fs::read(path) {
+      if let Some(part) = cmdline.split(|&b| b == 0).next() {
+        let s = String::from_utf8_lossy(part);
+        if let Some(name) = s.split('/').next_back() {
+          return Some(name.to_lowercase());
+        }
+      }
+    }
+  }
+  None
+}
+
 // =============================================================================
 // Terminal Management
 // =============================================================================
@@ -276,7 +302,12 @@ pub async fn check_window_exists_with_candidates_and_managed(
 
   if let Some(best) = fuzzy_match_window(target_class, &all_windows, Some(app_name)) {
     // Update cache
-    update_cache(app_name, best.id.clone(), best.pid);
+    update_cache(
+      app_name,
+      best.id.clone(),
+      best.pid,
+      best.proc_lowercase.clone(),
+    );
     return Some(best.id.clone());
   }
 
@@ -325,8 +356,20 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
   use std::sync::Arc;
 
   // 4. Transform into FoundWindow objects
-  // We use a local cache lookup instead of a snapshot collect() to save memory.
-  let cache = get_cache().lock().unwrap();
+  // Build a fast lookup map for managed windows from the cache.
+  // We use owned strings for the keys since the cache lock is released immediately.
+  let managed_lookup: FxHashMap<Box<str>, (Arc<str>, Box<str>)> = {
+    let cache = get_cache().lock().unwrap();
+    cache
+      .iter()
+      .map(|(name, window)| {
+        (
+          window.id.clone(),
+          (Arc::clone(name), window.proc_lowercase.clone()),
+        )
+      })
+      .collect()
+  };
 
   for line in batch.raw.split(';') {
     if line.is_empty() {
@@ -338,7 +381,7 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
       None => continue,
     };
     let class = match parts.next() {
-      Some(s) => s, // Keep raw for comparison, lowercase later if needed
+      Some(s) => s,
       None => continue,
     };
     let pid_str = parts.next().unwrap_or("0");
@@ -349,36 +392,15 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
       continue;
     }
 
-    // Optimization: Only read /proc if it's potentially a managed window
-    // (exists in cache) or if we actually need it for fuzzy matching.
-    // Reading /proc for every single window (browsers, widgets, etc) is expensive.
     let mut proc_lowercase = String::new();
-    let manager = cache
-      .iter()
-      .find(|(_, v)| &*v.id == id)
-      .map(|(k, _)| Arc::clone(k));
+    let mut managed_by = None;
 
-    // We only fetch proc name if it's managed OR if we are doing a broad search.
-    // In typical toggles, fetching the window list happens when the cache is stale.
-    if manager.is_some() || pid > 0 {
-      let mut buf = [0u8; 64];
-      let path = {
-        use std::io::Write;
-        let mut cursor = std::io::Cursor::new(&mut buf[..]);
-        let _ = write!(cursor, "/proc/{}/cmdline", pid);
-        let len = cursor.position() as usize;
-        std::str::from_utf8(&buf[..len]).unwrap_or("")
-      };
-      if !path.is_empty() {
-        if let Ok(cmdline) = fs::read(path) {
-          if let Some(part) = cmdline.split(|&b| b == 0).next() {
-            let s = String::from_utf8_lossy(part);
-            if let Some(name) = s.split('/').next_back() {
-              proc_lowercase = name.to_lowercase();
-            }
-          }
-        }
-      }
+    if let Some((app_name, proc_name)) = managed_lookup.get(id) {
+      managed_by = Some(Arc::clone(app_name));
+      proc_lowercase = proc_name.to_string();
+    } else if pid > 0 {
+      // Optimization: Only read /proc for windows with a valid PID and not in cache.
+      proc_lowercase = get_proc_name_by_pid(pid).unwrap_or_default();
     }
 
     windows.push(FoundWindow {
@@ -387,8 +409,8 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
       proc_lowercase: proc_lowercase.into(),
       pid,
       is_visible,
-      is_managed: manager.is_some(),
-      managed_by: manager,
+      is_managed: managed_by.is_some(),
+      managed_by,
     });
   }
 
@@ -452,7 +474,8 @@ pub fn check_process_running(app_name: &str, target_class: &str) -> bool {
           };
 
           if !already_owned {
-            update_cache(app_name, String::new().into(), pid);
+            let proc_name = get_proc_name_by_pid(pid).unwrap_or_default();
+            update_cache(app_name, String::new().into(), pid, proc_name.into());
             return true;
           }
         }

@@ -12,6 +12,8 @@ pub struct CachedWindow {
   pub id: Box<str>,
   /// The process ID for liveness checks via /proc
   pub pid: u32,
+  /// The process name for faster identification
+  pub proc_lowercase: Box<str>,
 }
 
 static CACHE: OnceLock<Mutex<FxHashMap<Arc<str>, CachedWindow>>> = OnceLock::new();
@@ -21,9 +23,16 @@ pub fn get_cache() -> &'static Mutex<FxHashMap<Arc<str>, CachedWindow>> {
 }
 
 /// Updates or inserts a window into the cache.
-pub fn update_cache(app_name: &str, window_id: Box<str>, pid: u32) {
+pub fn update_cache(app_name: &str, window_id: Box<str>, pid: u32, proc_lowercase: Box<str>) {
   let mut cache = get_cache().lock().unwrap();
-  cache.insert(Arc::from(app_name), CachedWindow { id: window_id, pid });
+  cache.insert(
+    Arc::from(app_name),
+    CachedWindow {
+      id: window_id,
+      pid,
+      proc_lowercase,
+    },
+  );
 }
 
 /// Retrieves a cached window by app name.

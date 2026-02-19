@@ -426,8 +426,6 @@ async fn get_window_id_and_pid(
   // 2. Fallback to Search
   if let Some(id) = check_window_exists(app_name, class, conn).await {
     let pid = get_pid_for_app(app_name).unwrap_or(0);
-    // 3. Update Cache
-    update_cache(app_name, id.clone(), pid);
     return Some((id, pid));
   }
   None
@@ -648,7 +646,12 @@ pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Res
     {
       let pid = get_pid_for_app(app_name).unwrap_or(0);
       if !app_name.is_empty() {
-        update_cache(app_name, id.clone(), pid);
+        let proc_name = all_windows
+          .iter()
+          .find(|w| w.id == id)
+          .map(|w| w.proc_lowercase.clone())
+          .unwrap_or_else(|| "".into());
+        update_cache(app_name, id.clone(), pid, proc_name);
       }
       (id, pid)
     } else {
