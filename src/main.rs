@@ -295,7 +295,7 @@ fn main() -> error::Result<()> {
     b
   } else {
     let mut b = Builder::new_current_thread();
-    b.thread_stack_size(512 * 1024);
+    b.thread_stack_size(512 * 1024).max_blocking_threads(4);
     b
   };
 

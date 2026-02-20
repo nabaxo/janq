@@ -364,10 +364,7 @@ pub async fn run_daemon(
   println!("Starting janq daemon (PID {})...", std::process::id());
   init_kwin().await;
   let config = Arc::new(RwLock::new(initial_config));
-  let conn = zbus::connection::Builder::session()?
-    .internal_executor(false)
-    .build()
-    .await?;
+  let conn = zbus::connection::Builder::session()?.build().await?;
 
   #[cfg(not(feature = "systray"))]
   let pid = id();
@@ -626,10 +623,7 @@ pub async fn run_daemon(
 }
 
 pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
-  let conn = zbus::connection::Builder::session()?
-    .internal_executor(false)
-    .build()
-    .await?;
+  let conn = zbus::connection::Builder::session()?.build().await?;
   if let Some(name) = app_name {
     conn
       .call_method(

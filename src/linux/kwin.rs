@@ -196,15 +196,19 @@ struct KWinState {
   previous_window_id: Option<Box<str>>,
   /// Maximum detected display refresh rate for smooth animation.
   max_refresh_rate: f64,
+  /// Whether kscreen-doctor has been called yet.
+  is_hz_initialized: bool,
 }
 
 static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
   visible_app: None,
   previous_window_id: None,
   max_refresh_rate: 60.0,
+  is_hz_initialized: false,
 });
 
 async fn get_max_refresh_rate() -> f64 {
+  println!("janq: Detecting display refresh rate...");
   let output = TokioCommand::new("kscreen-doctor")
     .arg("-o")
     .output()
@@ -234,10 +238,22 @@ async fn get_max_refresh_rate() -> f64 {
   final_hz
 }
 
-pub async fn init() {
-  let hz = get_max_refresh_rate().await;
+/// Ensures platform-specific state (refresh rate) is initialized.
+///
+/// This is called lazily on the first toggle to prevent kscreen-doctor from
+/// spiking memory usage during daemon startup/restart.
+async fn ensure_initialized() -> f64 {
   let mut state = STATE.lock().await;
-  state.max_refresh_rate = hz;
+  if !state.is_hz_initialized {
+    state.max_refresh_rate = get_max_refresh_rate().await;
+    state.is_hz_initialized = true;
+  }
+  state.max_refresh_rate
+}
+
+pub async fn init() {
+  // No-op at startup for memory optimization.
+  // Initialization happens lazily on first toggle via ensure_initialized().
 }
 
 // Window cache is now managed in src/linux/cache.rs
@@ -440,6 +456,7 @@ pub async fn get_visible_app() -> Option<std::sync::Arc<str>> {
 }
 
 pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) -> Result<()> {
+  ensure_initialized().await;
   let mut state = STATE.lock().await;
 
   let app_cfg = match config.app.get(app_name) {
