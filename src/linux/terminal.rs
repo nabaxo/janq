@@ -28,10 +28,10 @@ use std::{
     atomic::{AtomicU64, Ordering},
     Mutex, OnceLock,
   },
-  time::Duration,
+  time::{Duration, Instant},
 };
 
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex as AsyncMutex};
 use tokio::time::sleep;
 use zbus::Connection;
 
@@ -62,6 +62,12 @@ fn get_metadata_waiters() -> &'static Mutex<FxHashMap<u64, oneshot::Sender<Windo
   METADATA_WAITERS.get_or_init(|| Mutex::new(FxHashMap::default()))
 }
 
+static PROC_CACHE: OnceLock<Mutex<FxHashMap<u32, Box<str>>>> = OnceLock::new();
+
+fn get_proc_cache() -> &'static Mutex<FxHashMap<u32, Box<str>>> {
+  PROC_CACHE.get_or_init(|| Mutex::new(FxHashMap::default()))
+}
+
 pub async fn report_metadata(mut payload: String) {
   if let Some(pos) = payload.find(':') {
     let id_str = &payload[..pos];
@@ -76,10 +82,19 @@ pub async fn report_metadata(mut payload: String) {
   }
 }
 
-fn get_proc_name_by_pid(pid: u32) -> Option<String> {
+fn get_proc_name_by_pid(pid: u32) -> Option<Box<str>> {
   if pid == 0 {
     return None;
   }
+
+  // 1. Check cache first to avoid /proc I/O
+  {
+    let cache = get_proc_cache().lock().unwrap();
+    if let Some(name) = cache.get(&pid) {
+      return Some(name.clone());
+    }
+  }
+
   let mut buf = [0u8; 64];
   let path = {
     use std::io::Write;
@@ -90,11 +105,29 @@ fn get_proc_name_by_pid(pid: u32) -> Option<String> {
   };
 
   if !path.is_empty() {
-    if let Ok(cmdline) = fs::read(path) {
-      if let Some(part) = cmdline.split(|&b| b == 0).next() {
-        let s = String::from_utf8_lossy(part);
-        if let Some(name) = s.split('/').next_back() {
-          return Some(name.to_lowercase());
+    // Optimization: Use a small stack-allocated buffer for the read to avoid Vec allocation.
+    if let Ok(mut file) = fs::File::open(path) {
+      use std::io::Read;
+      let mut cmd_buf = [0u8; 128];
+      if let Ok(n) = file.read(&mut cmd_buf) {
+        if n > 0 {
+          if let Some(part) = cmd_buf[..n].split(|&b| b == 0).next() {
+            // Avoid full string allocation if already valid UTF-8
+            if let Ok(s) = std::str::from_utf8(part) {
+              if let Some(name) = s.split('/').next_back() {
+                // Only lowercase if it contains uppercase characters
+                let lowercase_name: Box<str> =
+                  if name.as_bytes().iter().any(|b| b.is_ascii_uppercase()) {
+                    name.to_lowercase().into()
+                  } else {
+                    name.into()
+                  };
+                let mut cache = get_proc_cache().lock().unwrap();
+                cache.insert(pid, lowercase_name.clone());
+                return Some(lowercase_name);
+              }
+            }
+          }
         }
       }
     }
@@ -320,8 +353,23 @@ pub async fn fetch_system_windows(conn: &Connection) -> Vec<FoundWindow> {
 }
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+static SCAN_SERIALIZER: AsyncMutex<()> = AsyncMutex::const_new(());
+static SCAN_CACHE: OnceLock<Mutex<Option<(Instant, Vec<FoundWindow>)>>> = OnceLock::new();
 
 pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
+  let _guard = SCAN_SERIALIZER.lock().await;
+
+  if let Some(cache) = SCAN_CACHE
+    .get_or_init(|| Mutex::new(None))
+    .lock()
+    .unwrap()
+    .as_ref()
+  {
+    if cache.0.elapsed() < Duration::from_millis(150) {
+      return cache.1.clone();
+    }
+  }
+
   let mut windows = Vec::new();
   let request_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
   let (tx, rx) = oneshot::channel();
@@ -399,10 +447,11 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
     if let Some((app_name, cached_proc)) = managed_lookup.get(id) {
       managed_by = Some(Arc::clone(app_name));
       proc_lowercase = cached_proc.clone();
-    } else if pid > 0 {
-      // Optimization: Only read /proc for windows with a valid PID and not in cache.
+    } else if pid > 0 && is_visible {
+      // Optimization: Only read /proc for windows that are actually visible.
+      // Hidden background windows (not already managed) are rarely discovery targets.
       if let Some(name) = get_proc_name_by_pid(pid) {
-        proc_lowercase = name.into();
+        proc_lowercase = name;
       }
     }
 
@@ -422,6 +471,12 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
       is_managed: managed_by.is_some(),
       managed_by,
     });
+  }
+
+  // Update scan cache
+  {
+    let mut cache = SCAN_CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    *cache = Some((Instant::now(), windows.clone()));
   }
 
   windows

@@ -364,7 +364,10 @@ pub async fn run_daemon(
   println!("Starting janq daemon (PID {})...", std::process::id());
   init_kwin().await;
   let config = Arc::new(RwLock::new(initial_config));
-  let conn = zbus::connection::Builder::session()?.build().await?;
+  let conn = zbus::connection::Builder::session()?
+    .internal_executor(false)
+    .build()
+    .await?;
 
   #[cfg(not(feature = "systray"))]
   let pid = id();
