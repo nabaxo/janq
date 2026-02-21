@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-02-17
+## [1.0.0] - 2026-02-21
+
+### Changed
+- **Nightly Linux Build (default)**: Default Makefile target now uses `cargo +nightly -Zbuild-std=std,panic_abort` with `RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort"`, reducing binary size by ~494 KiB and RSS by ~452 KiB (2360 → 1908 KiB, a 19% reduction). Stable build remains available via `make build-linux-musl`.
+- **Raw inotify config watcher (Linux)**: Replaced the `notify` crate with direct inotify syscalls for config file watching on Linux, eliminating a transitive dependency tree. Saves ~68 KiB binary size; `notify` is now Windows-only.
+- **Dependency pruning**: Disabled default features on the `toml` crate, selecting only `std`, `serde`, `parse`, and `preserve_order`. Removes unused `display`/formatting code from the binary.
+- **Error dialog UX**: "Press Enter to exit..." changed to "Press any key to exit..." using `read -rsn1`. All Linux error dialog terminal entries now use `bash -c` instead of `sh -c` for consistent behavior.
+
+### Fixed
+- **(Windows) Taskbar icon not hiding for some apps**: Apps with `WS_EX_APPWINDOW` extended style (e.g. Basitune) would force a taskbar button even when janq set a hidden owner window. janq now strips `WS_EX_APPWINDOW` when managing a window and restores it on daemon exit.
 
 ### fix
 - **(windows) Alt-Tab**: resolve focus void after Alt-Tab and harden focus logic
@@ -45,8 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux First-Run Reliability**: Icons and D-Bus services now index correctly on the first run of the app on fresh KDE 6 installations.
 - **Icon Cache Refresh**: Integrated `kbuildsycoca6 --noincremental` triggers into the installation flow to ensure the `janq` icon appears in the taskbar immediately.
 
-## [1.0.0] - 2026-02-06
-
 ### Added
 - **Unified Selection Engine (Task 2)**: Consolidated all window discovery and fuzzy matching logic into a shared platform-agnostic crate module. Windows and Linux now share a weighted scoring algorithm (Exact > Substring > Managed > Visible).
 - **Name-Aware Process Liveness**: New `process` module for platform-agnostic PID verification.
@@ -64,8 +71,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Zero-Allocation Discovery Loops**: Refactored core window discovery interfaces to use `&[FoundWindow]` slices. This eliminates thousands of heap allocations per minute during system polling and hotkey triggers.
 - **Aggressive Cache Pruning**: Windows backend now proactively evicts handles if `IsWindow` or `is_process_running` fails, ensuring much faster recovery from application crashes.
-
-## [1.0.0] - 2026-01-31
 
 ### Added
 - **Auto-Hide focus watcher**: New `auto_hide` option in the `[window]` block to automatically hide the window when it loses focus.
@@ -91,8 +96,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Config Refactoring**: Internal simplification of `Dimension`, `PositionOffset`, and `DisplayMode` deserialization to reduce code duplication and improve maintainability.
-
-## [1.0.0] - 2026-01-24
 
 ### The Inaugural Release
 This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies its existence on your system.
