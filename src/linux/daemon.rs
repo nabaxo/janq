@@ -44,19 +44,10 @@ use tokio::{
 };
 use zbus::{interface, names::BusName, names::InterfaceName, zvariant::OwnedValue, Connection};
 
-#[cfg(feature = "systray")]
-use ksni::menu::*;
-#[cfg(feature = "systray")]
-use ksni::{self, MenuItem, Tray, TrayMethods};
-#[cfg(not(feature = "systray"))]
 use std::process::id;
 
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
-#[cfg(feature = "systray")]
-use crate::linux::hotkey::normalize_shortcut_for_kde;
 use crate::linux::hotkey::sync_kde_shortcuts;
-#[cfg(feature = "systray")]
-use crate::linux::kwin::get_visible_app;
 use crate::linux::kwin::{
   clear_removed_apps_from_cache, grab_apps, init as init_kwin,
   report_active_window as kwin_report_active, reset_visibility, restore_app, restore_quake,
@@ -168,95 +159,31 @@ impl QuakeDaemon {
   }
 }
 
-#[cfg(not(feature = "systray"))]
 struct StatusNotifierItem {
   config: Arc<RwLock<Config>>,
-  icon_cache: IconPixmap,
   conn: Connection,
 }
 
-#[cfg(not(feature = "systray"))]
 type IconPixmap = Vec<(i32, i32, Vec<u8>)>;
 
-#[cfg(not(feature = "systray"))]
 #[interface(name = "org.kde.StatusNotifierItem")]
 impl StatusNotifierItem {
   fn activate(&self, _x: i32, _y: i32) {
     let config = self.config.read().unwrap().clone();
     let conn = self.conn.clone();
     tokio::spawn(async move {
-      let app_name = config.app.keys().next();
-      if let Some(name) = app_name {
-        let _ = toggle_quake(name, &config, &conn).await;
+      let target = crate::linux::kwin::get_visible_app()
+        .await
+        .map(|a| a.to_string())
+        .or_else(|| config.app.keys().next().cloned());
+
+      if let Some(name) = target {
+        let _ = toggle_quake(&name, &config, &conn).await;
       }
     });
   }
 
   fn secondary_activate(&self, _x: i32, _y: i32) {
-    let config = self.config.read().unwrap().clone();
-    let conn = self.conn.clone();
-    tokio::spawn(async move {
-      print_shutdown_message("Quit via systray");
-      let _ = restore_quake(&config, &conn).await;
-      print_termination_complete();
-      exit(0);
-    });
-  }
-
-  #[zbus(property)]
-  fn category(&self) -> String {
-    "ApplicationStatus".to_string()
-  }
-  #[zbus(property)]
-  fn id(&self) -> String {
-    "janq".to_string()
-  }
-  #[zbus(property)]
-  fn title(&self) -> String {
-    "janq".to_string()
-  }
-  #[zbus(property)]
-  fn status(&self) -> String {
-    "Active".to_string()
-  }
-  #[zbus(property)]
-  fn icon_name(&self) -> String {
-    "janq".to_string()
-  }
-  #[zbus(property)]
-  fn icon_pixmap(&self) -> IconPixmap {
-    self.icon_cache.clone()
-  }
-  #[zbus(property)]
-  fn item_is_menu(&self) -> bool {
-    false
-  }
-}
-
-#[cfg(feature = "systray")]
-struct JanqTray {
-  config: Arc<RwLock<Config>>,
-  conn: Connection,
-}
-
-#[cfg(feature = "systray")]
-impl Tray for JanqTray {
-  fn activate(&mut self, _x: i32, _y: i32) {
-    let config = self.config.read().unwrap().clone();
-    let conn = self.conn.clone();
-    tokio::spawn(async move {
-      let target = get_visible_app()
-        .await
-        .map(|a| a.to_string())
-        .or_else(|| config.app.keys().next().cloned());
-
-      if let Some(app_name) = target {
-        let _ = toggle_quake(&app_name, &config, &conn).await;
-      }
-    });
-  }
-
-  fn secondary_activate(&mut self, _x: i32, _y: i32) {
     let config = self.config.read().unwrap().clone();
     let conn = self.conn.clone();
     tokio::spawn(async move {
@@ -267,96 +194,37 @@ impl Tray for JanqTray {
     });
   }
 
-  fn category(&self) -> ksni::Category {
-    ksni::Category::ApplicationStatus
+  #[zbus(property)]
+  fn category(&self) -> String {
+    "ApplicationStatus".into()
   }
-
+  #[zbus(property)]
   fn id(&self) -> String {
     "janq".into()
   }
-
+  #[zbus(property)]
   fn title(&self) -> String {
     "janq".into()
   }
-
+  #[zbus(property)]
+  fn status(&self) -> String {
+    "Active".into()
+  }
+  #[zbus(property)]
   fn icon_name(&self) -> String {
     "janq".into()
   }
-
-  fn menu(&self) -> Vec<MenuItem<Self>> {
-    let config = self.config.read().unwrap().clone();
-    let mut items = Vec::new();
-
-    for name in config.app.keys() {
-      let name = name.clone();
-      let config = config.clone();
-      let conn = self.conn.clone();
-
-      // 1. Get and normalize the shortcut using hotkey.rs logic
-      let hotkeys = config.app.get(&name).unwrap().hotkey.as_vec();
-      let (shortcut_vec, normalized_str) = if !hotkeys.is_empty() {
-        let normalized = normalize_shortcut_for_kde(&hotkeys[0]);
-
-        // Just split and trim, no more "Super" or "Control" hardcoding
-        let parts: Vec<String> = normalized
-          .split('+')
-          .map(|part| part.trim().to_string())
-          .collect();
-        (vec![parts], normalized)
-      } else {
-        (vec![], String::new())
-      };
-
-      // 2. THE NBSP TRICK
-      // Use normalized_str to calculate padding so the menu width is consistent.
-      let name_len = name.chars().count();
-      let shortcut_len = normalized_str.chars().count();
-
-      // Calculate NBSP count to shove the greyed-out shortcut to the right.
-      let padding_count = 20_usize.saturating_sub(name_len + shortcut_len).max(5);
-      let label = format!("{}{}", name, "\u{00A0}".repeat(padding_count));
-
-      items.push(
-        StandardItem {
-          label,
-          shortcut: shortcut_vec, // Native greyed-out look
-          activate: Box::new(move |_| {
-            let name = name.clone();
-            let config = config.clone();
-            let conn = conn.clone();
-            tokio::spawn(async move {
-              let _ = toggle_quake(&name, &config, &conn).await;
-            });
-          }),
-          ..Default::default()
-        }
-        .into(),
-      );
-    }
-
-    items.push(MenuItem::Separator);
-
-    let config = config.clone();
-    let conn = self.conn.clone();
-    items.push(
-      StandardItem {
-        label: "Quit".into(),
-        activate: Box::new(move |_| {
-          let config = config.clone();
-          let conn = conn.clone();
-          tokio::spawn(async move {
-            print_shutdown_message("Quit via systray");
-            let _ = restore_quake(&config, &conn).await;
-            print_termination_complete();
-            exit(0);
-          });
-        }),
-        ..Default::default()
-      }
-      .into(),
-    );
-
-    items
+  #[zbus(property)]
+  fn icon_pixmap(&self) -> IconPixmap {
+    vec![] // Empty forces KDE to use icon_name (SVG from icon theme)
+  }
+  #[zbus(property)]
+  fn item_is_menu(&self) -> bool {
+    false
+  }
+  #[zbus(property)]
+  fn menu(&self) -> zbus::zvariant::ObjectPath<'_> {
+    zbus::zvariant::ObjectPath::try_from("/MenuBar").unwrap()
   }
 }
 
@@ -373,34 +241,27 @@ pub async fn run_daemon(
     .build()
     .await?;
 
-  #[cfg(not(feature = "systray"))]
   let pid = id();
-  #[cfg(not(feature = "systray"))]
   let sni_name = format!("org.kde.StatusNotifierItem-janq-{}", pid);
-  #[cfg(not(feature = "systray"))]
   conn.request_name(sni_name.clone()).await?;
 
-  #[cfg(not(feature = "systray"))]
-  // Empty pixmap forces KDE to use icon_name (SVG from icon theme)
-  let icon_cache: IconPixmap = vec![];
-
-  #[cfg(not(feature = "systray"))]
   let sni = StatusNotifierItem {
     config: config.clone(),
-    icon_cache,
     conn: conn.clone(),
   };
-  #[cfg(not(feature = "systray"))]
   conn.object_server().at("/StatusNotifierItem", sni).await?;
 
-  #[cfg(feature = "systray")]
-  let tray_handle = JanqTray {
-    config: config.clone(),
-    conn: conn.clone(),
+  // Register dbusmenu service for right-click menu
+  {
+    use crate::linux::tray::DbusmenuService;
+    use std::sync::atomic::AtomicU32;
+    let dbusmenu = DbusmenuService {
+      config: config.clone(),
+      conn: conn.clone(),
+      revision: AtomicU32::new(1),
+    };
+    conn.object_server().at("/MenuBar", dbusmenu).await?;
   }
-  .spawn()
-  .await
-  .expect("Failed to spawn tray");
 
   let activatable_bus = "dev.nabaxo.janq";
   let activatable_path = "/dev/nabaxo/janq";
@@ -440,7 +301,6 @@ pub async fn run_daemon(
   conn.request_name(activatable_bus).await?;
   let _ = conn.request_name("dev.nabaxo.janq.desktop").await;
 
-  #[cfg(not(feature = "systray"))]
   let _ = conn
     .call_method(
       Some(BusName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
@@ -503,15 +363,11 @@ pub async fn run_daemon(
   let config_for_watcher = config.clone();
   let conn_for_watcher = conn.clone();
   let path_to_watch = config_path.clone();
-  #[cfg(feature = "systray")]
-  let tray_handle_for_watcher = tray_handle.clone();
 
   config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
     let path_to_watch = path_to_watch.clone();
     let config_for_watcher = config_for_watcher.clone();
     let conn_for_watcher = conn_for_watcher.clone();
-    #[cfg(feature = "systray")]
-    let tray_handle = tray_handle_for_watcher.clone();
 
     async move {
       let old_config =
@@ -522,9 +378,8 @@ pub async fn run_daemon(
 
       let new_config = config_for_watcher.read().unwrap().clone();
 
-      // Notify tray immediately that config state changed
-      #[cfg(feature = "systray")]
-      let _ = tray_handle.update(|_| {}).await;
+      // Notify tray that menu layout changed
+      crate::linux::tray::DbusmenuService::notify_layout_changed(&conn_for_watcher).await;
 
       let conn_in_async = conn_for_watcher.clone();
       let new_config_in_async = new_config; // Removed .clone() since we already cloned from read()

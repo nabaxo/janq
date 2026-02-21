@@ -451,7 +451,6 @@ async fn get_window_id_and_pid(
 // Toggle Logic
 // =============================================================================
 
-#[cfg(feature = "systray")]
 pub async fn get_visible_app() -> Option<std::sync::Arc<str>> {
   STATE.lock().await.visible_app.clone()
 }

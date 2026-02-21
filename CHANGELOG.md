@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Nightly Linux Build (default)**: Default Makefile target now uses `cargo +nightly -Zbuild-std=std,panic_abort` with `RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort"`, reducing binary size by ~494 KiB and RSS by ~452 KiB (2360 → 1908 KiB, a 19% reduction). Stable build remains available via `make build-linux-musl`.
+- **Hand-rolled dbusmenu (Linux)**: Replaced the `ksni` crate with a minimal `com.canonical.dbusmenu` implementation served on the existing `zbus` connection. This eliminates `ksni` and its separate D-Bus stack, saving an additional ~248 KiB RSS (1908 → 1660 KiB) while preserving full menu functionality (per-app toggle, shortcut display, hot-reload, separator, quit). The `systray` feature flag has been removed; the menu is now always available.
 - **Raw inotify config watcher (Linux)**: Replaced the `notify` crate with direct inotify syscalls for config file watching on Linux, eliminating a transitive dependency tree. Saves ~68 KiB binary size; `notify` is now Windows-only.
 - **Dependency pruning**: Disabled default features on the `toml` crate, selecting only `std`, `serde`, `parse`, and `preserve_order`. Removes unused `display`/formatting code from the binary.
 - **Error dialog UX**: "Press Enter to exit..." changed to "Press any key to exit..." using `read -rsn1`. All Linux error dialog terminal entries now use `bash -c` instead of `sh -c` for consistent behavior.
