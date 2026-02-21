@@ -399,18 +399,32 @@ janq supports a wide range of keycodes for defining hotkeys. Keys are case-insen
 - **KDE Plasma 6** (Linux) or **Windows 10/11**.
 - _(Optional: **musl-tools** for static Linux builds)._
 - _(Optional: **mingw-w64** for Windows cross-compilation from Linux)._
+- _(Optional: **Rust nightly** + `rust-src` + musl target for the optimized Linux build — see below)._
 
 ### Build
 
 ```bash
-# Recommended, static builds
-make build-linux-musl          # Binary: ./dist/janq
+# Default: nightly optimized Linux build (smallest binary + lowest RSS)
+make build                     # Builds nightly Linux + stable Windows
+
+# Individual targets
+make build-linux-nightly       # Binary: ./dist/janq (nightly, ~1.9 MiB RSS)
+make build-linux-musl          # Binary: ./dist/janq-stable (stable, ~2.4 MiB RSS)
 make build-windows-static      # Binary: ./dist/janq.exe
 
 # Others
 make build-linux-glibc         # Binary: ./dist/janq-glibc
 make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 ```
+
+> [!NOTE]
+> **Nightly Linux Build**: The default `make build` uses Rust nightly with `-Zbuild-std` and `panic=immediate-abort` to recompile the standard library with size optimizations and strip all panic formatting code. This produces a significantly smaller binary with ~20% lower RSS. Panics will silently abort instead of printing a message. Requires:
+> ```bash
+> rustup toolchain install nightly
+> rustup component add rust-src --toolchain nightly
+> rustup target add x86_64-unknown-linux-musl --toolchain nightly
+> ```
+> If nightly is unavailable, use `make build-linux-musl` instead for a stable toolchain build.
 
 > [!TIP]
 > Look in `Makefile` for all the options.
