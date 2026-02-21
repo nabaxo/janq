@@ -292,7 +292,7 @@ fn show_error_linux(styled: &str) {
   let temp_path = std::env::temp_dir().join("janq_error.txt");
   let file_written = (|| -> std::io::Result<()> {
     let mut file = std::fs::File::create(&temp_path)?;
-    writeln!(file, "{}\n\nPress Enter to exit...", styled)?;
+    writeln!(file, "{}\n\nPress any key to exit...", styled)?;
     file.sync_all()?; // Ensure content is flushed to disk
     Ok(())
   })()
@@ -302,20 +302,23 @@ fn show_error_linux(styled: &str) {
     return;
   }
 
-  let cat_cmd = format!("cat '{}'; read", temp_path.display());
+  let cat_cmd = format!("cat '{}'; read -rsn1", temp_path.display());
   let cat_cmd_no_wait = format!("cat '{}'", temp_path.display());
 
   // Attempt to show in a terminal window and WAIT for it to close
   let terminals = vec![
     ("wezterm", vec!["start", "--", "bash", "-c", &cat_cmd]),
-    ("kitty", vec!["sh", "-c", &cat_cmd]),
-    ("alacritty", vec!["-e", "sh", "-c", &cat_cmd]),
+    ("kitty", vec!["bash", "-c", &cat_cmd]),
+    ("alacritty", vec!["-e", "bash", "-c", &cat_cmd]),
     (
       "konsole",
-      vec!["--noclose", "-e", "sh", "-c", &cat_cmd_no_wait],
+      vec!["--noclose", "-e", "bash", "-c", &cat_cmd_no_wait],
     ),
-    ("gnome-terminal", vec!["--wait", "--", "sh", "-c", &cat_cmd]),
-    ("xterm", vec!["-hold", "-e", "sh", "-c", &cat_cmd_no_wait]),
+    (
+      "gnome-terminal",
+      vec!["--wait", "--", "bash", "-c", &cat_cmd],
+    ),
+    ("xterm", vec!["-hold", "-e", "bash", "-c", &cat_cmd_no_wait]),
   ];
 
   for (cmd, args) in terminals {
