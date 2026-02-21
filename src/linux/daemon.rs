@@ -52,9 +52,13 @@ use ksni::{self, MenuItem, Tray, TrayMethods};
 use std::process::id;
 
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
-use crate::linux::hotkey::{normalize_shortcut_for_kde, sync_kde_shortcuts};
+#[cfg(feature = "systray")]
+use crate::linux::hotkey::normalize_shortcut_for_kde;
+use crate::linux::hotkey::sync_kde_shortcuts;
+#[cfg(feature = "systray")]
+use crate::linux::kwin::get_visible_app;
 use crate::linux::kwin::{
-  clear_removed_apps_from_cache, get_visible_app, grab_apps, init as init_kwin,
+  clear_removed_apps_from_cache, grab_apps, init as init_kwin,
   report_active_window as kwin_report_active, reset_visibility, restore_app, restore_quake,
   sync_kwin_rules, toggle_quake,
 };
