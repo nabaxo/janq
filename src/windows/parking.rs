@@ -31,6 +31,8 @@ pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
     } else {
       ex_style &= !WS_EX_TOOLWINDOW.0;
     }
+    // WS_EX_APPWINDOW forces a taskbar button even with an owner; strip it
+    ex_style &= !WS_EX_APPWINDOW.0;
     SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style as i32);
 
     // Always hide from taskbar via owner (keeps Alt+Tab when skip_pager=false)
@@ -126,6 +128,8 @@ pub fn restore_hwnd(hwnd: HWND) {
     }
     // Clear TOOLWINDOW so window shows in Alt+Tab
     ex &= !WS_EX_TOOLWINDOW.0;
+    // Restore APPWINDOW so taskbar button reappears after release
+    ex |= WS_EX_APPWINDOW.0;
 
     if ex != old_ex {
       SetWindowLongW(hwnd, GWL_EXSTYLE, ex as i32);

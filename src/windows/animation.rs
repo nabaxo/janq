@@ -432,6 +432,11 @@ pub fn run_animation_task_sync(
         ex &= !WS_EX_TOOLWINDOW.0;
         changed = true;
       }
+      // WS_EX_APPWINDOW forces a taskbar button even with an owner; strip it
+      if (ex & WS_EX_APPWINDOW.0) != 0 {
+        ex &= !WS_EX_APPWINDOW.0;
+        changed = true;
+      }
 
       if changed {
         SetWindowLongW(h, GWL_EXSTYLE, ex as i32);
