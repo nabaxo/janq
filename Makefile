@@ -7,7 +7,11 @@ DIST_DIR := dist
 OPT_Z := RUSTFLAGS="-C opt-level=z"
 OPT_S := RUSTFLAGS="-C opt-level=s"
 
-build: format lint build-linux-musl build-windows-static
+# Nightly build-std with immediate-abort panics (smallest binary + lowest RSS)
+NIGHTLY_FLAGS := RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort"
+NIGHTLY_ARGS := +nightly -Zbuild-std=std,panic_abort
+
+build: format lint build-linux-nightly build-windows-static
 
 lint:
 	cargo fmt --all -- --check
@@ -22,16 +26,20 @@ build-linux-glibc: prepare-dist
 	$(OPT_Z) cargo build --release
 	cp target/release/janq $(DIST_DIR)/janq-glibc
 
+build-linux-nightly: prepare-dist
+	$(NIGHTLY_FLAGS) cargo $(NIGHTLY_ARGS) build --release --target x86_64-unknown-linux-musl
+	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq
+
 build-linux-musl: prepare-dist
 	$(OPT_Z) cargo build --release --target x86_64-unknown-linux-musl
-	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq
+	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-stable
 
 # For a truly minimal build on Linux, uses approx. 30 KiB less RAM
 build-linux-menuless: prepare-dist
 	$(OPT_Z) cargo build --release --target x86_64-unknown-linux-musl --no-default-features
 	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-menuless
 
-build-linux: build-linux-musl build-linux-glibc
+build-linux: build-linux-nightly build-linux-glibc
 
 build-windows-nonstatic: prepare-dist
 	$(OPT_Z) cargo build --release --target x86_64-pc-windows-gnu
@@ -43,14 +51,14 @@ build-windows-static: prepare-dist
 
 build-windows: build-windows-static build-windows-nonstatic
 
-build-all: format lint build-linux build-windows build-linux-menuless
+build-all: format lint build-linux build-linux-musl build-windows build-linux-menuless
 
 build-all-s: format lint prepare-dist
 	# Build opt-level s versions of everything
 	$(OPT_S) cargo build --release
 	cp target/release/janq $(DIST_DIR)/janq-glibc-s
 	$(OPT_S) cargo build --release --target x86_64-unknown-linux-musl
-	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-s
+	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-stable-s
 	$(OPT_S) cargo build --release --target x86_64-unknown-linux-musl --no-default-features
 	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-menuless-s
 	$(OPT_S) cargo build --release --target x86_64-pc-windows-gnu
