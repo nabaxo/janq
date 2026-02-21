@@ -1,21 +1,22 @@
 //! Shared config file watching infrastructure.
 //!
 //! Provides the debounce loop and path matching logic used by both Linux and
-//! Windows daemons. Platform-specific reload handlers are passed as callbacks.
+//! Windows daemons.
+//!
+//! - **Linux:** Raw `inotify` syscalls (zero dependencies).
+//! - **Windows:** `notify` crate (`RecommendedWatcher`).
 
 use std::{
   path::PathBuf,
   time::{Duration, Instant},
 };
 
-use notify::{
-  Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
-};
 use std::future::Future;
+#[cfg(windows)]
 use tokio::sync::mpsc as tokio_mpsc;
 
 // =============================================================================
-// Config Watcher
+// Public API (shared)
 // =============================================================================
 
 /// Spawns a config watcher as an async task with debouncing.
@@ -29,7 +30,85 @@ where
   });
 }
 
-/// Async watcher loop with debouncing.
+/// Consolidated helper to reload config and update shared state.
+/// Returns the OLD configuration if reload was successful.
+pub fn reload_shared_config(
+  path: Option<PathBuf>,
+  shared_config: &std::sync::RwLock<crate::config::Config>,
+) -> Option<crate::config::Config> {
+  match crate::config::load_config(path) {
+    Ok((new_cfg, _)) => {
+      let mut w = shared_config.write().unwrap();
+      let old = w.clone();
+      *w = new_cfg;
+      Some(old)
+    }
+    Err(e) => {
+      crate::error::show_error(&format!(
+        "Config reload failed: {}\nStaying with last known good configuration.",
+        e
+      ));
+      None
+    }
+  }
+}
+
+// =============================================================================
+// Linux: Raw inotify (see linux/inotify.rs)
+// =============================================================================
+
+#[cfg(target_os = "linux")]
+async fn run_watcher_loop_async<F, Fut>(config_path: Option<PathBuf>, on_change: F)
+where
+  F: Fn() -> Fut + Send + 'static,
+  Fut: Future<Output = ()> + Send + 'static,
+{
+  let mut rx = match crate::inotify::watch_config(config_path) {
+    Some(rx) => rx,
+    None => return,
+  };
+
+  let settle_delay = Duration::from_millis(100);
+  let mut last_event = Instant::now();
+  let mut pending = false;
+
+  loop {
+    let timeout = if pending {
+      settle_delay.saturating_sub(last_event.elapsed())
+    } else {
+      Duration::from_secs(60)
+    };
+
+    tokio::select! {
+      res = rx.recv() => {
+        match res {
+          Some(()) => {
+            last_event = Instant::now();
+            pending = true;
+          }
+          None => break,
+        }
+      }
+      _ = tokio::time::sleep(timeout) => {
+        if pending {
+          pending = false;
+          on_change().await;
+        }
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Windows: notify crate
+// =============================================================================
+
+#[cfg(windows)]
+use notify::{
+  Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
+
+#[cfg(windows)]
 async fn run_watcher_loop_async<F, Fut>(config_path: Option<PathBuf>, on_change: F)
 where
   F: Fn() -> Fut + Send + 'static,
@@ -85,7 +164,7 @@ where
   }
 }
 
-/// Sets up the file watcher on the appropriate path.
+#[cfg(windows)]
 fn setup_watch_path(watcher: &mut RecommendedWatcher, config_path: &Option<PathBuf>) {
   if let Some(path) = config_path {
     if let Ok(abs_path) = path.canonicalize() {
@@ -104,38 +183,15 @@ fn setup_watch_path(watcher: &mut RecommendedWatcher, config_path: &Option<PathB
   }
 }
 
-/// Consolidated helper to reload config and update shared state.
-/// Returns the OLD configuration if reload was successful.
-pub fn reload_shared_config(
-  path: Option<PathBuf>,
-  shared_config: &std::sync::RwLock<crate::config::Config>,
-) -> Option<crate::config::Config> {
-  match crate::config::load_config(path) {
-    Ok((new_cfg, _)) => {
-      let mut w = shared_config.write().unwrap();
-      let old = w.clone();
-      *w = new_cfg;
-      Some(old)
-    }
-    Err(e) => {
-      crate::error::show_error(&format!(
-        "Config reload failed: {}\nStaying with last known good configuration.",
-        e
-      ));
-      None
-    }
-  }
-}
-
-/// Checks if the event is a modification we care about (ignores access/metadata)
+#[cfg(windows)]
 fn is_interesting_event(event: &Event) -> bool {
-  match event.kind {
-    EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => true,
-    _ => false,
-  }
+  matches!(
+    event.kind,
+    EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+  )
 }
 
-/// Checks if any of the event paths match the config file.
+#[cfg(windows)]
 fn is_config_event(event_paths: &[PathBuf], config_path: Option<&PathBuf>) -> bool {
   let target = if let Some(p) = config_path {
     p.clone()
@@ -146,16 +202,12 @@ fn is_config_event(event_paths: &[PathBuf], config_path: Option<&PathBuf>) -> bo
     }
   };
 
-  // Pre-calculate canonical target for faster comparison
   let target_abs = target.canonicalize().ok();
 
   for p in event_paths {
-    // 1. Exact path match (handles cases where canonicalization fails, e.g. deletions)
     if *p == target {
       return true;
     }
-
-    // 2. Canonical match (handles symlinks and relative path variations)
     if let Ok(p_abs) = p.canonicalize() {
       if let Some(ref t_abs) = target_abs {
         if p_abs == *t_abs {
