@@ -1,6 +1,8 @@
 pub mod config;
 pub mod config_watcher;
 pub mod error;
+#[cfg(target_os = "linux")]
+pub mod inotify;
 pub mod matching;
 pub mod paths;
 pub mod process;
