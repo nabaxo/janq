@@ -39,11 +39,17 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Desktop-Aware Focus (Linux)**: Closing the terminal no longer snaps you back to your previous desktop if you've moved desktops while the app was open.
 - **Force priority** mode (Linux) to sit above fullscreen apps using KWin's Fullscreen state.
 - **Focus restoration** - Attempting to put focus back where it was before we interrupted you. Results may vary.
+- **(Windows) Taskbar hiding for stubborn apps**: Apps that set `WS_EX_APPWINDOW` (looking at you, Basitune) would force a taskbar button to persist even when janq was trying to hide them. janq now strips this flag when managing a window and politely restores it on exit. Your taskbar is yours again.
+
+### System Tray
+- **Full context menu (Linux)**: Right-click the tray icon and get a proper menu with per-app toggle items, shortcut display, and a Quit option. Implemented via a hand-rolled `com.canonical.dbusmenu` interface on the existing `zbus` connection, because apparently using a dedicated crate for this was too luxurious.
+- **Hot-reload aware**: The menu updates instantly when you save your config. No restart, no delay, no excuses.
+- **Left-click**: Toggles the first configured app. **Middle-click** (Linux): Quit. **Shift+Left-click** (Windows): Quit. Because platform consistency is overrated.
 
 ### Multi-App Support
 - Configure **multiple applications** with individual hotkeys.
 - **Up to 4 hotkeys** per application. Why you'd need four is between you and your god.
-- **Ordered configuration** - The order in your TOML determines the order in the tray.
+- **Ordered configuration** - The order in your TOML determines the order in the tray menu.
 - **Atomic switching** - Synchronized transitions where outgoing windows clear the way for incoming ones. It looks professional, which helps hide the internal chaos.
 
 ### Animation System
@@ -72,7 +78,10 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Pre-calculated Geometry**: Both platforms now fully pre-compute sibling trajectories and durations before entering the high-frequency animation loop.
 - **Unified Async Architecture**: Total migration to a cross-platform Tokio-based async runtime. Replaced fragmented bridge threads with a single unified event loop for IPC, animations, and heartbeats across both platforms.
 - **Sub-millisecond liveness checks**: Native `/proc` on Linux and `IsWindow` on Windows.
-- **Memory footprint**: <2.5MB on Windows, ~3.5MB on Linux. Shaved ~0.15MB by removing the `clap` dependency and further reduced binary overhead by eliminating `anyhow` and `dirs`.
+- **Memory footprint**: ~2.5MB on Windows, **~1.7MB on Linux**. Down from ~3.5MB through a campaign of increasingly unhinged dependency elimination: `clap`, `anyhow`, `dirs`, `ksni`, and the `notify` crate (on Linux) were all shown the door. The standard library itself was recompiled with size optimizations. At some point this stopped being engineering and became a grudge.
+- **Nightly Build Optimization**: The default Linux build now uses `cargo +nightly -Zbuild-std` with `panic=immediate-abort`, recompiling `std` with the project's optimization settings and stripping all panic formatting infrastructure. Panics silently abort instead of printing a message, which is fine because if janq panics you have bigger problems. Stable build remains available for the risk-averse.
+- **ksni Elimination (Linux)**: Replaced the `ksni` systray crate (which ran its own entire D-Bus connection) with ~220 lines of hand-rolled dbusmenu interface on the existing `zbus` connection. Saved ~248 KiB RSS. The crate wasn't doing anything wrong per se, but it was paying rent for a whole D-Bus stack when we already had one.
+- **Raw inotify (Linux)**: Replaced the `notify` crate with direct inotify syscalls for config file watching, because pulling in a cross-platform file watcher to watch one file on one platform felt excessive.
 - **Minimalist Argument Parsing**: Replaced `clap` with a minimal manual parser in `main.rs` to reduce binary complexity and overhead.
 - **Dependency Slimming**: Eliminated `anyhow` and `dirs` dependencies, replacing them with a lightweight custom `Result` type, local error macros, and a platform-native `paths` module.
 - **Major Ecosystem Modernization**:
@@ -112,9 +121,13 @@ This re-registers the D-Bus service, re-installs the icon, and forces `kbuildsyc
 
 ### Building
 ```bash
-make build-linux-musl          # Static Linux binary
+make build                     # Default: nightly Linux + stable Windows
+make build-linux-nightly       # Optimized Linux binary (~1.6 MiB RSS)
+make build-linux-musl          # Stable fallback Linux binary (~2.4 MiB RSS)
 make build-windows-static      # Static Windows binary
 ```
+
+> The nightly build requires `rustup component add rust-src --toolchain nightly` and the musl target. If nightly isn't your thing, `make build-linux-musl` works with stable and produces a perfectly functional binary that just happens to be slightly larger.
 
 ### Selection Engine & Stability Overhaul
 - **Unified matching logic**: Windows and Linux now share the same "brain" for finding your windows. No more platform-specific bugs where Windows finds your terminal but Linux gets confused by the class name.
