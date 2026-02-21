@@ -34,11 +34,6 @@ build-linux-musl: prepare-dist
 	$(OPT_Z) cargo build --release --target x86_64-unknown-linux-musl
 	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-stable
 
-# For a truly minimal build on Linux, uses approx. 30 KiB less RAM
-build-linux-menuless: prepare-dist
-	$(OPT_Z) cargo build --release --target x86_64-unknown-linux-musl --no-default-features
-	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-menuless
-
 build-linux: build-linux-nightly build-linux-glibc
 
 build-windows-nonstatic: prepare-dist
@@ -51,7 +46,7 @@ build-windows-static: prepare-dist
 
 build-windows: build-windows-static build-windows-nonstatic
 
-build-all: format lint build-linux build-linux-musl build-windows build-linux-menuless
+build-all: format lint build-linux build-linux-musl build-windows
 
 build-all-s: format lint prepare-dist
 	# Build opt-level s versions of everything
@@ -59,8 +54,6 @@ build-all-s: format lint prepare-dist
 	cp target/release/janq $(DIST_DIR)/janq-glibc-s
 	$(OPT_S) cargo build --release --target x86_64-unknown-linux-musl
 	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-stable-s
-	$(OPT_S) cargo build --release --target x86_64-unknown-linux-musl --no-default-features
-	cp target/x86_64-unknown-linux-musl/release/janq $(DIST_DIR)/janq-menuless-s
 	$(OPT_S) cargo build --release --target x86_64-pc-windows-gnu
 	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq-nonstatic-s.exe
 	# Build s version (janq-s.exe)
@@ -78,7 +71,7 @@ install:
 
 size-compare:
 	@echo "--- Binary Size Comparison ---"
-	@ls -lh $(DIST_DIR)/janq $(DIST_DIR)/janq-s $(DIST_DIR)/janq-menuless || true
+	@ls -lh $(DIST_DIR)/janq $(DIST_DIR)/janq-s || true
 	@ls -lh $(DIST_DIR)/janq.exe $(DIST_DIR)/janq-s.exe || true
 
 clean:

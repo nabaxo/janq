@@ -6,9 +6,6 @@ rust-version = "1.70"
 resolver = "2"
 description = "Quake-style dropdown terminal manager for Linux (KDE) and Windows"
 
-[features]
-default = ["systray"]
-systray = ["dep:ksni"]
 
 [dependencies]
 # Serialization
@@ -37,7 +34,6 @@ embed-resource = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.0", default-features = false, features = ["tokio"] }
-ksni = { version = "0.3.3", default-features = false, features = ["tokio"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 notify = { version = "8.2", default-features = false }

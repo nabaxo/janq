@@ -7,7 +7,7 @@
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
 
-But in the end I managed to wrangle the Wondrous Machine enough so that janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~2.5MB on Linux.
+But in the end I managed to wrangle the Wondrous Machine enough so that janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and ~1.7 MB on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~1.7MB on Linux.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
@@ -408,7 +408,7 @@ janq supports a wide range of keycodes for defining hotkeys. Keys are case-insen
 make build                     # Builds nightly Linux + stable Windows
 
 # Individual targets
-make build-linux-nightly       # Binary: ./dist/janq (nightly, ~1.9 MiB RSS)
+make build-linux-nightly       # Binary: ./dist/janq (nightly, ~1.6 MiB RSS)
 make build-linux-musl          # Binary: ./dist/janq-stable (stable, ~2.4 MiB RSS)
 make build-windows-static      # Binary: ./dist/janq.exe
 
@@ -438,7 +438,7 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 - **[KWin Scripting API](https://develop.kde.org/docs/plasma/kwin/)**: Direct integration for Wayland window management on Linux.
 - **[windows-rs](https://github.com/microsoft/windows-rs)**: Native Windows API bindings for window management and positioning.
 - **[tray-icon](https://github.com/tauri-apps/tray-icon)** & **[global-hotkey](https://github.com/tauri-apps/global-hotkey)**: Managing the system tray and global shortcuts on Windows.
-- **[ksni](https://github.com/iovxw/ksni)**: Minimal systray management on Linux.
+
 - **[notify](https://github.com/notify-rs/notify)**: Powering the configuration hot-reloading feature.
 
 ## Technical Implementation
@@ -448,7 +448,7 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 ### Performance & Platform backend
 
 - **Platform Parity**: janq achieves cross-platform parity by utilizing native APIs. On Windows, it uses the Win32 API and `BeginDeferWindowPos` for atomic, flicker-free multi-window transitions. On Linux (KDE Plasma 6), it injects JavaScript directly into KWin's scripting engine via D-Bus.
-- **Memory Footprint**: janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~2.5MB on Linux. It manages animations at 144Hz+.
+- **Memory Footprint**: janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and ~1.7 MB on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~1.7MB on Linux. It manages animations at 144Hz+.
 - **Velocity-Style Animations**: Both platforms use "Velocity-Style" animations where duration scales based on travel distance, ensuring constant movement speed regardless of window position. This coordinated "swipe" ensures the outgoing app slides UP while the new one slides DOWN in perfect sync.
 - **Unified Async Architecture**: Uses a cross-platform Tokio-based async runtime with a single unified event loop for IPC, animations, and heartbeats.
 - **Zero-IPC Liveness Checks**: On Linux, janq performs direct `/proc/{pid}` checks (<0.1ms) instead of querying KWin, ensuring instant response.
