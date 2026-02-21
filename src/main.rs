@@ -231,7 +231,33 @@ fn resolve_app(config: &Config, requested: Option<String>) -> Result<Option<&str
   }
 }
 
+/// Disable Transparent Huge Pages for this process.
+///
+/// The kernel's `khugepaged` can opportunistically promote a 2 MiB-aligned
+/// anonymous region into a single Transparent Huge Page, making the entire
+/// 2 MiB resident even when only a fraction contains data. For a long-lived
+/// daemon with a small heap (~400 KiB anon), this causes an intermittent
+/// and sticky ~2 MiB RSS inflation (2344 KiB → 4400 KiB).
+///
+/// `prctl(PR_SET_THP_DISABLE, 1)` tells the kernel to never promote this
+/// process's pages to huge pages, keeping RSS proportional to actual usage.
+#[cfg(target_os = "linux")]
+fn disable_thp() {
+  const PR_SET_THP_DISABLE: i32 = 41;
+  extern "C" {
+    fn prctl(option: i32, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> i32;
+  }
+  // Safety: prctl with PR_SET_THP_DISABLE is a simple flag-set with no
+  // pointer arguments. The only effect is setting a per-task flag.
+  unsafe {
+    prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+  }
+}
+
 fn main() -> error::Result<()> {
+  #[cfg(target_os = "linux")]
+  disable_thp();
+
   println!("janq (PID {}): Initializing...", std::process::id());
 
   #[cfg(target_os = "windows")]
