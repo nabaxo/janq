@@ -10,7 +10,8 @@ use windows::Win32::{
 };
 
 use crate::windows::window::{
-  get_animation_cancel, get_app_cache, set_taskbar_hidden, visible_app_lock, CachedWindow,
+  apply_border_style, get_animation_cancel, get_app_cache, set_taskbar_hidden, visible_app_lock,
+  CachedWindow,
 };
 use janq::config::{AppConfig, Config};
 
@@ -38,27 +39,19 @@ pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
     // Always hide from taskbar via owner (keeps Alt+Tab when skip_pager=false)
     set_taskbar_hidden(hwnd, true);
 
-    let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-    let original_style = style;
     let no_borders = app_cfg.get_no_borders(config.window.no_borders);
-    if no_borders {
-      style &= !(WS_CAPTION.0 | WS_THICKFRAME.0);
-    } else {
-      style |= WS_CAPTION.0 | WS_THICKFRAME.0;
+    if !apply_border_style(hwnd, no_borders) {
+      // No border change; still apply SWP_FRAMECHANGED for ex-style changes.
+      let _ = SetWindowPos(
+        hwnd,
+        Some(HWND::default()),
+        0,
+        0,
+        0,
+        0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+      );
     }
-    if style != original_style {
-      SetWindowLongW(hwnd, GWL_STYLE, style as i32);
-    }
-
-    let _ = SetWindowPos(
-      hwnd,
-      Some(HWND::default()),
-      0,
-      0,
-      0,
-      0,
-      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-    );
     let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
     let _ = ShowWindow(hwnd, SW_HIDE);
     let mut r = RECT::default();

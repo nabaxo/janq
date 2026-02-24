@@ -25,9 +25,9 @@ use windows::Win32::{
 
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
-  force_focus, get_animation_cancel, get_animation_state, get_app_cache, get_last_external_focus,
-  is_shell_window, monitor_enum_proc, set_taskbar_hidden, AnimationState, CachedWindow,
-  MonitorEnumCtx,
+  apply_border_style, force_focus, get_animation_cancel, get_animation_state, get_app_cache,
+  get_last_external_focus, is_shell_window, monitor_enum_proc, set_taskbar_hidden, AnimationState,
+  CachedWindow, MonitorEnumCtx,
 };
 use janq::config::{
   compute_slide_positions, Config, DisplayMode, Framerate, PositionOffset, SlideDirection, WorkArea,
@@ -445,20 +445,13 @@ pub fn run_animation_task_sync(
       // Always hide from taskbar via owner (keeps Alt+Tab when skip_pager=false)
       set_taskbar_hidden(h, true);
 
-      let mut style = GetWindowLongW(h, GWL_STYLE) as u32;
-      if app_no_borders {
-        if (style & (WS_CAPTION.0 | WS_THICKFRAME.0)) != 0 {
-          style &= !(WS_CAPTION.0 | WS_THICKFRAME.0);
-          SetWindowLongW(h, GWL_STYLE, style as i32);
-          changed = true;
-        }
-      } else if (style & (WS_CAPTION.0 | WS_THICKFRAME.0)) != (WS_CAPTION.0 | WS_THICKFRAME.0) {
-        style |= WS_CAPTION.0 | WS_THICKFRAME.0;
-        SetWindowLongW(h, GWL_STYLE, style as i32);
+      let border_changed = apply_border_style(h, app_no_borders);
+      if border_changed {
         changed = true;
       }
 
-      if changed {
+      // If only ex-style changed (not borders), still need SWP_FRAMECHANGED
+      if changed && !border_changed {
         let _ = SetWindowPos(
           h,
           Some(HWND::default()),
