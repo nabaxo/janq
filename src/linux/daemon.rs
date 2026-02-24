@@ -241,6 +241,11 @@ pub async fn run_daemon(
     .build()
     .await?;
 
+  // Install icon BEFORE registering SNI so Plasma's QIconLoader can
+  // resolve "janq" from the hicolor theme on its first query.
+  // Without this, Plasma caches a negative lookup for the session.
+  let _ = crate::linux::desktop::install_icon();
+
   let pid = id();
   let sni_name = format!("org.kde.StatusNotifierItem-janq-{}", pid);
   conn.request_name(sni_name.clone()).await?;
