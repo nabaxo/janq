@@ -585,3 +585,59 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
 use super::animation::run_animation_task_sync;
 
 // Parking and restoration logic moved to parking.rs
+
+/// Applies or removes window borders and ensures the client area is
+/// correctly resized via `SWP_FRAMECHANGED`.
+///
+/// After stripping borders, explicitly sends `WM_SIZE` to notify the
+/// window of its new client dimensions. `SetWindowPos` with
+/// `SWP_FRAMECHANGED` alone only guarantees `WM_NCCALCSIZE`; it
+/// suppresses `WM_SIZE` when the outer rect is unchanged, leaving
+/// apps that size their rendering surface from `WM_SIZE` with a
+/// stale (smaller) paint area.
+///
+/// Returns `true` if the style was actually modified.
+pub unsafe fn apply_border_style(hwnd: HWND, no_borders: bool) -> bool {
+  let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+  let original = style;
+
+  if no_borders {
+    style &= !(WS_CAPTION.0 | WS_THICKFRAME.0);
+  } else {
+    style |= WS_CAPTION.0 | WS_THICKFRAME.0;
+  }
+
+  if style == original {
+    return false;
+  }
+
+  SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+
+  // Recalculate non-client area.
+  let _ = SetWindowPos(
+    hwnd,
+    Some(HWND::default()),
+    0,
+    0,
+    0,
+    0,
+    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+  );
+
+  // Force WM_SIZE so apps repaint to the new client dimensions.
+  // SWP_FRAMECHANGED alone doesn't send WM_SIZE when the outer rect
+  // hasn't changed, even though the client area did.
+  let mut client = RECT::default();
+  if GetClientRect(hwnd, &mut client).is_ok() {
+    let cw = (client.right - client.left) as u16 as usize;
+    let ch = (client.bottom - client.top) as u16 as usize;
+    let _ = SendMessageW(
+      hwnd,
+      WM_SIZE,
+      Some(WPARAM(0)),
+      Some(LPARAM((ch << 16 | cw) as isize)),
+    );
+  }
+
+  true
+}
