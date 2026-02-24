@@ -26,8 +26,8 @@ use windows::Win32::{
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
   apply_border_style, force_focus, get_animation_cancel, get_animation_state, get_app_cache,
-  get_last_external_focus, is_shell_window, monitor_enum_proc, set_taskbar_hidden, AnimationState,
-  CachedWindow, MonitorEnumCtx,
+  get_frame_insets, get_last_external_focus, is_shell_window, monitor_enum_proc,
+  set_taskbar_hidden, AnimationState, CachedWindow, MonitorEnumCtx,
 };
 use janq::config::{
   compute_slide_positions, Config, DisplayMode, Framerate, PositionOffset, SlideDirection, WorkArea,
@@ -478,6 +478,16 @@ pub fn run_animation_task_sync(
         prep_layer(sib.hwnd, sib.no_borders);
       }
     }
+
+    // Compensate for DWM invisible frame insets so the visual edge
+    // of the window sits flush against the screen/work-area edge.
+    let (inset_l, inset_t, inset_r, inset_b) = get_frame_insets(target_hwnd.inner());
+    let target_w = target_w + inset_l + inset_r;
+    let target_h = target_h + inset_t + inset_b;
+    let shown_x = shown_x - inset_l;
+    let shown_y = shown_y - inset_t;
+    let hidden_x = hidden_x - inset_l;
+    let hidden_y = hidden_y - inset_t;
 
     // Reuse logical positions from state if monitor unchanged
     let t_on_correct_monitor =

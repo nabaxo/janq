@@ -31,7 +31,10 @@ use windows::{
   Win32::{
     Foundation::{HWND, LPARAM, RECT, WPARAM},
     Graphics::{
-      Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED},
+      Dwm::{
+        DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CLOAKED,
+        DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_WINDOW_CORNER_PREFERENCE,
+      },
       Gdi::{HDC, HMONITOR},
     },
     System::Threading::{AttachThreadInput, GetCurrentThreadId},
@@ -592,12 +595,49 @@ use super::animation::run_animation_task_sync;
 /// After stripping borders, explicitly sends `WM_SIZE` to notify the
 /// window of its new client dimensions. `SetWindowPos` with
 /// `SWP_FRAMECHANGED` alone only guarantees `WM_NCCALCSIZE`; it
+/// Returns the invisible DWM frame insets (left, top, right, bottom).
+///
+/// Compares `GetWindowRect` (full rect including invisible border) with
+/// `DWMWA_EXTENDED_FRAME_BOUNDS` (visual rect) to determine per-side
+/// insets. Returns `(0,0,0,0)` on failure or for borderless windows.
+pub unsafe fn get_frame_insets(hwnd: HWND) -> (i32, i32, i32, i32) {
+  let mut win_rect = RECT::default();
+  let mut ext_rect = RECT::default();
+  if GetWindowRect(hwnd, &mut win_rect).is_err() {
+    return (0, 0, 0, 0);
+  }
+  let hr = DwmGetWindowAttribute(
+    hwnd,
+    DWMWA_EXTENDED_FRAME_BOUNDS,
+    &mut ext_rect as *mut RECT as *mut _,
+    std::mem::size_of::<RECT>() as u32,
+  );
+  if hr.is_err() {
+    return (0, 0, 0, 0);
+  }
+  let left = ext_rect.left - win_rect.left;
+  let top = ext_rect.top - win_rect.top;
+  let right = win_rect.right - ext_rect.right;
+  let bottom = win_rect.bottom - ext_rect.bottom;
+  (left, top, right, bottom)
+}
+
 /// suppresses `WM_SIZE` when the outer rect is unchanged, leaving
 /// apps that size their rendering surface from `WM_SIZE` with a
 /// stale (smaller) paint area.
 ///
 /// Returns `true` if the style was actually modified.
 pub unsafe fn apply_border_style(hwnd: HWND, no_borders: bool) -> bool {
+  // Remove DWM accent border so edges sit flush against screen boundaries.
+  // DWMWA_COLOR_NONE = 0xFFFFFFFE. Silently ignored on Win10.
+  let border_color: u32 = 0xFFFFFFFE;
+  let _ = DwmSetWindowAttribute(
+    hwnd,
+    DWMWA_BORDER_COLOR,
+    &border_color as *const u32 as *const _,
+    std::mem::size_of::<u32>() as u32,
+  );
+
   let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
   let original = style;
 
@@ -612,6 +652,16 @@ pub unsafe fn apply_border_style(hwnd: HWND, no_borders: bool) -> bool {
   }
 
   SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+
+  // Retain rounded corners on Windows 11 when stripping borders.
+  // DWMWCP_ROUND = 2, DWMWCP_DEFAULT = 0. Silently ignored on Win10.
+  let corner: u32 = if no_borders { 2 } else { 0 };
+  let _ = DwmSetWindowAttribute(
+    hwnd,
+    DWMWA_WINDOW_CORNER_PREFERENCE,
+    &corner as *const u32 as *const _,
+    std::mem::size_of::<u32>() as u32,
+  );
 
   // Recalculate non-client area.
   let _ = SetWindowPos(
