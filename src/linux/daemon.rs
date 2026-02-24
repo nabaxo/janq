@@ -226,6 +226,24 @@ impl StatusNotifierItem {
   fn menu(&self) -> zbus::zvariant::ObjectPath<'_> {
     zbus::zvariant::ObjectPath::try_from("/MenuBar").unwrap()
   }
+
+  /// Signal Plasma to re-query the icon from the theme.
+  #[zbus(signal)]
+  async fn new_icon(ctxt: &zbus::object_server::SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+impl StatusNotifierItem {
+  /// Emit NewIcon on the SNI object so Plasma refreshes the tray icon.
+  pub async fn emit_new_icon(conn: &Connection) {
+    let iface_ref = conn
+      .object_server()
+      .interface::<_, StatusNotifierItem>("/StatusNotifierItem")
+      .await;
+    if let Ok(iface) = iface_ref {
+      let ctxt = iface.signal_emitter();
+      let _ = StatusNotifierItem::new_icon(&ctxt).await;
+    }
+  }
 }
 
 pub async fn run_daemon(
@@ -326,6 +344,10 @@ pub async fn run_daemon(
       let _ = sync_kde_shortcuts(&cfg, None, &conn_for_shortcuts).await;
     });
   }
+
+  // Nudge Plasma to re-query the icon in case it resolved before the SVG
+  // was on disk or its theme cache was stale from a prior negative lookup.
+  StatusNotifierItem::emit_new_icon(&conn).await;
 
   // Small delay to ensure D-Bus service is fully registered before KWin scripts call back
   sleep(Duration::from_millis(100)).await;
