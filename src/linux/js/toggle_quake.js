@@ -9,8 +9,10 @@
   const clients = workspace.windowList ? workspace.windowList() : workspace.clientList();
   const cleanTargetId = normalizeId(config.targetWindowId);
   const safeTargetPid = config.targetPid || 0;
+  const lowerClass = (config.windowClass || "").toLowerCase();
 
   let target = null;
+  let bestFallback = null;
   const siblingsToHide = [];
 
   for (const c of clients) {
@@ -21,6 +23,11 @@
     if (!target) {
       if (cleanTargetId !== "" && cId === cleanTargetId) target = c;
       else if (safeTargetPid > 0 && cPid === safeTargetPid) target = c;
+      // 1b. Track class-based fallback in case cached ID/PID are stale
+      if (!target && lowerClass && c.normalWindow) {
+        const cClass = (c.resourceClass || "").toLowerCase();
+        if (cClass.includes(lowerClass)) bestFallback = c;
+      }
     }
 
     // 2. Identify Siblings (only if they aren't the target and are visible/alive)
@@ -44,6 +51,7 @@
     }
   }
 
+  if (!target && bestFallback) target = bestFallback;
   if (!target) return;
 
   // Resolve areas for the target

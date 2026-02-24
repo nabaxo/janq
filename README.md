@@ -396,10 +396,42 @@ janq supports a wide range of keycodes for defining hotkeys. Keys are case-insen
 
 ### Prerequisites
 
+- **Rust** (stable). Install via [rustup](https://rustup.rs/):
+  ```sh
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
 - **KDE Plasma 6** (Linux) or **Windows 10/11**.
-- _(Optional: **musl-tools** for static Linux builds)._
-- _(Optional: **mingw-w64** for Windows cross-compilation from Linux)._
-- _(Optional: **Rust nightly** + `rust-src` + musl target for the optimized Linux build — see below)._
+
+#### Optional: Cross-Compilation Targets & Nightly
+
+For cross-compiling or building the optimized nightly binary, add the relevant toolchains and targets:
+
+```sh
+# Nightly toolchain (for build-linux-nightly)
+rustup toolchain install nightly
+
+# Cross-compilation targets
+rustup target add x86_64-unknown-linux-musl
+rustup target add x86_64-pc-windows-gnu
+rustup target add x86_64-unknown-linux-musl --toolchain nightly
+
+# rustfmt (for format/lint)
+rustup component add rustfmt
+rustup component add rustfmt --toolchain nightly
+```
+
+You'll also need a C cross-compiler on Linux:
+
+```sh
+# Debian/Ubuntu
+sudo apt install musl-tools gcc-mingw-w64-x86-64 clang make
+
+# Fedora/RHEL
+sudo dnf install musl-gcc mingw64-gcc clang make
+
+# Arch
+sudo pacman -S musl mingw-w64-gcc clang make
+```
 
 ### Build
 
