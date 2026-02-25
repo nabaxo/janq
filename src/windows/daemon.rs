@@ -15,7 +15,7 @@
 //! - `Hotkey(event)` - Global hotkey pressed
 //! - `TrayPoll` - Check for tray/menu events
 //! - `ReloadHotkeys` - Config changed, re-register hotkeys
-//! - `RespawnCheck` - Periodic check for crashed apps
+//! - `RespawnCheck` - Respawn managed apps on window destruction (destroy hook)
 //! - `Exit` - Graceful shutdown requested
 //!
 //! Background threads post `WM_USER+1` to wake the main message loop
@@ -424,15 +424,6 @@ pub async fn run_daemon(
       }
 
       let _ = event_tx_tray_icon.send(DaemonEvent::Tray(event));
-      post_wake_message(WM_USER + 1);
-    }
-  });
-
-  let event_tx_heartbeat = event_tx.clone();
-  tokio::spawn(async move {
-    loop {
-      tokio::time::sleep(Duration::from_secs(2)).await;
-      let _ = event_tx_heartbeat.send(DaemonEvent::RespawnCheck);
       post_wake_message(WM_USER + 1);
     }
   });
