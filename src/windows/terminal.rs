@@ -114,12 +114,13 @@ pub fn ensure_terminal_running(
     }
   }
 
-  // Wait for window to appear
+  // Wait for window to appear and become visible
   let mut found = false;
-  let mut current_delay = 100;
+  let mut current_delay: u64 = 50;
 
   for i in 0..50 {
-    // Poll for window with linear backoff to save CPU/Battery
+    // Poll for window — tight 50ms interval for the first 30 iterations (~1.5s),
+    // then gentle backoff for heavier apps (Electron, UWP).
     std::thread::sleep(Duration::from_millis(current_delay));
     let cw = {
       if let Some(found_cw) = find_window_by_process(&app_cfg.window_class, None, Some(app_name)) {
@@ -140,9 +141,6 @@ pub fn ensure_terminal_running(
     };
 
     if let Some(sh) = cw {
-      // Add a slight settling delay for the window to be ready for manipulation
-      std::thread::sleep(Duration::from_millis(50));
-
       // AUTOMATIC GRAB: Park newly discovered window immediately
       park_window(sh, config, app_cfg);
 
@@ -157,9 +155,9 @@ pub fn ensure_terminal_running(
       );
     }
 
-    // Backoff: Starts at 100ms, increases by 50ms every loop after 5 attempts, capped at 1s.
-    if i >= 5 {
-      current_delay = (current_delay + 50).min(1000);
+    // Backoff: Flat 50ms for the first 30 polls (~1.5s), then +50ms/iter capped at 500ms.
+    if i >= 30 {
+      current_delay = (current_delay + 50).min(500);
     }
   }
 

@@ -224,6 +224,10 @@ static MANAGED_PIDS_CACHE: [std::sync::atomic::AtomicU32; 64] = {
   const ATOMIC_ZERO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
   [ATOMIC_ZERO; 64]
 };
+static MANAGED_HWNDS_CACHE: [AtomicIsize; 16] = {
+  const ATOMIC_ZERO: AtomicIsize = AtomicIsize::new(0);
+  [ATOMIC_ZERO; 16]
+};
 
 pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
 /// Bridge window handle for PostMessage-based signaling (modal-loop safe).
@@ -255,6 +259,7 @@ pub fn is_internal_window(hwnd: HWND) -> bool {
 pub fn update_managed_hwnds_cache() {
   let mut to_remove = Vec::new();
   let mut pids = Vec::with_capacity(64);
+  let mut hwnds: Vec<isize> = Vec::with_capacity(16);
 
   {
     let cache = get_app_cache().read().unwrap();
@@ -272,6 +277,7 @@ pub fn update_managed_hwnds_cache() {
             if !pids.contains(&pid) {
               pids.push(pid);
             }
+            hwnds.push(cw.hwnd.0 as isize);
           } else {
             to_remove.push(std::sync::Arc::clone(name));
           }
@@ -306,6 +312,12 @@ pub fn update_managed_hwnds_cache() {
   // Store the first one last
   let first = if !pids.is_empty() { pids[0] } else { 0 };
   MANAGED_PIDS_CACHE[0].store(first, Ordering::Relaxed);
+
+  // Update MANAGED_HWNDS_CACHE for lock-free destroy hook checks
+  for (i, slot) in MANAGED_HWNDS_CACHE.iter().enumerate() {
+    let val = if i < hwnds.len() { hwnds[i] } else { 0 };
+    slot.store(val, Ordering::Relaxed);
+  }
 }
 
 pub fn is_managed_window(hwnd: HWND) -> bool {
@@ -390,6 +402,68 @@ pub fn init_focus_hook() -> Option<HWINEVENTHOOK> {
       EVENT_SYSTEM_FOREGROUND,
       None,
       Some(focus_hook_proc),
+      0,
+      0,
+      WINEVENT_OUTOFCONTEXT,
+    );
+    if hook.is_invalid() {
+      None
+    } else {
+      Some(hook)
+    }
+  }
+}
+
+pub unsafe extern "system" fn destroy_hook_proc(
+  _hwineventhook: HWINEVENTHOOK,
+  event: u32,
+  hwnd: HWND,
+  idobject: i32,
+  idchild: i32,
+  _ideventthread: u32,
+  _dwmseventtime: u32,
+) {
+  // Only react to top-level window destruction (OBJID_WINDOW = 0, CHILDID_SELF = 0)
+  if event != EVENT_OBJECT_DESTROY || idobject != 0 || idchild != 0 || hwnd.0.is_null() {
+    return;
+  }
+
+  // Lock-free fast path: check if HWND belongs to any managed window
+  let hwnd_val = hwnd.0 as isize;
+  let mut is_ours = false;
+  for slot in &MANAGED_HWNDS_CACHE {
+    let cached = slot.load(Ordering::Relaxed);
+    if cached == 0 {
+      break;
+    }
+    if cached == hwnd_val {
+      is_ours = true;
+      break;
+    }
+  }
+
+  if !is_ours {
+    return;
+  }
+
+  // Slow path: Remove from APP_CACHE and refresh lock-free caches
+  println!("janq: Managed window destroyed, clearing cache entry...");
+  {
+    let mut cache = get_app_cache().write().unwrap();
+    cache.retain(|_, cw| cw.hwnd.0 as isize != hwnd_val);
+  }
+  update_managed_hwnds_cache();
+  // Wake main loop to trigger immediate respawn (WM_USER + 3 = RespawnCheck)
+  post_wake_message(WM_USER + 3);
+}
+
+pub fn init_destroy_hook() -> Option<HWINEVENTHOOK> {
+  unsafe {
+    let hook = SetWinEventHook(
+      EVENT_OBJECT_DESTROY,
+      EVENT_OBJECT_DESTROY,
+      None,
+      Some(destroy_hook_proc),
       0,
       0,
       WINEVENT_OUTOFCONTEXT,
