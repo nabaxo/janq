@@ -482,8 +482,19 @@ pub fn run_animation_task_sync(
     // Compensate for DWM invisible frame insets so the visual edge
     // of the window sits flush against the screen/work-area edge.
     let (inset_l, inset_t, inset_r, inset_b) = get_frame_insets(target_hwnd.inner());
-    let target_w = target_w + inset_l + inset_r;
-    let target_h = target_h + inset_t + inset_b;
+    // Only add insets to dimensions that came from config (percent/pixels).
+    // When dimensions are Unset, GetWindowRect already includes the invisible
+    // DWM frame — adding insets again would grow the window on every toggle.
+    let target_w = if width.val > 0.0 {
+      target_w + inset_l + inset_r
+    } else {
+      target_w
+    };
+    let target_h = if height.val > 0.0 {
+      target_h + inset_t + inset_b
+    } else {
+      target_h
+    };
     let shown_x = shown_x - inset_l;
     let shown_y = shown_y - inset_t;
     let hidden_x = hidden_x - inset_l;
