@@ -56,9 +56,9 @@ use crate::windows::{
   show_warning,
   terminal::ensure_terminal_running,
   window::{
-    fetch_system_windows, get_app_cache, init_focus_hook, init_hidden_owner, post_wake_message,
-    release_windows, reset_visible_app, restore_window_visibility, toggle_window, CachedWindow,
-    BRIDGE_HWND,
+    fetch_system_windows, get_app_cache, init_destroy_hook, init_focus_hook, init_hidden_owner,
+    post_wake_message, release_windows, reset_visible_app, restore_window_visibility,
+    toggle_window, CachedWindow, BRIDGE_HWND,
   },
 };
 use janq::{
@@ -181,6 +181,9 @@ pub async fn run_daemon(
 
   // Initialize focus tracking hook
   let _focus_hook = init_focus_hook();
+
+  // Initialize window-destroy hook for instant cache invalidation on managed window close
+  let _destroy_hook = init_destroy_hook();
 
   // Initialize hidden owner window for taskbar hiding (skip_pager feature)
   init_hidden_owner();
@@ -446,6 +449,11 @@ pub async fn run_daemon(
         let _ = event_tx.send(DaemonEvent::FocusLost);
       }
 
+      // WM_USER + 3: Immediate respawn request from destroy hook
+      if msg.message == WM_USER + 3 {
+        let _ = event_tx.send(DaemonEvent::RespawnCheck);
+      }
+
       let _ = TranslateMessage(&msg);
       DispatchMessageW(&msg);
 
@@ -514,8 +522,7 @@ pub async fn run_daemon(
                 tokio::task::spawn_blocking(move || {
                   if let Some(app_cfg) = cfg.app.get(&app_name) {
                     if !toggle_window(&app_name, &cfg) {
-                      let cands = fetch_system_windows();
-                      ensure_terminal_running(&app_name, app_cfg, &cfg, Some(&cands[..]));
+                      ensure_terminal_running(&app_name, app_cfg, &cfg, None);
                       toggle_window(&app_name, &cfg);
                     }
                   }
