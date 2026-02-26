@@ -4,7 +4,7 @@
 
 # janq v1.0.0 — The Inaugural Release of Questionable Decisions
 
-**Release Date:** January 24, 2026
+**Release Date:** February 26, 2026
 
 > **janq** - The Janky Quake-Style Terminal Manager (Because apparently, the existing ones weren't janky enough)
 
@@ -86,7 +86,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Dependency Slimming**: Eliminated `anyhow` and `dirs` dependencies, replacing them with a lightweight custom `Result` type, local error macros, and a platform-native `paths` module.
 - **Major Ecosystem Modernization**:
   - **Windows 0.62 Conversion**: Deep refactor of all Win32 API calls to match strict `Option<Handle>` type requirements.
-  - **Notify 8.2 & TOML 0.9**: Modernized file watching and serialization stacks.
+  - **Notify 8.2 & TOML 1.0**: Modernized file watching and serialization stacks.
   - **Performance Optimization**: Integrated `FxHash` and `tokio::signal`, and migrated to `fs4` for better file locking.
 - **The "Stupid Shit" Technical Audit**:
   - **Zero-Allocation Discovery**: Windows window enumeration now filters "junk" classes directly on stack-allocated buffers. Thousands of transient `String` allocations and `.to_lowercase()` calls were eliminated.

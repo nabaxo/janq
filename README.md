@@ -19,21 +19,23 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 
 ## Table of Contents
 
-- [Supported Platforms](#supported-platforms)
-- [Key Features](#key-features)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Command-Line Arguments](#command-line-arguments)
-- [Linux (KDE)](#linux-kde)
-- [Windows](#windows)
-- [Systray Behavior](#systray-behavior)
-- [Configuration](#configuration)
-- [Building](#building)
-- [Related Projects](#related-projects)
-- [Technical Implementation](#technical-implementation)
-- [Troubleshooting & Recovery](#troubleshooting--recovery)
-- [Known Issues and other notes](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes)
-- [License](#license)
+| Section | Description |
+| :--- | :--- |
+| [Supported Platforms](#supported-platforms) | Linux KDE Plasma 6 & Windows 10/11 |
+| [Key Features](#key-features) | Atomic switching, zero-config hotkeys, auto-hide, and more |
+| [Installation](#installation) | Download binaries or run the install script |
+| [Usage](#usage) | Smart startup & toggling behavior |
+| [Command-Line Arguments](#command-line-arguments) | CLI flags for daemon control, app toggling, and setup |
+| [Linux (KDE)](#linux-kde) | Desktop integration, hotkeys, autostart, and cleanup |
+| [Windows](#windows) | Native hotkeys, startup configuration, and path formatting |
+| [Systray Behavior](#systray-behavior) | Tray icon actions, menu order, and hot reloading |
+| [Configuration](#configuration) | Config file location, setup, and all available options |
+| [Building](#building) | Prerequisites, build targets, and cross-compilation |
+| [Related Projects](#related-projects) | Libraries and APIs used by janq |
+| [Technical Implementation](#technical-implementation) | Performance details, animation physics, and window matching |
+| [Troubleshooting & Recovery](#troubleshooting--recovery) | Linux cleanup scripts for when things go wrong |
+| [Known Issues and other notes](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes) | Animation quirks, platform limitations, and workarounds |
+| [License](#license) | MIT |
 
 ## Supported Platforms
 
@@ -63,7 +65,7 @@ curl -f https://git.nabaxo.dev/nabaxo/janq/raw/branch/main/install.sh | sh -s --
 Check [Command Line Arguhments](#command-line-arguments) for more flags to use. Note that it's not recommened to run the `--setup` argument directly, unless you already have a [`~/.config/janq/janq.toml`](#setup) ready to go, since that forces a refresh of kwin rules etc based on your config.
 
 > [!IMPORTANT]
-> Both distributed binaries are for x86; I'm afraid you have to build it yourself for that fancy ARM CPU of yours.
+> Both distributed binaries are for x86; I'm afraid you have to [build](#building) it yourself for that fancy ARM CPU of yours.
 
 2. [Create a janq.toml](#configuration) with [your config](#setup)
 3. [Run](#usage)
@@ -468,10 +470,10 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 - **[tokio](https://tokio.rs/)**: The asynchronous runtime powering the unified event loop.
 - **[zbus](https://github.com/dbus2/zbus)**: Facilitating D-Bus communication.
 - **[KWin Scripting API](https://develop.kde.org/docs/plasma/kwin/)**: Direct integration for Wayland window management on Linux.
-- **[windows-rs](https://github.com/microsoft/windows-rs)**: Native Windows API bindings for window management and positioning.
+- **[windows](https://github.com/microsoft/windows-rs)**: Native Windows API bindings for window management and positioning.
 - **[tray-icon](https://github.com/tauri-apps/tray-icon)** & **[global-hotkey](https://github.com/tauri-apps/global-hotkey)**: Managing the system tray and global shortcuts on Windows.
 
-- **[notify](https://github.com/notify-rs/notify)**: Powering the configuration hot-reloading feature.
+- **[notify](https://github.com/notify-rs/notify)**: Powering the configuration hot-reloading feature on Windows (Linux uses raw inotify syscalls).
 
 ## Technical Implementation
 
@@ -506,8 +508,11 @@ The `utilities/` directory contains cleanup scripts for Linux. These exist becau
 | `cleanup_desktop.sh`   | Removes desktop entries and icons.                                    |
 | `cleanup_processes.sh` | Kills any lingering daemon processes.                                 |
 | `cleanup_kwin.sh`      | Removes KWin scripts.                                                 |
+| `cleanup_kwin_rules.sh` | Removes janq-managed KWin window rules from `kwinrulesrc`.            |
+| `cleanup_janq_scripts.sh` | Removes janq KWin script files from shared memory and disk.         |
 | `cleanup_metadata.sh`  | Clears cached window IDs and metadata.                                |
 | `cleanup_errors.sh`    | Removes janq error temp files from /tmp.                              |
+| `fix_kwin_zombies.sh`  | Kills zombie KWin script processes that survived daemon shutdown.     |
 
 If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
 
