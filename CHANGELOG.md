@@ -5,7 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-02-21
+## [1.0.0] - 2026-02-26
+
+### Added
+- **Install script**: For easy installation and system integration on Linux.
+- **Typo-Tolerant Suggestions**: Integrated Levenshtein distance algorithm for command-line arguments, app names, and configuration values (modifiers, keys, and enums).
+- **GUI Warning Pop-ups**: Warnings now display as GUI pop-ups in non-interactive sessions (Windows/Linux).
+- **Improved CLI Error Handling**: Enhanced argument parsing with suggestions for unknown arguments. Now tolerates transpositions and small typos (e.g., `--hlep` suggests `--help`).
+- **Automated KWin Rule Lifecycle**: Implemented a sophisticated rule synchronization engine that manages `kwinrulesrc` automatically. It groups managed apps by desktop ID, applies regex-based matching, and surgically prunes stale or redundant janq rules directly from the filesystem to bypass KConfig errors.
+- **`kde_window_rules` Setting**: New configuration option under `[window]` (defaulting to `true`) to control whether janq manages system window rules for taskbar icon fixes.
+- **Linux Setup & Cleanup**: New `--setup` CLI flag to force regeneration of desktop files, icons, and D-Bus services, and a `--cleanup` flag to completely purge janq system integration (rules, desktop files, services).
+- **D-Bus Reload Trigger**: Added automatic `org.freedesktop.DBus.ReloadConfig` calls (via `qdbus6` or `dbus-send`) when system services are installed, ensuring "activatable" services work without a logout.
+- **KWin Icon Rule Automation**: Added internal `find_desktop_file_id` auto-discovery to support forced icon association via KWin Window Rules.
+- **Auto-Discovery of Desktop Files**: `janq` now automatically searches for the correct `.desktop` association for your managed apps based on their `window_class`, fixing generic Wayland icons without any manual configuration required.
+- **Unified Selection Engine**: Consolidated all window discovery and fuzzy matching logic into a shared platform-agnostic crate module. Windows and Linux now share a weighted scoring algorithm (Exact > Substring > Visible > Managed).
+- **Name-Aware Process Liveness**: New `process` module for platform-agnostic PID verification.
+  - **Linux**: Migrated to `/proc/{pid}/cmdline` parsing to support full binary names (e.g., `org.wezfurlong.wezterm`) and bypass 15-character kernel `comm` truncation.
+  - **Windows**: Implemented `GetExitCodeProcess` verification to prevent "Zombie App" detection caused by PID recycling.
+- **Focus Inheritance (Linux)**: Implemented sticky focus restoration for rapid app switching. Toggling between multiple Janq-managed apps now correctly preserves and "inherits" the original external window focus target.
+- **Momentum-Aware Animations**: Overhauled animation engines on both platforms to support "Handover" states. Toggling an app mid-animation now picks up from the current opacity/position instead of snapping back to the start.
+- **Auto-Hide focus watcher**: New `auto_hide` option in the `[window]` block to automatically hide the window when it loses focus.
+- **Systray menu on Linux**: Added tray functionality via `ksni` to Linux with full menu and shortcut display.
+- **Animation Framerate Control**: New `framerate` option for the `[animation]` block.
+  - Supports `"auto"` (VSync/Platform default), a specific number (e.g., `60`, `120`), or `0` to disable animations entirely (instant transitions).
+  - Cross-platform implementation using `DwmFlush` on Windows and frequency-clamped timers on Linux.
+- **Strict Validation**: Configuration parsing now strictly enforces numeric framerates (no quoted numbers) and validates ranges (0-1000).
 
 ### Changed
 - **Nightly Linux Build (default)**: Default Makefile target now uses `cargo +nightly -Zbuild-std=std,panic_abort` with `RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort"`, reducing binary size by ~494 KiB and RSS by ~452 KiB (2360 → 1908 KiB, a 19% reduction). Stable build remains available via `make build-linux-musl`.
@@ -13,90 +37,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Raw inotify config watcher (Linux)**: Replaced the `notify` crate with direct inotify syscalls for config file watching on Linux, eliminating a transitive dependency tree. Saves ~68 KiB binary size; `notify` is now Windows-only.
 - **Dependency pruning**: Disabled default features on the `toml` crate, selecting only `std`, `serde`, `parse`, and `preserve_order`. Removes unused `display`/formatting code from the binary.
 - **Error dialog UX**: "Press Enter to exit..." changed to "Press any key to exit..." using `read -rsn1`. All Linux error dialog terminal entries now use `bash -c` instead of `sh -c` for consistent behavior.
+- **Lock File Storage**: Moved lock file from config directory to cache directory (`XDG_CACHE_HOME` on Linux, `LOCALAPPDATA` on Windows) to follow platform conventions.
+- **Import Cleanup**: Refactored internal module imports across `main.rs` and daemon modules to use consolidated `janq::` import blocks instead of fully-qualified paths, improving code readability and maintainability.
+- **Linux Error Handling**: Simplified Linux error and warning display by removing unused `kdialog` and `zenity` fallbacks and non-blocking terminal spawn logic.
+- **Unified Rule Engine**: Refactored the Linux KWin rule management into a single execution path for both installation and purging, ensuring consistent cleanup of `kwinrulesrc` across all operations.
+- **Normalized Error Handling**: Standardized result types and error macros across the Linux backend for better consistency with the core crate.
+- **Zero-Allocation Discovery Loops**: Refactored core window discovery interfaces to use `&[FoundWindow]` slices. This eliminates thousands of heap allocations per minute during system polling and hotkey triggers.
+- **Aggressive Cache Pruning**: Windows backend now proactively evicts handles if `IsWindow` or `is_process_running` fails, ensuring much faster recovery from application crashes.
+- **Config Refactoring**: Internal simplification of `Dimension`, `PositionOffset`, and `DisplayMode` deserialization to reduce code duplication and improve maintainability.
 
 ### Fixed
 - **(Windows) Taskbar icon not hiding for some apps**: Apps with `WS_EX_APPWINDOW` extended style (e.g. Basitune) would force a taskbar button even when janq set a hidden owner window. janq now strips `WS_EX_APPWINDOW` when managing a window and restores it on daemon exit.
-
-### fix
-- **(windows) Alt-Tab**: resolve focus void after Alt-Tab and harden focus logic
-
-### Added
-- **Install script**: For easy installation and system integration on Linux.
-- **Typo-Tolerant Suggestions**: Integrated Levenshtein distance algorithm for command-line arguments, app names, and configuration values (modifiers, keys, and enums).
-
-### Added
-- **GUI Warning Pop-ups**: Warnings now display as GUI pop-ups in non-interactive sessions (Windows/Linux).
-- **Improved CLI Error Handling**: Enhanced argument parsing with suggestions for unknown arguments. Now tolerates transpositions and small typos (e.g., `--hlep` suggests `--help`).
-
-### Fixed
+- **(Windows) Alt-Tab**: Resolved focus void after Alt-Tab and hardened focus logic.
 - **Single-Instance Lock**: Fixed lock file mechanism to correctly handle platform-specific `fs4` behavior. On Linux (MUSL), the lock now properly detects `Ok(false)` return values. Lock acquisition now only occurs when starting a daemon process, not during client IPC operations.
 - **Windows Error Visibility**: Lock file errors and other critical errors during daemon startup now properly invoke `show_error()` instead of silently propagating through the async runtime, ensuring users see error dialogs on Windows.
 - **Error Display**: Converted silent `eprintln!` error messages to user-visible GUI notifications for non-terminal sessions.
 - **Lock File Lifetime**: Lock file handle is now leaked using `Box::leak()` to ensure it persists for the entire process lifetime, preventing premature release during async yields.
-
-### Changed
-- **Lock File Storage**: Moved lock file from config directory to cache directory (`XDG_CACHE_HOME` on Linux, `LOCALAPPDATA` on Windows) to follow platform conventions.
-- **Import Cleanup**: Refactored internal module imports across `main.rs` and daemon modules to use consolidated `janq::` import blocks instead of fully-qualified paths, improving code readability and maintainability.
-- **Linux Error Handling**: Simplified Linux error and warning display by removing unused `kdialog` and `zenity` fallbacks and non-blocking terminal spawn logic.
-
-### Added
-- **Automated KWin Rule Lifecycle**: Implemented a sophisticated rule synchronization engine that manages `kwinrulesrc` automatically. It groups managed apps by desktop ID, applies regex-based matching, and surgically prunes stale or redundant janq rules directly from the filesystem to bypass KConfig errors.
-- **`kde_window_rules` Setting**: New configuration option under `[window]` (defaulting to `true`) to control whether janq manages system window rules for taskbar icon fixes.
-- **Linux Setup & Cleanup**: New `--setup` CLI flag to force regeneration of desktop files, icons, and D-Bus services, and a `--cleanup` flag to completely purge janq system integration (rules, desktop files, services).
-- **D-Bus Reload Trigger**: Added automatic `org.freedesktop.DBus.ReloadConfig` calls (via `qdbus6` or `dbus-send`) when system services are installed, ensuring "activatable" services work without a logout.
-- **KWin Icon Rule Automation**: Added `desktop_file_id` configuration field to support forced icon association via KWin Window Rules.
-- **Auto-Discovery of Desktop Files**: `janq` now automatically searches for the correct `.desktop` association for your managed apps based on their `window_class`, fixing generic Wayland icons without any manual configuration required.
-
-### Changed
-- **Unified Rule Engine**: Refactored the Linux KWin rule management into a single execution path for both installation and purging, ensuring consistent cleanup of `kwinrulesrc` across all operations.
-- **Normalized Error Handling**: Standardized result types and error macros across the Linux backend for better consistency with the core crate.
-
-### Fixed
 - **Linux First-Run Reliability**: Icons and D-Bus services now index correctly on the first run of the app on fresh KDE 6 installations.
 - **Icon Cache Refresh**: Integrated `kbuildsycoca6 --noincremental` triggers into the installation flow to ensure the `janq` icon appears in the taskbar immediately.
-
-### Added
-- **Unified Selection Engine (Task 2)**: Consolidated all window discovery and fuzzy matching logic into a shared platform-agnostic crate module. Windows and Linux now share a weighted scoring algorithm (Exact > Substring > Managed > Visible).
-- **Name-Aware Process Liveness**: New `process` module for platform-agnostic PID verification.
-  - **Linux**: Migrated to `/proc/{pid}/cmdline` parsing to support full binary names (e.g., `org.wezfurlong.wezterm`) and bypass 15-character kernel `comm` truncation.
-  - **Windows**: Implemented `GetExitCodeProcess` verification to prevent "Zombie App" detection caused by PID recycling.
-- **Focus Inheritance (Linux)**: Implemented sticky focus restoration for rapid app switching. Toggling between multiple Janq-managed apps now correctly preserves and "inherits" the original external window focus target.
-- **Momentum-Aware Animations**: Overhauled animation engines on both platforms to support "Handover" states. Toggling an app mid-animation now picks up from the current opacity/position instead of snapping back to the start.
-
-### Fixed
 - **Windows Focus "Yo-Yo"**: Hardened focus hooks to prevent `auto_hide` from triggering incorrectly when a window is manually toggled or focus-forced.
 - **Windows WezTerm Reopening**: Fixed a bug where closed windows stayed in the management cache, preventing re-spawning. Added aggressive cache pruning upon PID death detection.
 - **Linux Focus Restore Lag**: Bypassed the metadata cache during toggle events to ensure focus restoration targets are captured with zero-latency D-Bus synchronization.
 - **Type-Safety & Build Reliability**: Resolved numerous cross-platform type regressions and Win32 import conflicts introduced during the architectural deduplication.
-
-### Changed
-- **Zero-Allocation Discovery Loops**: Refactored core window discovery interfaces to use `&[FoundWindow]` slices. This eliminates thousands of heap allocations per minute during system polling and hotkey triggers.
-- **Aggressive Cache Pruning**: Windows backend now proactively evicts handles if `IsWindow` or `is_process_running` fails, ensuring much faster recovery from application crashes.
-
-### Added
-- **Auto-Hide focus watcher**: New `auto_hide` option in the `[window]` block to automatically hide the window when it loses focus.
-- **Systray menu on Linux**: Add tray functionality via `ksni` to linux with full menu and shortcut display
-
-### Fixed
 - **Shortcut display in tray**: Windows now displays shortcut on context menu in systray.
-
-### Changed
-- **Change opt-level**: Change opt-level to `"s"` for even harder memory optimization.
-
-### Added
-- **Animation Framerate Control**: New `framerate` option for the `[animation]` block.
-  - Supports `"auto"` (VSync/Platform default), a specific number (e.g., `60`, `120`), or `0` to disable animations entirely (instant transitions).
-  - Cross-platform implementation using `DwmFlush` on Windows and frequency-clamped timers on Linux.
-- **Strict Validation**: Configuration parsing now strictly enforces numeric framerates (no quoted numbers) and validates ranges (0-1000).
-
-### Fixed
 - **Instant Focus**: Resolved issue on both Windows and Linux where `framerate = 0` (instant mode) would fail to grab focus correctly.
 - **Opacity Sync**: Opacity animations are now automatically bypassed if animations are disabled (`framerate = 0`), preventing windows from appearing invisible.
 - **Config Watcher Loop**: Fixed an infinite reload loop on Linux caused by the file watcher triggering on "Access" events.
 - **Windows Polish**: Fixed a race condition where Win32 focus calls could fail during near-instant transitions.
-
-### Changed
-- **Config Refactoring**: Internal simplification of `Dimension`, `PositionOffset`, and `DisplayMode` deserialization to reduce code duplication and improve maintainability.
 
 ### The Inaugural Release
 This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies its existence on your system.
@@ -127,7 +94,7 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 
 #### Hotkey & Matching
 - **Zero-config registration**: Native sync with KDE and Win32.
-- **Weighted Matcher**: Tiered scoring system (exact > subtitle > visible > managed).
+- **Weighted Matcher**: Tiered scoring system (exact > substring > visible > managed).
 
 ### Performance & Quality
 - **Unified Async Architecture**: Migrated both platforms to a shared Tokio-based async event loop for all IPC, file watching, and animation logic.
@@ -150,7 +117,7 @@ This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies
 - **Desktop-Aware Focus**: Optimized window focus restoration on Linux to be virtual-desktop aware. janq now avoids "snapping" you back to your previous desktop if you've moved desktops while the managed app was open.
 - **Platform-Specific Validation**: Added strict configuration validation that blocks startup with an error if Linux-only settings (`all_desktops`, `force_priority`) are present on Windows, regardless of their value.
 - **Major Ecosystem Jump (0.62 Windows/8.2 Notify)**: Systematically refactored the entire Windows backend to comply with the strict handle requirements of `windows` 0.62. Migrated `config_watcher.rs` to the `notify` 8.2 API.
-- **Dependency Jumps**: Updated `windows` (0.62), `notify` (8.2), `zbus` (5.0), `toml` (0.9), `tokio` (1.49), and `indexmap` (2.7).
+- **Dependency Jumps**: Updated `windows` (0.62), `notify` (8.2), `zbus` (5.0), `toml` (1.0), `tokio` (1.49), and `indexmap` (2.13).
 - **Architecture Efficiency**: Switched to `FxHash` via `rustc-hash` for performance, replaced `ctrlc` with native `tokio::signal`, and migrated from `fs2` to `fs4`.
 - **Flattened internals**: Eliminated proxy modules; consolidated the 1,200-line Win32 monolith into focused sub-modules.
 

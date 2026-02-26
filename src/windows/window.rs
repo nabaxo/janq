@@ -17,7 +17,7 @@
 //!
 //! ## State Tracking
 //!
-//! `HWND_CACHE` maps app names to their window handles for fast toggle
+//! `APP_CACHE` maps app names to their window handles for fast toggle
 //! and restoration on daemon exit.
 
 use std::sync::{

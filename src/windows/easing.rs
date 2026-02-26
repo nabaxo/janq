@@ -8,7 +8,7 @@
 //! - **cubic-in**, **cubic-out**, **cubic-in-out** - Cubic curves
 //! - **back-in**, **back-out**, **back-in-out** - Overshoot effect
 //! - **expo-in**, **expo-out**, **expo-in-out** - Exponential curves
-//! - **windows** - Custom curve matching Windows animations
+//! - **windows/impulse** - Custom curve matching Windows animations
 //!
 //! ## Custom Cubic Bezier
 //!
