@@ -50,8 +50,8 @@ use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headles
 use crate::linux::hotkey::sync_kde_shortcuts;
 use crate::linux::kwin::{
   clear_removed_apps_from_cache, grab_apps, init as init_kwin,
-  report_active_window as kwin_report_active, reset_visibility, restore_app, restore_quake,
-  sync_kwin_rules, toggle_quake,
+  report_active_window as kwin_report_active, reset_refresh_rate_logging, reset_visibility,
+  restore_app, restore_quake, sync_kwin_rules, toggle_quake,
 };
 use crate::linux::terminal::{
   ensure_terminal_running, report_metadata as terminal_report_metadata,
@@ -523,6 +523,9 @@ pub async fn run_daemon(
         apps_for_grabbing.push((app_cfg, &new_config_in_async));
       }
       let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
+
+      // Ensure refresh rate is re-logged on next toggle if config changed
+      reset_refresh_rate_logging().await;
 
       // 3. Update desktop file (don't run kbuild inside, we'll do it last)
       let desktop_changed = match generate_desktop_file_headless(&new_config_in_async) {

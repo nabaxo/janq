@@ -48,7 +48,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and typo-tolerant validation (via Levenshtein distance) for flags, app names, and configuration values in multi-app setups.
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu.
 - **Auto-Hide**: If configured, automatically hides the managed window when it loses focus for a seamless experience.
-- **Self-Healing Design (Linux)**: Background monitors for D-Bus and configuration changes are automatically supervised and restarted once upon failure, providing a GUI error and exiting gracefully if the issue persists to avoid infinite loops.
+- **Self-Healing Design (Linux)**: Background monitors for D-Bus and configuration changes are automatically supervised and restarted (up to 3 times) upon failure, providing a GUI error and exiting gracefully if the issue persists.
 - **Zero-Polling Restoration**: Reactively restores the system tray icon if the desktop panel restarts, using event-driven D-Bus signal monitoring for zero idle overhead.
 - **Robust Identification**: Advanced weighted scoring system to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
 - **High-Performance**: Ultra-fast response with hardware-accelerated sliding animations and focus restoration.

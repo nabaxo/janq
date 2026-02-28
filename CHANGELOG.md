@@ -29,8 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Animation Framerate Control**: New `framerate` option for the `[animation]` block.
   - Supports `"auto"` (VSync/Platform default), a specific number (e.g., `60`, `120`), or `0` to disable animations entirely (instant transitions).
   - Cross-platform implementation using `DwmFlush` on Windows and frequency-clamped timers on Linux.
-- **Self-healing background tasks (Linux)**: Implemented supervisor loops for the system tray monitor and config watcher that retry once after 5 seconds. On persistent failure, `janq` now displays a GUI error and exits gracefully.
-- **D-Bus Restoration**: `janq` now monitors for `org.kde.StatusNotifierWatcher` restarts and automatically re-registers the tray icon, fixing the "disappearing icon" bug on KDE Plasma.
+- **Self-healing background tasks (Linux)**: Implemented supervisor loops for the system tray monitor and config watcher with a shared `MAX_RETRY_COUNT`. On persistent failure, `janq` now displays a GUI error and exits gracefully.
+- **Refresh Rate Logging**: Optimized Linux backend to log the refresh rate only once per session or upon configuration reload, preventing terminal spam.
 - **Strict Validation**: Configuration parsing now strictly enforces numeric framerates (no quoted numbers) and validates ranges (0-1000).
 - **Framerate Display**: Added `Display` implementation for `Framerate` to provide clean logging of configured values.
 

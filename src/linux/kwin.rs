@@ -238,22 +238,13 @@ async fn get_max_refresh_rate() -> f64 {
   final_hz
 }
 
-/// Ensures platform-specific state (refresh rate) is initialized.
-///
-/// This is called lazily on the first toggle to prevent kscreen-doctor from
-/// spiking memory usage during daemon startup/restart.
-async fn ensure_initialized() -> f64 {
+pub async fn reset_refresh_rate_logging() {
   let mut state = STATE.lock().await;
-  if !state.is_hz_initialized {
-    state.max_refresh_rate = get_max_refresh_rate().await;
-    state.is_hz_initialized = true;
-  }
-  state.max_refresh_rate
+  state.is_hz_initialized = false;
 }
 
 pub async fn init() {
-  // No-op at startup for memory optimization.
-  // Initialization happens lazily on first toggle via ensure_initialized().
+  reset_refresh_rate_logging().await;
 }
 
 // Window cache is now managed in src/linux/cache.rs
@@ -456,13 +447,19 @@ pub async fn get_visible_app() -> Option<std::sync::Arc<str>> {
 }
 
 pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) -> Result<()> {
-  if matches!(config.animation.framerate, Framerate::Auto) {
-    ensure_initialized().await;
-  } else {
-    println!(
-      "janq: Display refresh rate is read from config: {}Hz",
-      config.animation.framerate
-    );
+  {
+    let mut state = STATE.lock().await;
+    if !state.is_hz_initialized {
+      if matches!(config.animation.framerate, Framerate::Auto) {
+        state.max_refresh_rate = get_max_refresh_rate().await;
+      } else {
+        println!(
+          "janq: Display refresh rate is read from config: {}Hz",
+          config.animation.framerate
+        );
+      }
+      state.is_hz_initialized = true;
+    }
   }
   let mut state = STATE.lock().await;
 
