@@ -370,43 +370,44 @@ pub async fn run_daemon(
       use zbus::export::ordered_stream::OrderedStreamExt as _;
       use zbus::fdo::DBusProxy;
 
-      let dbus_proxy = match DBusProxy::new(&conn_for_sni_watch).await {
-        Ok(p) => p,
-        Err(e) => {
+      loop {
+        let run_result: zbus::Result<()> = async {
+          let dbus_proxy = DBusProxy::new(&conn_for_sni_watch).await?;
+
+          // Pre-filtered stream: only wakes for org.kde.StatusNotifierWatcher name changes.
+          let mut stream = dbus_proxy
+            .receive_name_owner_changed_with_args(&[(0, "org.kde.StatusNotifierWatcher")])
+            .await?;
+
+          while let Some(signal) = stream.next().await {
+            if let Ok(args) = signal.args() {
+              // new_owner is non-empty when the watcher has (re)appeared.
+              let new_owner_present = args
+                .new_owner()
+                .as_ref()
+                .map(|o| !o.as_str().is_empty())
+                .unwrap_or(false);
+
+              if new_owner_present {
+                println!("Tray: StatusNotifierWatcher restarted, re-registering SNI...");
+                register_sni(&conn_for_sni_watch, &sni_name_for_sni_watch).await;
+                StatusNotifierItem::emit_new_icon(&conn_for_sni_watch).await;
+              }
+            }
+          }
+          Ok(())
+        }
+        .await;
+
+        if let Err(e) = run_result {
           eprintln!(
-            "Tray: Failed to create DBusProxy for watcher monitor: {}",
+            "Tray: StatusNotifierWatcher monitor failed: {}. Retrying in 5s...",
             e
           );
-          return;
-        }
-      };
-
-      // Pre-filtered stream: only wakes for org.kde.StatusNotifierWatcher name changes.
-      let mut stream = match dbus_proxy
-        .receive_name_owner_changed_with_args(&[(0, "org.kde.StatusNotifierWatcher")])
-        .await
-      {
-        Ok(s) => s,
-        Err(e) => {
-          eprintln!("Tray: Failed to subscribe to NameOwnerChanged: {}", e);
-          return;
-        }
-      };
-
-      while let Some(signal) = stream.next().await {
-        if let Ok(args) = signal.args() {
-          // new_owner is non-empty when the watcher has (re)appeared.
-          let new_owner_present = args
-            .new_owner()
-            .as_ref()
-            .map(|o| !o.as_str().is_empty())
-            .unwrap_or(false);
-
-          if new_owner_present {
-            println!("Tray: StatusNotifierWatcher restarted, re-registering SNI...");
-            register_sni(&conn_for_sni_watch, &sni_name_for_sni_watch).await;
-            StatusNotifierItem::emit_new_icon(&conn_for_sni_watch).await;
-          }
+          tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        } else {
+          // Normal exit (if stream ends unexpectedly but without error)
+          break;
         }
       }
     });
