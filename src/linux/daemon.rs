@@ -370,6 +370,7 @@ pub async fn run_daemon(
       use zbus::export::ordered_stream::OrderedStreamExt as _;
       use zbus::fdo::DBusProxy;
 
+      let mut retry_count = 0;
       loop {
         let run_result: zbus::Result<()> = async {
           let dbus_proxy = DBusProxy::new(&conn_for_sni_watch).await?;
@@ -400,11 +401,21 @@ pub async fn run_daemon(
         .await;
 
         if let Err(e) = run_result {
-          eprintln!(
-            "Tray: StatusNotifierWatcher monitor failed: {}. Retrying in 5s...",
-            e
-          );
-          tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+          if retry_count < janq::MAX_RETRY_COUNT {
+            eprintln!(
+              "Tray: StatusNotifierWatcher monitor failed: {}. Retrying in 5s...",
+              e
+            );
+            retry_count += 1;
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+          } else {
+            let msg = format!(
+              "System Tray Monitor failed persistently: {}\n\njanq will now exit. Please try to manually restart janq.",
+              e
+            );
+            crate::error::show_error(&msg);
+            std::process::exit(1);
+          }
         } else {
           // Normal exit (if stream ends unexpectedly but without error)
           break;

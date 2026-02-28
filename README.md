@@ -48,6 +48,8 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and typo-tolerant validation (via Levenshtein distance) for flags, app names, and configuration values in multi-app setups.
 - **Ordered Configuration**: The order of `[app]` sections in your config file determines their display order in the systray menu.
 - **Auto-Hide**: If configured, automatically hides the managed window when it loses focus for a seamless experience.
+- **Self-Healing Design (Linux)**: Background monitors for D-Bus and configuration changes are automatically supervised and restarted once upon failure, providing a GUI error and exiting gracefully if the issue persists to avoid infinite loops.
+- **Zero-Polling Restoration**: Reactively restores the system tray icon if the desktop panel restarts, using event-driven D-Bus signal monitoring for zero idle overhead.
 - **Robust Identification**: Advanced weighted scoring system to reliably target the main window of complex apps like Obsidian, VS Code, and Zed.
 - **High-Performance**: Ultra-fast response with hardware-accelerated sliding animations and focus restoration.
 - **CLI Power**: Control your setup via the [terminal](#command-line-arguments).
@@ -285,7 +287,7 @@ hotkey = "Meta+Z"
 
 (Sloperator: For your own sanity, just use the single `duration` and `easing` keys, check [here](#sibling-animation-duration-divergence)).
 
-\*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit).
+\*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit. **Note: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use.**).
 
 #### Slide Direction
 
@@ -485,6 +487,7 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 - **Memory Footprint**: janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and ~1.7 MB on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~1.7MB on Linux. It manages animations at 144Hz+.
 - **Velocity-Style Animations**: Both platforms use "Velocity-Style" animations where duration scales based on travel distance, ensuring constant movement speed regardless of window position. This coordinated "swipe" ensures the outgoing app slides UP while the new one slides DOWN in perfect sync.
 - **Unified Async Architecture**: Uses a cross-platform Tokio-based async runtime with a single unified event loop for IPC, animations, and heartbeats.
+- **Self-Healing Supervision**: Background tasks (D-Bus monitoring, config watching) are wrapped in supervisor loops that automatically attempt reconnection or re-initialization every 5 seconds upon failure.
 - **Zero-IPC Liveness Checks**: On Linux, janq performs direct `/proc/{pid}` checks (<0.1ms) instead of querying KWin, ensuring instant response.
 
 ### Physics & Window Matching

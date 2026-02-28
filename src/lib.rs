@@ -1,3 +1,5 @@
+pub const MAX_RETRY_COUNT: u32 = 4;
+
 pub mod config;
 pub mod config_watcher;
 pub mod error;

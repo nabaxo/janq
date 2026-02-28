@@ -29,7 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Animation Framerate Control**: New `framerate` option for the `[animation]` block.
   - Supports `"auto"` (VSync/Platform default), a specific number (e.g., `60`, `120`), or `0` to disable animations entirely (instant transitions).
   - Cross-platform implementation using `DwmFlush` on Windows and frequency-clamped timers on Linux.
+- **Self-healing background tasks (Linux)**: Implemented supervisor loops for the system tray monitor and config watcher that retry once after 5 seconds. On persistent failure, `janq` now displays a GUI error and exits gracefully.
+- **D-Bus Restoration**: `janq` now monitors for `org.kde.StatusNotifierWatcher` restarts and automatically re-registers the tray icon, fixing the "disappearing icon" bug on KDE Plasma.
 - **Strict Validation**: Configuration parsing now strictly enforces numeric framerates (no quoted numbers) and validates ranges (0-1000).
+- **Framerate Display**: Added `Display` implementation for `Framerate` to provide clean logging of configured values.
 
 ### Changed
 - **Nightly Linux Build (default)**: Default Makefile target now uses `cargo +nightly -Zbuild-std=std,panic_abort` with `RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort"`, reducing binary size by ~494 KiB and RSS by ~452 KiB (2360 → 1908 KiB, a 19% reduction). Stable build remains available via `make build-linux-musl`.
@@ -44,7 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Normalized Error Handling**: Standardized result types and error macros across the Linux backend for better consistency with the core crate.
 - **Zero-Allocation Discovery Loops**: Refactored core window discovery interfaces to use `&[FoundWindow]` slices. This eliminates thousands of heap allocations per minute during system polling and hotkey triggers.
 - **Aggressive Cache Pruning**: Windows backend now proactively evicts handles if `IsWindow` or `is_process_running` fails, ensuring much faster recovery from application crashes.
+- **Refresh Rate Logic**: Optimized Linux backend to skip `kscreen-doctor` execution when a fixed `framerate` is provided in the configuration.
 - **Config Refactoring**: Internal simplification of `Dimension`, `PositionOffset`, and `DisplayMode` deserialization to reduce code duplication and improve maintainability.
+- **Zero-Dependency Signal Iteration**: Leveraged `zbus` internal re-exports instead of `futures-lite` for event-driven monitoring, minimizing binary bloat and memory footprint.
 
 ### Fixed
 - **(Windows) Taskbar icon not hiding for some apps**: Apps with `WS_EX_APPWINDOW` extended style (e.g. Basitune) would force a taskbar button even when janq set a hidden owner window. janq now strips `WS_EX_APPWINDOW` when managing a window and restores it on daemon exit.
@@ -58,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows Focus "Yo-Yo"**: Hardened focus hooks to prevent `auto_hide` from triggering incorrectly when a window is manually toggled or focus-forced.
 - **Windows WezTerm Reopening**: Fixed a bug where closed windows stayed in the management cache, preventing re-spawning. Added aggressive cache pruning upon PID death detection.
 - **Linux Focus Restore Lag**: Bypassed the metadata cache during toggle events to ensure focus restoration targets are captured with zero-latency D-Bus synchronization.
+- **Systray Icon Persistence**: Resolved an issue where the tray icon would disappear after a compositor or panel (StatusNotifierWatcher) restart on KDE Plasma.
 - **Type-Safety & Build Reliability**: Resolved numerous cross-platform type regressions and Win32 import conflicts introduced during the architectural deduplication.
 - **Shortcut display in tray**: Windows now displays shortcut on context menu in systray.
 - **Instant Focus**: Resolved issue on both Windows and Linux where `framerate = 0` (instant mode) would fail to grab focus correctly.

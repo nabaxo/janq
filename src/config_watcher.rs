@@ -63,13 +63,20 @@ where
   F: Fn() -> Fut + Send + 'static,
   Fut: Future<Output = ()> + Send + 'static,
 {
+  let mut retry_count = 0;
   loop {
     let mut rx = match crate::inotify::watch_config(config_path.clone()) {
       Some(rx) => rx,
       None => {
-        eprintln!("Watcher: Failed to initialize inotify. Retrying in 5s...");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        continue;
+        if retry_count < crate::MAX_RETRY_COUNT {
+          eprintln!("Watcher: Failed to initialize inotify. Retrying in 5s...");
+          retry_count += 1;
+          tokio::time::sleep(Duration::from_secs(5)).await;
+          continue;
+        } else {
+          crate::error::show_error("Configuration Watcher failed to initialize (inotify).\n\njanq will now exit. Please try to manually restart janq.");
+          std::process::exit(1);
+        }
       }
     };
 
@@ -92,8 +99,14 @@ where
               pending = true;
             }
             None => {
-              eprintln!("Watcher: inotify channel closed. Restarting monitor in 5s...");
-              break; // Break inner loop to retry outer
+              if retry_count < crate::MAX_RETRY_COUNT {
+                eprintln!("Watcher: inotify channel closed. Restarting monitor in 5s...");
+                retry_count += 1;
+                break; // Break inner loop to retry outer
+              } else {
+                crate::error::show_error("Configuration Watcher channel closed unexpectedly.\n\njanq will now exit. Please try to manually restart janq.");
+                std::process::exit(1);
+              }
             }
           }
         }
