@@ -246,6 +246,24 @@ impl StatusNotifierItem {
   }
 }
 
+/// Register our StatusNotifierItem with KDE's StatusNotifierWatcher.
+/// Logs the result rather than crashing — the watcher may not be available yet.
+async fn register_sni(conn: &Connection, sni_name: &str) {
+  match conn
+    .call_method(
+      Some(BusName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
+      "/StatusNotifierWatcher",
+      Some(InterfaceName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
+      "RegisterStatusNotifierItem",
+      &(sni_name),
+    )
+    .await
+  {
+    Ok(_) => println!("Tray: Registered with StatusNotifierWatcher"),
+    Err(e) => eprintln!("Tray: Failed to register with StatusNotifierWatcher: {}", e),
+  }
+}
+
 pub async fn run_daemon(
   initial_config: Config,
   config_path: Option<PathBuf>,
@@ -324,15 +342,7 @@ pub async fn run_daemon(
   conn.request_name(activatable_bus).await?;
   let _ = conn.request_name("dev.nabaxo.janq.desktop").await;
 
-  let _ = conn
-    .call_method(
-      Some(BusName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
-      "/StatusNotifierWatcher",
-      Some(InterfaceName::try_from("org.kde.StatusNotifierWatcher").unwrap()),
-      "RegisterStatusNotifierItem",
-      &(sni_name),
-    )
-    .await;
+  register_sni(&conn, &sni_name).await;
 
   // --- KDE Platform Integration ---
   {
@@ -348,6 +358,59 @@ pub async fn run_daemon(
   // Nudge Plasma to re-query the icon in case it resolved before the SVG
   // was on disk or its theme cache was stale from a prior negative lookup.
   StatusNotifierItem::emit_new_icon(&conn).await;
+
+  // Monitor StatusNotifierWatcher for restarts and re-register our SNI.
+  // When plasmashell restarts (crash, panel reconfigure, theme change, etc.),
+  // the watcher forgets all registered items. We detect reappearance via the
+  // NameOwnerChanged signal and re-register so the icon comes back automatically.
+  {
+    let conn_for_sni_watch = conn.clone();
+    let sni_name_for_sni_watch = sni_name.clone();
+    tokio::spawn(async move {
+      use zbus::export::ordered_stream::OrderedStreamExt as _;
+      use zbus::fdo::DBusProxy;
+
+      let dbus_proxy = match DBusProxy::new(&conn_for_sni_watch).await {
+        Ok(p) => p,
+        Err(e) => {
+          eprintln!(
+            "Tray: Failed to create DBusProxy for watcher monitor: {}",
+            e
+          );
+          return;
+        }
+      };
+
+      // Pre-filtered stream: only wakes for org.kde.StatusNotifierWatcher name changes.
+      let mut stream = match dbus_proxy
+        .receive_name_owner_changed_with_args(&[(0, "org.kde.StatusNotifierWatcher")])
+        .await
+      {
+        Ok(s) => s,
+        Err(e) => {
+          eprintln!("Tray: Failed to subscribe to NameOwnerChanged: {}", e);
+          return;
+        }
+      };
+
+      while let Some(signal) = stream.next().await {
+        if let Ok(args) = signal.args() {
+          // new_owner is non-empty when the watcher has (re)appeared.
+          let new_owner_present = args
+            .new_owner()
+            .as_ref()
+            .map(|o| !o.as_str().is_empty())
+            .unwrap_or(false);
+
+          if new_owner_present {
+            println!("Tray: StatusNotifierWatcher restarted, re-registering SNI...");
+            register_sni(&conn_for_sni_watch, &sni_name_for_sni_watch).await;
+            StatusNotifierItem::emit_new_icon(&conn_for_sni_watch).await;
+          }
+        }
+      }
+    });
+  }
 
   // Small delay to ensure D-Bus service is fully registered before KWin scripts call back
   sleep(Duration::from_millis(100)).await;
