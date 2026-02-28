@@ -973,6 +973,15 @@ impl TryFrom<FramerateRaw> for Framerate {
   }
 }
 
+impl std::fmt::Display for Framerate {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Framerate::Auto => write!(f, "auto"),
+      Framerate::Specific(n) => write!(f, "{}", n),
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct AnimationConfig {
   pub show_duration: u16,

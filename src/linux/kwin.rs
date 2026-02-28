@@ -456,7 +456,14 @@ pub async fn get_visible_app() -> Option<std::sync::Arc<str>> {
 }
 
 pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) -> Result<()> {
-  ensure_initialized().await;
+  if matches!(config.animation.framerate, Framerate::Auto) {
+    ensure_initialized().await;
+  } else {
+    println!(
+      "janq: Display refresh rate is read from config: {}Hz",
+      config.animation.framerate
+    );
+  }
   let mut state = STATE.lock().await;
 
   let app_cfg = match config.app.get(app_name) {
