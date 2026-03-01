@@ -15,7 +15,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 > Seriously, I don't know how to program in Rust. I have no idea if the code is good or not. On a quick glance, it doesn't appear to do stupid shit; I have no idea about the specifics of Rust, I'm just a mediocre webdev.
 
 > [!CAUTION]
-> I have only tested this on two machines, your mileage may vary and all that.
+> I have only tested this on like four machines, your mileage may vary and all that.
 
 ## Table of Contents
 
@@ -40,7 +40,9 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 ## Supported Platforms
 
 - **Linux**: KDE Plasma 6 (Wayland via KWin scripts, D-Bus activation, and StatusNotifierItem)
-- **Windows**: Windows 10/11 (Native WinAPI)
+- **Windows**: Windows 10\*/11 (Native WinAPI)
+
+(Sloperator: The slopmachine says it runs on Windows 10, I have noe idea if it actually runs on Window 10. ¯\\_(ツ)\_/¯)
 
 ## Key Features
 - **Atomic Switching**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows. (See [Sibling Animation Duration Divergence](#sibling-animation-duration-divergence))
@@ -120,7 +122,7 @@ To completely remove janq's system integration (desktop files, services, icons, 
 ./janq --cleanup
 ```
 
-*Note: This does not remove your configuration file at `~/.config/janq/janq.toml`.*
+_Note: This does not remove your configuration file._
 
 **Linux Startup (Automatic)**
 
@@ -204,7 +206,7 @@ janq searches for a configuration file _(janq.toml or .janq.toml)_ in the follow
 
 ### Setup
 
-Create `.janq.toml` in `~/.config/janq/` or your home directory.
+Create `janq.toml` in `~/.config/janq/` or next to the binary, in `/path/to/janq`.
 
 #### Global settings
 
@@ -287,7 +289,8 @@ hotkey = "Meta+Z"
 
 (Sloperator: For your own sanity, just use the single `duration` and `easing` keys, check [here](#sibling-animation-duration-divergence)).
 
-\*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit. **Note: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use.**).
+\*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit.)
+ _**Note**: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use._.
 
 #### Slide Direction
 
@@ -479,7 +482,7 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 
 ## Technical Implementation
 
-### (Sloperator: Features the AI is particularly proud about)
+### (Sloperator: Features the slopmachine is particularly proud about)
 
 ### Performance & Platform backend
 
@@ -543,7 +546,7 @@ Some applications (especially Electron-based ones or XWayland clients) may exper
 
 **KWin Technical Limitation**: Due to the asynchronous nature of Wayland property updates vs. buffer commits, a window's `opacity` and its `frameGeometry` (position) may occasionally arrive in different compositor frames. This can cause a "flicker" where the window appears at the new position but with the old opacity for a single frame. (Sloperator: More like that it doesn't animate opacity all the way when opening sibling).
 
-**The Fix**: janq uses the "Fullscreen role" (`force_priority = true`) or `ForceBlur` to trick the compositor into prioritizing these updates. However, for some apps, disabling `animate_opacity` is still the most stable choice. (Sloperator: It's the best I could make the AI do ¯\_(ツ)\_/¯).
+**The Fix**: janq uses the "Fullscreen role" (`force_priority = true`) or `ForceBlur` to trick the compositor into prioritizing these updates. However, for some apps, disabling `animate_opacity` is still the most stable choice. (Sloperator: It's the best I could make the AI do ¯\\_(ツ)\_/¯).
 
 ### Linux: Animation Artifacts (Ghosting / Jitter)
 
