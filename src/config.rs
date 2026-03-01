@@ -1035,8 +1035,8 @@ impl Default for AnimationConfig {
     Self {
       show_duration: 350,
       hide_duration: 350,
-      show_easing: Easing::Ease,
-      hide_easing: Easing::Ease,
+      show_easing: Easing::Impulse,
+      hide_easing: Easing::Impulse,
       animate_opacity: false,
       show_opacity_point: 0.2,
       hide_opacity_point: 0.8,

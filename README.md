@@ -1,7 +1,6 @@
 # janq - A Fairly Solid Quake-Style Terminal/App Manager
 
-### *janq is 100%, unadulterated vibe coded slop. User discretion is advised.*
-
+### _janq is 100%, unadulterated vibe coded slop. User discretion is advised._
 
 <img src="icon.svg" width="190" height="190" align="left">
 
@@ -19,32 +18,33 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 
 ## Table of Contents
 
-| Section | Description |
-| :--- | :--- |
-| [Supported Platforms](#supported-platforms) | Linux KDE Plasma 6 & Windows 10/11 |
-| [Key Features](#key-features) | Atomic switching, zero-config hotkeys, auto-hide, and more |
-| [Installation](#installation) | Download binaries or run the install script |
-| [Usage](#usage) | Smart startup & toggling behavior |
-| [Command-Line Arguments](#command-line-arguments) | CLI flags for daemon control, app toggling, and setup |
-| [Linux (KDE)](#linux-kde) | Desktop integration, hotkeys, autostart, and cleanup |
-| [Windows](#windows) | Native hotkeys, startup configuration, and path formatting |
-| [Systray Behavior](#systray-behavior) | Tray icon actions, menu order, and hot reloading |
-| [Configuration](#configuration) | Config file location, setup, and all available options |
-| [Building](#building) | Prerequisites, build targets, and cross-compilation |
-| [Related Projects](#related-projects) | Libraries and APIs used by janq |
-| [Technical Implementation](#technical-implementation) | Performance details, animation physics, and window matching |
-| [Troubleshooting & Recovery](#troubleshooting--recovery) | Linux cleanup scripts for when things go wrong |
-| [Known Issues and other notes](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes) | Animation quirks, platform limitations, and workarounds |
-| [License](#license) | MIT |
+| Section                                                                                                    | Description                                                 |
+| :--------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------- |
+| [Supported Platforms](#supported-platforms)                                                                | Linux KDE Plasma 6 & Windows 10/11                          |
+| [Key Features](#key-features)                                                                              | Atomic switching, zero-config hotkeys, auto-hide, and more  |
+| [Installation](#installation)                                                                              | Download binaries or run the install script                 |
+| [Usage](#usage)                                                                                            | Smart startup & toggling behavior                           |
+| [Command-Line Arguments](#command-line-arguments)                                                          | CLI flags for daemon control, app toggling, and setup       |
+| [Linux (KDE)](#linux-kde)                                                                                  | Desktop integration, hotkeys, autostart, and cleanup        |
+| [Windows](#windows)                                                                                        | Native hotkeys, startup configuration, and path formatting  |
+| [Systray Behavior](#systray-behavior)                                                                      | Tray icon actions, menu order, and hot reloading            |
+| [Configuration](#configuration)                                                                            | Config file location, setup, and all available options      |
+| [Building](#building)                                                                                      | Prerequisites, build targets, and cross-compilation         |
+| [Related Projects](#related-projects)                                                                      | Libraries and APIs used by janq                             |
+| [Technical Implementation](#technical-implementation)                                                      | Performance details, animation physics, and window matching |
+| [Troubleshooting & Recovery](#troubleshooting--recovery)                                                   | Linux cleanup scripts for when things go wrong              |
+| [Known Issues and other notes](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes) | Animation quirks, platform limitations, and workarounds     |
+| [License](#license)                                                                                        | MIT                                                         |
 
 ## Supported Platforms
 
 - **Linux**: KDE Plasma 6 (Wayland via KWin scripts, D-Bus activation, and StatusNotifierItem)
 - **Windows**: Windows 10\*/11 (Native WinAPI)
 
-(Sloperator: The slopmachine says it runs on Windows 10, I have noe idea if it actually runs on Window 10. ¯\\_(ツ)\_/¯)
+(Sloperator: The slopmachine says it runs on Windows 10, I have noe idea if it actually runs on Window 10. ¯\\\_(ツ)\_/¯)
 
 ## Key Features
+
 - **Atomic Switching**: Coordinated "swipe" animations—the outgoing app slides UP while the new one slides DOWN in perfect sync on both Linux and Windows. (See [Sibling Animation Duration Divergence](#sibling-animation-duration-divergence))
 - **Zero-Config Hotkeys**: Automatically registers global hotkeys. On Windows, it's native; on Linux (KDE), it syncs your configuration via D-Bus.
 - **Intelligent App Resolution**: Smart fallback logic for single-app setups and typo-tolerant validation (via Levenshtein distance) for flags, app names, and configuration values in multi-app setups.
@@ -59,9 +59,10 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 ## Installation
 
 1. - **Windows:**
-Download the binary from [releases](/nabaxo/janq/releases).
+     Download the binary from [releases](/nabaxo/janq/releases).
    - **Linux:**
-Run the install-script like so:
+     Run the install-script like so:
+
 ```sh
 curl -f https://git.nabaxo.dev/nabaxo/janq/raw/branch/main/install.sh | sh -s -- --help
 ```
@@ -89,17 +90,17 @@ Check [Command Line Arguhments](#command-line-arguments) for more flags to use. 
 
 ## Command-Line Arguments
 
-| Argument | Shorthand | Description |
-| :------- | :-------- | :---------- |
-| `--daemon` | `-D` | Run as a persistent process (Server Mode). |
-| `--app [NAME]` | `-a` | Toggle a specific application from your config. |
-| `--help` | `-h` | Print help information. |
-| `--version` | `-V` | Print version information. |
+| Argument                     | Shorthand | Description                                          |
+| :--------------------------- | :-------- | :--------------------------------------------------- |
+| `--daemon`                   | `-D`      | Run as a persistent process (Server Mode).           |
+| `--app [NAME]`               | `-a`      | Toggle a specific application from your config.      |
+| `--help`                     | `-h`      | Print help information.                              |
+| `--version`                  | `-V`      | Print version information.                           |
 | **Linux Specific Arguments** |
-| `--setup` | `-i` | Force refresh of system/desktop/D-Bus/Rules.\* |
-| `--cleanup` | `-u` | Remove all janq system integration. |
-| `--enable-autostart` | — | Enable autostart (creates symlink to .desktop-file). |
-| `--disable-autostart` | — | Disable autostart (removes symlink). |
+| `--setup`                    | `-i`      | Force refresh of system/desktop/D-Bus/Rules.\*       |
+| `--cleanup`                  | `-u`      | Remove all janq system integration.                  |
+| `--enable-autostart`         | —         | Enable autostart (creates symlink to .desktop-file). |
+| `--disable-autostart`        | —         | Disable autostart (removes symlink).                 |
 
 \* This creates a `.desktop` file, adds whatever is in your config as kwin-rules for nice icon integration.
 
@@ -108,7 +109,6 @@ Check [Command Line Arguhments](#command-line-arguments) for more flags to use. 
 janq generates a `.desktop` file and syncs your hotkeys to **KDE System Settings** automatically. Just run the daemon, and your shortcuts (e.g., `Meta+Grave`) will work instantly.
 
 If you are on a fresh installation and the icon is missing or hotkeys say "name not activatable", you can force a full system integration refresh using the `--setup` [flag](#command-line-arguments).
-
 
 ```bash
 ./janq --setup
@@ -220,7 +220,7 @@ kde_window_rules = true  # (Linux) Manage KWin rule-based icon fixes
 
 [animation]
 duration = 350           # Sets both show and hide duration
-easing = "ease"          # Sets both show and hide easing
+easing = "impulse"       # Sets both show and hide easing
 animate_opacity = true
 framerate = "auto"       # "auto", 0 (disable), or 1-1000 FPS
 ```
@@ -278,8 +278,8 @@ hotkey = "Meta+Z"
 |               | `show_duration`      | `350` (ms)       | Duration of the show animation                                                       |   ❌    |
 |               | `hide_duration`      | `350` (ms)       | Duration of the hide animation                                                       |   ❌    |
 |               | `easing`\*           | —                | Set both show/hide easing at once                                                    |   ❌    |
-|               | `show_easing`        | `"ease"`         | Easing curve for showing                                                             |   ❌    |
-|               | `hide_easing`        | `"ease"`         | Easing curve for hiding                                                              |   ❌    |
+|               | `show_easing`        | `"impulse"`      | Easing curve for showing                                                             |   ❌    |
+|               | `hide_easing`        | `"impulse"`      | Easing curve for hiding                                                              |   ❌    |
 |               | `animate_opacity`    | `false`          | Fade opacity during animations                                                       |   ✔️    |
 |               | `show_opacity_point` | `0.2`            | Animation progress (0-1) by which the window becomes fully opaque                    |   ❌    |
 |               | `hide_opacity_point` | `0.8`            | Animation progress (0-1) when fade-out starts                                        |   ❌    |
@@ -290,7 +290,7 @@ hotkey = "Meta+Z"
 (Sloperator: For your own sanity, just use the single `duration` and `easing` keys, check [here](#sibling-animation-duration-divergence)).
 
 \*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit.)
- _**Note**: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use._.
+_**Note**: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use._.
 
 #### Slide Direction
 
@@ -458,20 +458,22 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 
 > [!NOTE]
 > **Nightly Linux Build**: The default `make build` uses Rust nightly with `-Zbuild-std` and `panic=immediate-abort` to recompile the standard library with size optimizations and strip all panic formatting code. This produces a significantly smaller binary with ~20% lower RSS. Panics will silently abort instead of printing a message. Requires:
+>
 > ```bash
 > rustup toolchain install nightly
 > rustup component add rust-src --toolchain nightly
 > rustup target add x86_64-unknown-linux-musl --toolchain nightly
 > ```
+>
 > If nightly is unavailable, use `make build-linux-musl` instead for a stable toolchain build.
 
 > [!TIP]
 > Look in `Makefile` for all the options.
 
-
 ## Related Projects
 
 (Sloperator: Shit that the AI used to cobble together this mess).
+
 - **[tokio](https://tokio.rs/)**: The asynchronous runtime powering the unified event loop.
 - **[zbus](https://github.com/dbus2/zbus)**: Facilitating D-Bus communication.
 - **[KWin Scripting API](https://develop.kde.org/docs/plasma/kwin/)**: Direct integration for Wayland window management on Linux.
@@ -506,19 +508,19 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 
 The `utilities/` directory contains cleanup scripts for Linux. These exist because during development we managed to break KDE shortcuts, leave zombie processes, and generally make a mess of the desktop integration more times than we'd like to admit. (Sloperator: Speak for yourself, I had to use it countless times because of your bullshit).
 
-| Script                 | Description                                                           |
-| ---------------------- | --------------------------------------------------------------------- |
-| `full_cleanup.sh`      | Nuclear option. Removes all janq/legacy janq traces from your system. |
-| `hard_reset_kwin.sh`   | Aggressive recovery from KWin state corruption or script hangs.       |
-| `cleanup_shortcuts.sh` | Fixes KDE global shortcuts when they inevitably get stuck.            |
-| `cleanup_desktop.sh`   | Removes desktop entries and icons.                                    |
-| `cleanup_processes.sh` | Kills any lingering daemon processes.                                 |
-| `cleanup_kwin.sh`      | Removes KWin scripts.                                                 |
-| `cleanup_kwin_rules.sh` | Removes janq-managed KWin window rules from `kwinrulesrc`.            |
-| `cleanup_janq_scripts.sh` | Removes janq KWin script files from shared memory and disk.         |
-| `cleanup_metadata.sh`  | Clears cached window IDs and metadata.                                |
-| `cleanup_errors.sh`    | Removes janq error temp files from /tmp.                              |
-| `fix_kwin_zombies.sh`  | Kills zombie KWin script processes that survived daemon shutdown.     |
+| Script                    | Description                                                           |
+| ------------------------- | --------------------------------------------------------------------- |
+| `full_cleanup.sh`         | Nuclear option. Removes all janq/legacy janq traces from your system. |
+| `hard_reset_kwin.sh`      | Aggressive recovery from KWin state corruption or script hangs.       |
+| `cleanup_shortcuts.sh`    | Fixes KDE global shortcuts when they inevitably get stuck.            |
+| `cleanup_desktop.sh`      | Removes desktop entries and icons.                                    |
+| `cleanup_processes.sh`    | Kills any lingering daemon processes.                                 |
+| `cleanup_kwin.sh`         | Removes KWin scripts.                                                 |
+| `cleanup_kwin_rules.sh`   | Removes janq-managed KWin window rules from `kwinrulesrc`.            |
+| `cleanup_janq_scripts.sh` | Removes janq KWin script files from shared memory and disk.           |
+| `cleanup_metadata.sh`     | Clears cached window IDs and metadata.                                |
+| `cleanup_errors.sh`       | Removes janq error temp files from /tmp.                              |
+| `fix_kwin_zombies.sh`     | Kills zombie KWin script processes that survived daemon shutdown.     |
 
 If janq stops responding to hotkeys or you want a completely clean slate, these will save you. We know this because we've used them. A lot.
 
@@ -546,7 +548,7 @@ Some applications (especially Electron-based ones or XWayland clients) may exper
 
 **KWin Technical Limitation**: Due to the asynchronous nature of Wayland property updates vs. buffer commits, a window's `opacity` and its `frameGeometry` (position) may occasionally arrive in different compositor frames. This can cause a "flicker" where the window appears at the new position but with the old opacity for a single frame. (Sloperator: More like that it doesn't animate opacity all the way when opening sibling).
 
-**The Fix**: janq uses the "Fullscreen role" (`force_priority = true`) or `ForceBlur` to trick the compositor into prioritizing these updates. However, for some apps, disabling `animate_opacity` is still the most stable choice. (Sloperator: It's the best I could make the AI do ¯\\_(ツ)\_/¯).
+**The Fix**: janq uses the "Fullscreen role" (`force_priority = true`) or `ForceBlur` to trick the compositor into prioritizing these updates. However, for some apps, disabling `animate_opacity` is still the most stable choice. (Sloperator: It's the best I could make the AI do ¯\\\_(ツ)\_/¯).
 
 ### Linux: Animation Artifacts (Ghosting / Jitter)
 
