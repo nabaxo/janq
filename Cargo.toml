@@ -9,7 +9,7 @@ description = "Quake-style dropdown terminal manager for Linux (KDE) and Windows
 
 [dependencies]
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 toml = { version = "1.0", default-features = false, features = ["std", "serde", "parse", "preserve_order"] }
 
 # Performance & Collections
