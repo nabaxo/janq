@@ -5,7 +5,7 @@
 <img src="icon.svg" width="190" height="190" align="left">
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
-
+unreadMentionsBarunreadMentionsBar
 But in the end I managed to wrangle the Wondrous Machine enough so that janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and ~1.7 MB on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~1.7MB on Linux.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
@@ -41,7 +41,7 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 - **Linux**: KDE Plasma 6 (Wayland via KWin scripts, D-Bus activation, and StatusNotifierItem)
 - **Windows**: Windows 10\*/11 (Native WinAPI)
 
-(Sloperator: The slopmachine says it runs on Windows 10, I have noe idea if it actually runs on Window 10. ¯\\\_(ツ)\_/¯)
+(Sloperator: The slopmachine says it runs on Windows 10, I have no idea if it actually runs on Window 10. ¯\\\_(ツ)\_/¯)
 
 ## Key Features
 
@@ -601,11 +601,12 @@ Cubic-bezier easing curves with overshoot/undershoot (control points outside [0,
 
 **Workaround for Linux**: Use monotonic easing curves like `ease-out`, `cubic-out`, `sine-out`, or the built-in `back-*` curves which work correctly. Avoid custom cubic-bezier curves with control points _outside_ the [0,1] range.
 
-### Linux: Window Size Not Remembered for Apps Without Explicit Dimensions
+***(Sloperator: The next two are issues only on system boot and user has set janq to run on start)***
+### Linux: On Boot, Window Size Not Remembered for Apps Without Explicit Dimensions
 
 Apps that rely on their own saved window geometry (e.g., Obsidian, other Electron apps) may lose their remembered size when managed by janq and no `width`/`height` is set in the config. This happens because KWin's `frameGeometry` API requires setting position and dimensions together — when janq parks the window offscreen at boot, it reads and writes back the window's current size, which may still be the default before the app has restored its saved geometry. Setting explicit `width` and `height` in the app's config is the current workaround.
 
-### Linux: Slow-Starting Apps May Not Be Grabbed on Boot
+### Linux: On Boot, Slow-Starting Apps May Not Be Grabbed
 
 Some Electron/Flatpak apps (e.g., Discord) may not have their window ready when janq's initial grab runs at boot. If the app's window doesn't exist yet during the startup pass, janq won't be able to manage it until the next toggle or config reload. Toggling the app's hotkey after it has fully started will grab it normally.
 
