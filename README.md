@@ -253,6 +253,29 @@ hotkey = "Meta+Z"
 > [!WARNING]
 > (Sloperator: Configuring a multiwindow app will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)\_/¯. Do give her my regards though, you should call her more often).
 
+#### Electron & Flatpak Apps
+
+Electron apps (Discord, Obsidian, Slack, VS Code, etc.) aggressively throttle their renderer and timers when their window loses focus or is occluded. Since janq hides windows offscreen, this can cause a stale/frozen frame when toggling back. For apps with real-time activity (voice chat, notifications), add these Chromium flags:
+
+```toml
+[app.discord]
+window_class = "discord"
+start_command = "flatpak run com.discordapp.Discord -- --disable-renderer-backgrounding --disable-background-timer-throttling"
+hotkey = "Meta+1"
+```
+
+| Flag                                       | What It Does                                                                |
+| :----------------------------------------- | :-------------------------------------------------------------------------- |
+| `--disable-renderer-backgrounding`         | Prevents deprioritizing rendering when the window loses focus.              |
+| `--disable-background-timer-throttling`    | Prevents throttling JS timers to 1Hz in background, keeping features live.  |
+| `--disable-backgrounding-occluded-windows` | Same as above but specifically for windows hidden behind other windows.     |
+
+> [!TIP]
+> For **Flatpak** apps, the `--` separator tells Flatpak to pass all subsequent flags to the app itself. For native Electron installs, pass the flags directly: `start_command = "discord --disable-renderer-backgrounding"`.
+
+> [!NOTE]
+> These flags are most useful for apps with real-time background activity (Discord, Slack, Teams). For apps like Obsidian that are mostly idle when hidden, a plain `start_command = "flatpak run md.obsidian.Obsidian"` is fine. Add `--disable-renderer-backgrounding` only if you notice a visual flash when toggling back.
+
 ### Default Values
 
 | Section       | Option               | Default          | Description                                                                          | Per-App |
@@ -577,6 +600,14 @@ Cubic-bezier easing curves with overshoot/undershoot (control points outside [0,
 **Windows** has smooth reversal for overshoot curves via animation state tracking. It will still look kind of janky if you toggle spam.
 
 **Workaround for Linux**: Use monotonic easing curves like `ease-out`, `cubic-out`, `sine-out`, or the built-in `back-*` curves which work correctly. Avoid custom cubic-bezier curves with control points _outside_ the [0,1] range.
+
+### Linux: Window Size Not Remembered for Apps Without Explicit Dimensions
+
+Apps that rely on their own saved window geometry (e.g., Obsidian, other Electron apps) may lose their remembered size when managed by janq and no `width`/`height` is set in the config. This happens because KWin's `frameGeometry` API requires setting position and dimensions together — when janq parks the window offscreen at boot, it reads and writes back the window's current size, which may still be the default before the app has restored its saved geometry. Setting explicit `width` and `height` in the app's config is the current workaround.
+
+### Linux: Slow-Starting Apps May Not Be Grabbed on Boot
+
+Some Electron/Flatpak apps (e.g., Discord) may not have their window ready when janq's initial grab runs at boot. If the app's window doesn't exist yet during the startup pass, janq won't be able to manage it until the next toggle or config reload. Toggling the app's hotkey after it has fully started will grab it normally.
 
 ## License
 
