@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Refresh Rate Logic**: Optimized Linux backend to skip `kscreen-doctor` execution when a fixed `framerate` is provided in the configuration.
 - **Config Refactoring**: Internal simplification of `Dimension`, `PositionOffset`, and `DisplayMode` deserialization to reduce code duplication and improve maintainability.
 - **Zero-Dependency Signal Iteration**: Leveraged `zbus` internal re-exports instead of `futures-lite` for event-driven monitoring, minimizing binary bloat and memory footprint.
+- **(Windows) Native hotkey registration**: Replaced the `global-hotkey` crate with direct Win32 `RegisterHotKey`/`UnregisterHotKey` calls via the `windows` crate. Eliminates the crate's thread-per-keypress busy-polling design, its hidden window, and the `keyboard-types` transitive dependency. Hotkey presses are now handled as `WM_HOTKEY` messages in the existing bridge window proc with zero thread spawns.
 
 ### Fixed
 - **(Windows) Taskbar icon not hiding for some apps**: Apps with `WS_EX_APPWINDOW` extended style (e.g. Basitune) would force a taskbar button even when janq set a hidden owner window. janq now strips `WS_EX_APPWINDOW` when managing a window and restores it on daemon exit.
@@ -70,6 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Opacity Sync**: Opacity animations are now automatically bypassed if animations are disabled (`framerate = 0`), preventing windows from appearing invisible.
 - **Config Watcher Loop**: Fixed an infinite reload loop on Linux caused by the file watcher triggering on "Access" events.
 - **Windows Polish**: Fixed a race condition where Win32 focus calls could fail during near-instant transitions.
+- **(Windows) Hotkeys stop responding after long uptime**: The `global-hotkey` crate spawned an unthrottled busy-polling thread on every keypress to detect key release. After sleep/wake cycles, ghost modifier state caused these threads to spin forever, accumulating CPU and thread exhaustion until hotkeys became unresponsive. The native `RegisterHotKey` replacement eliminates this entirely.
+- **(Windows) Hotkeys not restored after sleep/wake**: `RegisterHotKey` registrations can be silently invalidated by Windows after sleep/hibernate resume. The signature cache (`LAST_SYNC_SIG`) previously suppressed re-registration unless the config changed. The bridge window now handles `WM_POWERBROADCAST` / `PBT_APMRESUMEAUTOMATIC`, clearing the cache and forcing hotkey re-registration on wake.
 
 ### The Inaugural Release
 This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies its existence on your system.
