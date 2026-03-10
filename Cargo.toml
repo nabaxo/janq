@@ -56,7 +56,6 @@ windows = { version = "0.62", features = [
     "Win32_System_Registry",
 ], default-features = false }
 tray-icon = "0.21"
-global-hotkey = "0.7"
 
 [profile.release]
 opt-level = "z"
