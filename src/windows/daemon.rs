@@ -74,19 +74,22 @@ use janq::{
 const PIPE_NAME: &str = r"\\.\pipe\janq";
 /// Channel sender for routing `WM_HOTKEY` events from `bridge_wnd_proc` to the daemon event loop.
 static HOTKEY_EVENT_TX: OnceLock<Sender<DaemonEvent>> = OnceLock::new();
+
+/// Hotkey signature cache. Cleared on system resume to force re-registration.
+static LAST_SYNC_SIG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 // =============================================================================
 // Bridge Window for Modal-Loop Safe Signaling
 // =============================================================================
 
-/// Creates a message-only window to receive wake-up messages.
-/// This is necessary because PostThreadMessage signals are lost during modal loops
-/// (e.g., when the tray menu is open), but PostMessage to a window handle works.
+/// Creates a hidden top-level window to receive wake-up messages and system broadcasts.
+/// Top-level (not message-only) so it receives `WM_POWERBROADCAST` for sleep/wake.
+/// PostThreadMessage signals are lost during modal loops (e.g., when the tray menu
+/// is open), but PostMessage to a window handle works.
 fn init_bridge_window() {
   use windows::core::w;
   // use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
   use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, RegisterClassW, HWND_MESSAGE, WINDOW_EX_STYLE, WNDCLASSW,
-    WS_POPUP,
+    CreateWindowExW, DefWindowProcW, RegisterClassW, WINDOW_EX_STYLE, WNDCLASSW, WS_POPUP,
   };
 
   unsafe extern "system" fn bridge_wnd_proc(
@@ -96,6 +99,21 @@ fn init_bridge_window() {
     lparam: LPARAM,
   ) -> LRESULT {
     use windows::Win32::UI::WindowsAndMessaging::{WM_HOTKEY, WM_SETTINGCHANGE, WM_USER};
+
+    // Re-register hotkeys after sleep/hibernate resume.
+    // Windows can silently invalidate RegisterHotKey registrations after
+    // power state transitions. PBT_APMRESUMEAUTOMATIC = 0x0012.
+    const WM_POWERBROADCAST: u32 = 0x0218;
+    const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
+    if msg == WM_POWERBROADCAST && wparam.0 == PBT_APMRESUMEAUTOMATIC {
+      println!("janq: System resumed from sleep, re-registering hotkeys...");
+      LAST_SYNC_SIG.lock().unwrap().clear();
+      if let Some(tx) = HOTKEY_EVENT_TX.get() {
+        let _ = tx.send(DaemonEvent::ReloadHotkeys);
+      }
+      post_wake_message(WM_USER + 1);
+      return LRESULT(0);
+    }
 
     if msg == WM_HOTKEY {
       if let Some(tx) = HOTKEY_EVENT_TX.get() {
@@ -139,7 +157,7 @@ fn init_bridge_window() {
       0,
       0,
       0,
-      Some(HWND_MESSAGE),
+      None, // Top-level (not HWND_MESSAGE) so we receive WM_POWERBROADCAST
       None,
       None,
       None,
@@ -713,7 +731,6 @@ pub fn sync_hotkeys(
   signature.sort();
 
   // 2. Short-circuit if nothing in the configuration has changed
-  static LAST_SYNC_SIG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
   {
     let mut last = LAST_SYNC_SIG.lock().unwrap();
     if *last == signature && !last.is_empty() {
