@@ -6,7 +6,7 @@
 //!
 //! 1. **Win32 Message Loop** - Main thread runs `GetMessageW`/`DispatchMessageW`
 //! 2. **Named Pipe IPC** - Receives toggle commands from janq client instances
-//! 3. **Global Hotkey** - Registers system-wide hotkeys via native Win32 `RegisterHotKey`
+//! 3. **Global Hotkey** - Registers system-wide hotkeys via `global-hotkey` crate
 //! 4. **System Tray** - Shows tray icon for quick access and quit
 //!
 //! ## Event Handling
@@ -30,9 +30,12 @@ use rustc_hash::FxHashMap;
 use std::{
   path::PathBuf,
   process::exit,
-  sync::{mpsc::channel, mpsc::Receiver, mpsc::Sender, Arc, OnceLock, RwLock},
+  sync::{mpsc::channel, mpsc::Receiver, mpsc::Sender, Arc, RwLock},
   time::{Duration, Instant},
 };
+
+use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+use std::sync::OnceLock;
 use tokio::net::windows::named_pipe::ServerOptions;
 use tray_icon::{
   menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
@@ -45,11 +48,11 @@ use windows::Win32::UI::{
   Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT},
   WindowsAndMessaging::{
     AllowSetForegroundWindow, DispatchMessageW, GetMessageW, GetWindowThreadProcessId, IsWindow,
-    SendMessageW, TranslateMessage, ASFW_ANY, MSG, WM_CANCELMODE, WM_USER,
+    TranslateMessage, ASFW_ANY, MSG, WM_USER,
   },
 };
 
-use crate::windows::hotkey::{parse_hotkey, HotKey, HotKeyManager};
+use crate::windows::hotkey::parse_hotkey;
 use crate::windows::{
   show_warning,
   terminal::ensure_terminal_running,
@@ -72,11 +75,13 @@ use janq::{
 
 /// Named pipe path for IPC between janq client and daemon.
 const PIPE_NAME: &str = r"\\.\pipe\janq";
-/// Channel sender for routing `WM_HOTKEY` events from `bridge_wnd_proc` to the daemon event loop.
-static HOTKEY_EVENT_TX: OnceLock<Sender<DaemonEvent>> = OnceLock::new();
+
+/// Channel sender for routing bridge window events to the daemon event loop.
+static BRIDGE_EVENT_TX: OnceLock<Sender<DaemonEvent>> = OnceLock::new();
 
 /// Hotkey signature cache. Cleared on system resume to force re-registration.
 static LAST_SYNC_SIG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
 // =============================================================================
 // Bridge Window for Modal-Loop Safe Signaling
 // =============================================================================
@@ -89,7 +94,8 @@ fn init_bridge_window() {
   use windows::core::w;
   // use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
   use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, RegisterClassW, WINDOW_EX_STYLE, WNDCLASSW, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, RegisterClassW, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_POPUP,
   };
 
   unsafe extern "system" fn bridge_wnd_proc(
@@ -98,7 +104,7 @@ fn init_bridge_window() {
     wparam: WPARAM,
     lparam: LPARAM,
   ) -> LRESULT {
-    use windows::Win32::UI::WindowsAndMessaging::{WM_HOTKEY, WM_SETTINGCHANGE, WM_USER};
+    use windows::Win32::UI::WindowsAndMessaging::{WM_SETTINGCHANGE, WM_USER};
 
     // Re-register hotkeys after sleep/hibernate resume.
     // Windows can silently invalidate RegisterHotKey registrations after
@@ -108,18 +114,33 @@ fn init_bridge_window() {
     if msg == WM_POWERBROADCAST && wparam.0 == PBT_APMRESUMEAUTOMATIC {
       println!("janq: System resumed from sleep, re-registering hotkeys...");
       LAST_SYNC_SIG.lock().unwrap().clear();
-      if let Some(tx) = HOTKEY_EVENT_TX.get() {
+      if let Some(tx) = BRIDGE_EVENT_TX.get() {
         let _ = tx.send(DaemonEvent::ReloadHotkeys);
       }
       post_wake_message(WM_USER + 1);
       return LRESULT(0);
     }
 
-    if msg == WM_HOTKEY {
-      if let Some(tx) = HOTKEY_EVENT_TX.get() {
-        let _ = tx.send(DaemonEvent::Hotkey(wparam.0 as u32));
+    // Wake-up signal — re-apply theme.
+    // Handling here ensures it fires even during TrackPopupMenu modal loops.
+    if msg == WM_USER + 1 {
+      apply_theme_preference();
+      return LRESULT(0);
+    }
+
+    // Focus lost — route to event loop for auto-hide check.
+    if msg == WM_USER + 2 {
+      if let Some(tx) = BRIDGE_EVENT_TX.get() {
+        let _ = tx.send(DaemonEvent::FocusLost);
       }
-      post_wake_message(WM_USER + 1);
+      return LRESULT(0);
+    }
+
+    // Respawn check — managed window destroyed.
+    if msg == WM_USER + 3 {
+      if let Some(tx) = BRIDGE_EVENT_TX.get() {
+        let _ = tx.send(DaemonEvent::RespawnCheck);
+      }
       return LRESULT(0);
     }
 
@@ -129,9 +150,7 @@ fn init_bridge_window() {
       if !l_ptr.is_null() {
         let s = windows::core::PCWSTR(l_ptr).to_string().unwrap_or_default();
         if s == "ImmersiveColorSet" {
-          // Wake the loop to re-apply themes
           post_wake_message(WM_USER + 1);
-          // We'll reuse the ReloadHotkeys logic or a new ThemeChanged event
         }
       }
     }
@@ -149,7 +168,7 @@ fn init_bridge_window() {
     RegisterClassW(&wc);
 
     let hwnd = CreateWindowExW(
-      WINDOW_EX_STYLE::default(),
+      WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
       class_name,
       w!("janq_bridge_window"),
       WS_POPUP,
@@ -179,7 +198,7 @@ fn init_bridge_window() {
 /// into a single enum for processing in the main message loop.
 #[derive(Debug)]
 enum DaemonEvent {
-  Hotkey(u32),
+  Hotkey(GlobalHotKeyEvent),
   Menu(MenuEvent),
   Tray(TrayIconEvent),
   ReloadHotkeys,
@@ -278,7 +297,7 @@ pub async fn run_daemon(
   // We need a way to send events back to the main loop.
   // Since we don't have Winit, we'll use a manual channel and wake up the message loop.
   let (event_tx, event_rx): (Sender<DaemonEvent>, Receiver<DaemonEvent>) = channel();
-  let _ = HOTKEY_EVENT_TX.set(event_tx.clone());
+  let _ = BRIDGE_EVENT_TX.set(event_tx.clone());
   let event_tx_watcher = event_tx.clone();
 
   // 6. Signal Handling (Graceful shutdown: Ctrl+C, Ctrl+Break, Console Close)
@@ -348,16 +367,13 @@ pub async fn run_daemon(
   });
 
   // 6. Event Loop (Main Thread)
+  let hotkey_receiver = GlobalHotKeyEvent::receiver();
   let menu_receiver = MenuEvent::receiver();
   let tray_icon_receiver = TrayIconEvent::receiver();
 
-  let bridge_hwnd = crate::windows::window::BRIDGE_HWND
-    .get()
-    .expect("Bridge window not initialized")
-    .hwnd;
-  let hotkey_manager = HotKeyManager::new(bridge_hwnd);
+  let manager_arc = Arc::new(GlobalHotKeyManager::new().expect("Failed to create HotKeyManager"));
   sync_hotkeys(
-    &hotkey_manager,
+    Arc::clone(&manager_arc),
     &config.read().unwrap(),
     &*hotkey_map,
     &*current_hotkeys,
@@ -417,6 +433,14 @@ pub async fn run_daemon(
   }
 
   // Threads to bridge receivers to DaemonEvent channel
+  let event_tx_hk = event_tx.clone();
+  std::thread::spawn(move || {
+    while let Ok(event) = hotkey_receiver.recv() {
+      let _ = event_tx_hk.send(DaemonEvent::Hotkey(event));
+      post_wake_message(WM_USER + 1);
+    }
+  });
+
   let event_tx_menu = event_tx.clone();
   std::thread::spawn(move || {
     while let Ok(event) = menu_receiver.recv() {
@@ -454,25 +478,8 @@ pub async fn run_daemon(
   unsafe {
     let mut msg = MSG::default();
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-      if msg.message == WM_USER + 2 {
-        if let Some(bridge) = crate::windows::window::BRIDGE_HWND.get() {
-          let _ = SendMessageW(bridge.hwnd, WM_CANCELMODE, Some(WPARAM(0)), Some(LPARAM(0)));
-        }
-        let _ = event_tx.send(DaemonEvent::FocusLost);
-      }
-
-      // WM_USER + 3: Immediate respawn request from destroy hook
-      if msg.message == WM_USER + 3 {
-        let _ = event_tx.send(DaemonEvent::RespawnCheck);
-      }
-
       let _ = TranslateMessage(&msg);
       DispatchMessageW(&msg);
-
-      // Force the theme to re-sync based on current registry state
-      if msg.message == WM_USER + 1 {
-        apply_theme_preference();
-      }
 
       while let Ok(daemon_event) = event_rx.try_recv() {
         match daemon_event {
@@ -485,7 +492,12 @@ pub async fn run_daemon(
 
           DaemonEvent::ReloadHotkeys => {
             let cfg = config.read().unwrap().clone();
-            let _ = sync_hotkeys(&hotkey_manager, &cfg, &*hotkey_map, &*current_hotkeys);
+            let _ = sync_hotkeys(
+              Arc::clone(&manager_arc),
+              &cfg,
+              &*hotkey_map,
+              &*current_hotkeys,
+            );
 
             // Re-apply theme in case system settings changed
             apply_theme_preference();
@@ -518,21 +530,23 @@ pub async fn run_daemon(
               }
             }
           }
-          DaemonEvent::Hotkey(id) => {
-            let map = hotkey_map.read().unwrap();
-            if let Some(app_name) = map.get(&id) {
-              println!("Hotkey: Activating action '{}'", app_name);
-              let _ = AllowSetForegroundWindow(ASFW_ANY);
-              let cfg = config.read().unwrap().clone();
-              let app_name = app_name.clone();
-              tokio::task::spawn_blocking(move || {
-                if let Some(app_cfg) = cfg.app.get(&app_name) {
-                  if !toggle_window(&app_name, &cfg) {
-                    ensure_terminal_running(&app_name, app_cfg, &cfg, None);
-                    toggle_window(&app_name, &cfg);
+          DaemonEvent::Hotkey(event) => {
+            if event.state == HotKeyState::Pressed {
+              let map = hotkey_map.read().unwrap();
+              if let Some(app_name) = map.get(&event.id) {
+                println!("Hotkey: Activating action '{}'", app_name);
+                let _ = AllowSetForegroundWindow(ASFW_ANY);
+                let cfg = config.read().unwrap().clone();
+                let app_name = app_name.clone();
+                tokio::task::spawn_blocking(move || {
+                  if let Some(app_cfg) = cfg.app.get(&app_name) {
+                    if !toggle_window(&app_name, &cfg) {
+                      ensure_terminal_running(&app_name, app_cfg, &cfg, None);
+                      toggle_window(&app_name, &cfg);
+                    }
                   }
-                }
-              });
+                });
+              }
             }
           }
           DaemonEvent::Menu(event) => {
@@ -695,7 +709,7 @@ pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
 // =============================================================================
 
 pub fn sync_hotkeys(
-  manager: &HotKeyManager,
+  manager: Arc<GlobalHotKeyManager>,
   config: &Config,
   hotkey_map: &RwLock<FxHashMap<u32, String>>,
   current_hotkeys: &RwLock<Vec<HotKey>>,
@@ -753,7 +767,7 @@ pub fn sync_hotkeys(
       .collect();
 
     for hk in to_remove {
-      let _ = manager.unregister(&hk);
+      let _ = manager.unregister(hk);
       current.retain(|h| h.id() != hk.id());
       map.remove(&hk.id());
     }
@@ -761,6 +775,8 @@ pub fn sync_hotkeys(
     // 4. Register new hotkeys or fallback variants
     for (id, (app_name, _)) in &desired {
       if !map.contains_key(id) {
+        // Find the original key struct
+        // (We re-parse here for simplicity, or we could have stored it in 'desired')
         // Find the hk_str that generated this ID
         if let Some(hk_str) = config.app[app_name]
           .hotkey
@@ -769,24 +785,26 @@ pub fn sync_hotkeys(
           .find(|s| parse_hotkey(s).map(|k| k.id() == *id).unwrap_or(false))
         {
           if let Ok(key) = parse_hotkey(hk_str) {
-            match manager.register(&key) {
+            let key_code = key.key;
+            match manager.register(key) {
               Ok(_) => {
                 map.insert(key.id(), app_name.clone());
                 current.push(key);
               }
               Err(_) => {
-                // Fallback for Section key (VK_OEM_102 -> VK_OEM_3 -> VK_OEM_5)
-                if key.vk == crate::windows::hotkey::VK_OEM_102 {
-                  let fallback_key = HotKey::new(key.mods, crate::windows::hotkey::VK_OEM_3);
-                  if !map.contains_key(&fallback_key.id())
-                    && manager.register(&fallback_key).is_ok()
+                // Fallback for Section key (IntlBackslash -> Backquote -> Backslash)
+                if key_code == global_hotkey::hotkey::Code::IntlBackslash {
+                  let fallback_key =
+                    HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backquote);
+                  if !map.contains_key(&fallback_key.id()) && manager.register(fallback_key).is_ok()
                   {
                     map.insert(fallback_key.id(), app_name.clone());
                     current.push(fallback_key);
                   } else {
-                    let fallback_key2 = HotKey::new(key.mods, crate::windows::hotkey::VK_OEM_5);
+                    let fallback_key2 =
+                      HotKey::new(Some(key.mods), global_hotkey::hotkey::Code::Backslash);
                     if !map.contains_key(&fallback_key2.id())
-                      && manager.register(&fallback_key2).is_ok()
+                      && manager.register(fallback_key2).is_ok()
                     {
                       map.insert(fallback_key2.id(), app_name.clone());
                       current.push(fallback_key2);
