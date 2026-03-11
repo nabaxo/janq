@@ -230,9 +230,10 @@ pub fn strip_ansi(s: &str) -> String {
     if c == '\x1b' {
       in_escape = true;
     } else if in_escape {
-      if c == 'm' {
-        in_escape = false;
+      if c.is_ascii_alphabetic() {
+        in_escape = false; // Any letter terminates a CSI sequence
       }
+      // Do not push — discard all escape sequence characters
     } else {
       result.push(c);
     }

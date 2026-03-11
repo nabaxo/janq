@@ -30,12 +30,28 @@ pub fn acquire_lock_file() -> crate::error::Result<()> {
     .truncate(false)
     .open(&lock_path)?;
 
-  let lock_res = lock_file.try_lock_exclusive();
-
-  if lock_res.is_err() || lock_res.ok() == Some(false) {
-    return Err(crate::format_error_boxed!(
-      "janq is already running (lock file active)."
-    ));
+  match lock_file.try_lock_exclusive() {
+    Ok(true) => {} // Lock acquired — proceed
+    Ok(false) => {
+      // MUSL: lock held by another process
+      return Err(crate::format_error_boxed!(
+        "janq is already running (lock file active)."
+      ));
+    }
+    Err(e) if e.raw_os_error() == Some(0x21) => {
+      // Windows ERROR_LOCK_VIOLATION (0x21 = 33)
+      return Err(crate::format_error_boxed!(
+        "janq is already running (lock file active)."
+      ));
+    }
+    Err(e) => {
+      // Genuine I/O failure (permissions, read-only FS, etc.)
+      return Err(crate::format_error_boxed!(
+        "Failed to acquire lock file at '{}': {}",
+        lock_path.display(),
+        e
+      ));
+    }
   }
 
   // Leak the file handle to ensure it lives as long as the process.

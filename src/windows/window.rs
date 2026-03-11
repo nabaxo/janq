@@ -232,6 +232,16 @@ static MANAGED_HWNDS_CACHE: [AtomicIsize; 16] = {
 pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
 /// Bridge window handle for PostMessage-based signaling (modal-loop safe).
 pub static BRIDGE_HWND: OnceLock<CachedWindow> = OnceLock::new();
+/// Win32 event object signaled by `post_wake_message` to wake the main loop.
+/// `MsgWaitForMultipleObjects` waits on this + the message queue, so events
+/// are drained even after modal loops consume `WM_USER+N` messages.
+pub static WAKE_EVENT: OnceLock<SyncHandle> = OnceLock::new();
+
+/// Thread-safe wrapper for Win32 `HANDLE`. Event objects are safe to signal
+/// from any thread (`SetEvent`/`ResetEvent` are thread-safe Win32 APIs).
+pub struct SyncHandle(pub windows::Win32::Foundation::HANDLE);
+unsafe impl Send for SyncHandle {}
+unsafe impl Sync for SyncHandle {}
 
 pub fn get_last_external_focus() -> HWND {
   HWND(LAST_EXTERNAL_FOCUS.load(Ordering::Relaxed) as *mut _)
@@ -297,21 +307,12 @@ pub fn update_managed_hwnds_cache() {
     pids.truncate(64);
   }
 
-  // Update indices 1..64 first, then index 0 last to minimize race impact
-  for i in (1..64).rev() {
-    let val = if i < pids.len() {
-      pids[i]
-    } else if i == pids.len() {
-      0
-    } else {
-      // Don't overwrite if we don't need to, but for safety we can
-      0
-    };
+  // Write from the end down to 0 so a concurrent forward reader always sees
+  // a valid (possibly stale-by-one-cycle) prefix terminated by a 0 sentinel.
+  for i in (0..64).rev() {
+    let val = if i < pids.len() { pids[i] } else { 0 };
     MANAGED_PIDS_CACHE[i].store(val, Ordering::Relaxed);
   }
-  // Store the first one last
-  let first = if !pids.is_empty() { pids[0] } else { 0 };
-  MANAGED_PIDS_CACHE[0].store(first, Ordering::Relaxed);
 
   // Update MANAGED_HWNDS_CACHE for lock-free destroy hook checks
   for (i, slot) in MANAGED_HWNDS_CACHE.iter().enumerate() {
@@ -347,12 +348,19 @@ pub fn is_managed_window(hwnd: HWND) -> bool {
 }
 
 /// Posts a wake-up message to the main loop via the bridge window.
-/// This is safe during modal loops (e.g., tray menu open).
+/// Also signals WAKE_EVENT so `MsgWaitForMultipleObjects` returns even if
+/// the bridge wndproc consumes the message during a modal loop.
 pub fn post_wake_message(msg_id: u32) {
+  use windows::Win32::System::Threading::SetEvent;
   use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
   if let Some(bridge) = BRIDGE_HWND.get() {
     unsafe {
       let _ = PostMessageW(Some(bridge.hwnd), msg_id, WPARAM(0), LPARAM(0));
+    }
+  }
+  if let Some(event) = WAKE_EVENT.get() {
+    unsafe {
+      let _ = SetEvent(event.0);
     }
   }
 }
@@ -753,8 +761,21 @@ pub unsafe fn apply_border_style(hwnd: HWND, no_borders: bool) -> bool {
   // hasn't changed, even though the client area did.
   let mut client = RECT::default();
   if GetClientRect(hwnd, &mut client).is_ok() {
-    let cw = (client.right - client.left) as u16 as usize;
-    let ch = (client.bottom - client.top) as u16 as usize;
+    let cw = (client.right - client.left).max(0).min(u16::MAX as i32) as usize;
+    let ch = (client.bottom - client.top).max(0).min(u16::MAX as i32) as usize;
+
+    if !no_borders {
+      // Nudge width by 1px then back to force a
+      // full client-area repaint after restoring
+      // the title bar / thick frame.
+      let _ = SendMessageW(
+        hwnd,
+        WM_SIZE,
+        Some(WPARAM(0)),
+        Some(LPARAM((ch << 16 | (cw + 1)) as isize)),
+      );
+    }
+
     let _ = SendMessageW(
       hwnd,
       WM_SIZE,

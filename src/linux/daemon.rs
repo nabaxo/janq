@@ -594,9 +594,9 @@ pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
   if let Some(name) = app_name {
     conn
       .call_method(
-        Some(BusName::try_from("dev.nabaxo.janq.desktop").unwrap()),
+        Some(BusName::try_from("dev.nabaxo.janq.desktop").expect("valid D-Bus bus name")),
         "/dev/nabaxo/janq/daemon",
-        Some(InterfaceName::try_from("dev.nabaxo.janq").unwrap()),
+        Some(InterfaceName::try_from("dev.nabaxo.janq").expect("valid D-Bus interface name")),
         "ToggleApp",
         &(name),
       )
@@ -604,9 +604,9 @@ pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
   } else {
     conn
       .call_method(
-        Some(BusName::try_from("dev.nabaxo.janq.desktop").unwrap()),
+        Some(BusName::try_from("dev.nabaxo.janq.desktop").expect("valid D-Bus bus name")),
         "/dev/nabaxo/janq/daemon",
-        Some(InterfaceName::try_from("dev.nabaxo.janq").unwrap()),
+        Some(InterfaceName::try_from("dev.nabaxo.janq").expect("valid D-Bus interface name")),
         "Toggle",
         &(),
       )

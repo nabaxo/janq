@@ -66,13 +66,12 @@ pub fn ensure_terminal_running(
     return false;
   }
 
-  // 2. Idempotency Lock Part 2: Acquisition
+  // 2. Idempotency Lock Part 2: Atomic check-and-set
   {
     let mut spawning = get_spawning_apps().lock().unwrap();
-    if spawning.contains(app_name) {
-      return false; // Rare race condition win
+    if !spawning.insert(app_name.to_string()) {
+      return false; // Already being spawned by another task
     }
-    spawning.insert(app_name.to_string());
   }
 
   let _guard = SpawnGuard::new(app_name);

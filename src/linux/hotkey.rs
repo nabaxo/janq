@@ -20,7 +20,7 @@
 //! Shortcuts are converted to Qt keycodes (e.g., Meta+Grave → 0x10000060).
 //! The `map_qt_key` function handles this translation.
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 use janq::config::Config;
 use janq::validation;
@@ -293,7 +293,7 @@ pub async fn register_via_dbus(
       .all_actions_for_component(vec![component.to_string()])
       .await
     {
-      let mut found_actions = HashSet::new();
+      let mut found_actions = FxHashSet::default();
       for action_info in all_actions {
         if action_info.len() >= 2 {
           let action_name = &action_info[1];
