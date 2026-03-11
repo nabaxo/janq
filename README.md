@@ -1,5 +1,8 @@
 # janq - A Fairly Solid Quake-Style Terminal/App Manager
 
+> [!WARNING]
+> Note that Github is only a mirror of my own private forge. Anyway, [fuck apartheid](https://bdsmovement.net/news/sign-pledge-boycott-microsoft%E2%80%99s-xbox), this repo os only here out of necessity. ¯\\\_(ツ)\_/¯
+
 ### _janq is 100%, unadulterated vibe coded slop. User discretion is advised._
 
 <img src="icon.svg" width="190" height="190" align="left">
@@ -11,10 +14,10 @@ But in the end I managed to wrangle the Wondrous Machine enough so that janq, on
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
 > [!WARNING]
-> Seriously, I don't know how to program in Rust. I have no idea if the code is good or not. On a quick glance, it doesn't appear to do stupid shit; I have no idea about the specifics of Rust, I'm just a mediocre webdev.
+> Seriously, I don't know how to program in Rust. I have no idea if the code is good or not. On a quick glance, it doesn't appear to do stupid shit; however I have no idea about the specifics of Rust, I'm just a very mid webdev.
 
 > [!CAUTION]
-> I have only tested this on like four machines, your mileage may vary and all that.
+> I have only tested this on like four machines, and I've tried getting it as [bug free](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes) as possible, but your mileage may vary and all that.
 
 ## Table of Contents
 
@@ -251,7 +254,7 @@ hotkey = "Meta+Z"
 ```
 
 > [!WARNING]
-> (Sloperator: Configuring a multiwindow app will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\_(ツ)\_/¯. Do give her my regards though, you should call her more often).
+> (Sloperator: Configuring a multiwindow app will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\\\_(ツ)\_/¯. Do give her my regards though, you should call her more often).
 
 #### Electron & Flatpak Apps
 
