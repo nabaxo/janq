@@ -118,9 +118,9 @@ async fn run_kwin_script(
   // 1. Unload existing script if any
   let _ = conn
     .call_method(
-      Some(BusName::try_from("org.kde.KWin").unwrap()),
+      Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
       "/Scripting",
-      Some(InterfaceName::try_from("org.kde.kwin.Scripting").unwrap()),
+      Some(InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name")),
       "unloadScript",
       &(script_name),
     )
@@ -142,9 +142,9 @@ async fn run_kwin_script(
   // 3. Load script
   let reply = conn
     .call_method(
-      Some(BusName::try_from("org.kde.KWin").unwrap()),
+      Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
       "/Scripting",
-      Some(InterfaceName::try_from("org.kde.kwin.Scripting").unwrap()),
+      Some(InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name")),
       "loadScript",
       &(tmp_path_str, script_name),
     )
@@ -158,9 +158,9 @@ async fn run_kwin_script(
     // 4. Run script
     conn
       .call_method(
-        Some(BusName::try_from("org.kde.KWin").unwrap()),
-        ObjectPath::try_from(script_obj_path).unwrap(),
-        Some(InterfaceName::try_from("org.kde.kwin.Script").unwrap()),
+        Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
+        ObjectPath::try_from(script_obj_path).expect("valid D-Bus object path"),
+        Some(InterfaceName::try_from("org.kde.kwin.Script").expect("valid D-Bus interface name")),
         "run",
         &(),
       )
@@ -170,9 +170,11 @@ async fn run_kwin_script(
       sleep(delay).await;
       let _ = conn
         .call_method(
-          Some(BusName::try_from("org.kde.KWin").unwrap()),
+          Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
           "/Scripting",
-          Some(InterfaceName::try_from("org.kde.kwin.Scripting").unwrap()),
+          Some(
+            InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name"),
+          ),
           "unloadScript",
           &(script_name),
         )

@@ -169,21 +169,18 @@ pub async fn ensure_terminal_running_with_candidates(
     return false;
   }
 
-  // 2. Idempotency Lock
+  // 2. Idempotency Lock — atomic check-and-set under a single lock acquisition
   loop {
-    let already_spawning = {
-      let spawning = get_spawning_apps().lock().unwrap();
-      spawning.contains(window_class)
+    let acquired = {
+      let mut spawning = get_spawning_apps().lock().unwrap();
+      spawning.insert(app_name.to_string()) // true = we inserted; false = already present
     };
 
-    if !already_spawning {
-      // Try to acquire the "lock" by adding to the set
-      let mut spawning = get_spawning_apps().lock().unwrap();
-      spawning.insert(window_class.to_string());
-      break;
+    if acquired {
+      break; // We own the spawn slot
     }
 
-    // Wait and re-check if the window exists (the other track might have finished)
+    // Another task is already spawning this app. Wait, then check if it finished.
     sleep(Duration::from_millis(200)).await;
     if check_window_exists(app_name, window_class, conn)
       .await
@@ -193,11 +190,9 @@ pub async fn ensure_terminal_running_with_candidates(
     }
   }
 
-  let _guard = SpawnGuard::new(window_class);
+  let _guard = SpawnGuard::new(app_name);
 
-  // 3. Check if process is already running
-  let process_running = check_process_running(app_name, window_class);
-
+  // 3. Guard: start_command must be set before we attempt any spawn or release
   if start_command.is_empty() {
     show_error(&format!(
       "janq: No start_command for app with class '{}'",
@@ -206,7 +201,10 @@ pub async fn ensure_terminal_running_with_candidates(
     return false;
   }
 
-  // 3. Process is running but no window found: Prioritize Release (un-quake)
+  // 4. Check if process is already running
+  let process_running = check_process_running(app_name, window_class);
+
+  // 5. Process is running but no window found: Prioritize Release (un-quake)
   if process_running {
     let _ = restore_app(app_name, window_class, conn).await;
     sleep(Duration::from_millis(400)).await;
@@ -359,15 +357,18 @@ static SCAN_CACHE: OnceLock<Mutex<Option<(Instant, Vec<FoundWindow>)>>> = OnceLo
 pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
   let _guard = SCAN_SERIALIZER.lock().await;
 
-  if let Some(cache) = SCAN_CACHE
-    .get_or_init(|| Mutex::new(None))
-    .lock()
-    .unwrap()
-    .as_ref()
-  {
-    if cache.0.elapsed() < Duration::from_millis(150) {
-      return cache.1.clone();
-    }
+  let cached = {
+    let guard = SCAN_CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    guard.as_ref().and_then(|(ts, windows)| {
+      if ts.elapsed() < Duration::from_millis(150) {
+        Some(windows.clone())
+      } else {
+        None
+      }
+    })
+  }; // lock released here, before the Option is consumed
+  if let Some(windows) = cached {
+    return windows;
   }
 
   let mut windows = Vec::new();

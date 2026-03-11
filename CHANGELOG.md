@@ -51,11 +51,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Config Refactoring**: Internal simplification of `Dimension`, `PositionOffset`, and `DisplayMode` deserialization to reduce code duplication and improve maintainability.
 - **Zero-Dependency Signal Iteration**: Leveraged `zbus` internal re-exports instead of `futures-lite` for event-driven monitoring, minimizing binary bloat and memory footprint.
 - **(Windows) Native hotkey registration**: Replaced the `global-hotkey` crate with direct Win32 `RegisterHotKey`/`UnregisterHotKey` calls via the `windows` crate. Eliminates the crate's thread-per-keypress busy-polling design, its hidden window, and the `keyboard-types` transitive dependency. Hotkey presses are now handled as `WM_HOTKEY` messages in the existing bridge window proc with zero thread spawns.
+- **Guard Ordering (Linux)**: `start_command` existence check now runs before process liveness check in the spawn path, short-circuiting earlier for apps without a configured command.
+- **Lock Scope Reduction (Linux)**: `SCAN_CACHE` clone extracted outside the Mutex guard to minimize lock contention during window discovery.
+- **D-Bus Panic Context (Linux)**: Bare `.unwrap()` on D-Bus name parsing in daemon and KWin modules replaced with `.expect()` with descriptive messages.
+- **Tray Quit Grace Period (Linux)**: Added 100ms sleep before `exit(0)` in the tray quit handler to allow pending D-Bus responses to flush, matching the signal handler's existing grace period.
+- **Hash Collection Consistency (Linux)**: Replaced `std::collections::HashSet` with `rustc_hash::FxHashSet` in hotkey registration, aligning with the project's `FxHash` convention.
+- **(Windows) PID Cache Simplification**: Removed unreachable dead branch in PID cache lookup.
 
 ### Fixed
 - **(Windows) Taskbar icon not hiding for some apps**: Apps with `WS_EX_APPWINDOW` extended style (e.g. Basitune) would force a taskbar button even when janq set a hidden owner window. janq now strips `WS_EX_APPWINDOW` when managing a window and restores it on daemon exit.
 - **(Windows) Alt-Tab**: Resolved focus void after Alt-Tab and hardened focus logic.
-- **Single-Instance Lock**: Fixed lock file mechanism to correctly handle platform-specific `fs4` behavior. On Linux (MUSL), the lock now properly detects `Ok(false)` return values. Lock acquisition now only occurs when starting a daemon process, not during client IPC operations.
+- **Single-Instance Lock**: Fixed lock file mechanism to correctly handle platform-specific `fs4` behavior. On Linux (MUSL), the lock now properly detects `Ok(false)` return values. On Windows, lock contention (`Err` with OS error `0x21`) is now distinguished from genuine I/O failures. Lock acquisition now only occurs when starting a daemon process, not during client IPC operations.
 - **Windows Error Visibility**: Lock file errors and other critical errors during daemon startup now properly invoke `show_error()` instead of silently propagating through the async runtime, ensuring users see error dialogs on Windows.
 - **Error Display**: Converted silent `eprintln!` error messages to user-visible GUI notifications for non-terminal sessions.
 - **Lock File Lifetime**: Lock file handle is now leaked using `Box::leak()` to ensure it persists for the entire process lifetime, preventing premature release during async yields.
@@ -73,6 +79,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows Polish**: Fixed a race condition where Win32 focus calls could fail during near-instant transitions.
 - **(Windows) Hotkeys stop responding after long uptime**: The `global-hotkey` crate spawned an unthrottled busy-polling thread on every keypress to detect key release. After sleep/wake cycles, ghost modifier state caused these threads to spin forever, accumulating CPU and thread exhaustion until hotkeys became unresponsive. The native `RegisterHotKey` replacement eliminates this entirely.
 - **(Windows) Hotkeys not restored after sleep/wake**: `RegisterHotKey` registrations can be silently invalidated by Windows after sleep/hibernate resume. The signature cache (`LAST_SYNC_SIG`) previously suppressed re-registration unless the config changed. The bridge window now handles `WM_POWERBROADCAST` / `PBT_APMRESUMEAUTOMATIC`, clearing the cache and forcing hotkey re-registration on wake.
+- **(Windows) Border restoration repaint**: Windows managed with `no_borders = true` failed to repaint their client area when borders were restored on daemon exit. A 1px size nudge now forces full client-area invalidation on the restore path.
+- **ANSI sequence stripping**: `strip_ansi` only terminated CSI sequences on the `m` character (SGR). Non-SGR sequences (cursor movement, erase) leaked through and corrupted error messages in GUI dialogs. Now terminates on any ASCII letter per ECMA-48.
+- **(Windows) WM_SIZE parameter overflow**: Clamped `WM_SIZE` width/height parameters to `u16::MAX` to prevent silent truncation on large client areas.
+- **Spawn guard key mismatch (Linux)**: The spawn idempotency guard used `window_class` as the deduplication key while the rest of the spawn path used `app_name`, allowing a bypass when the two differed.
+- **Spawn guard TOCTOU**: Collapsed check-then-insert race in spawn idempotency guards into an atomic `HashSet::insert` return value on both platforms.
 
 ### The Inaugural Release
 This is janq 1.0.0. It manages windows, handles hotkeys, and hopefully justifies its existence on your system.

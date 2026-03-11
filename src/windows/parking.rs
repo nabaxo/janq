@@ -4,7 +4,7 @@
 //! to visible positions on daemon exit.
 
 use windows::Win32::{
-  Foundation::{COLORREF, HWND, RECT},
+  Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM},
   Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
   UI::WindowsAndMessaging::*,
 };
@@ -138,7 +138,8 @@ pub fn restore_hwnd(hwnd: HWND) {
     // Restore borders
     let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
     let target_style = style | WS_CAPTION.0 | WS_THICKFRAME.0;
-    if style != target_style {
+    let borders_restored = style != target_style;
+    if borders_restored {
       SetWindowLongW(hwnd, GWL_STYLE, target_style as i32);
       needs_refresh = true;
     }
@@ -153,6 +154,29 @@ pub fn restore_hwnd(hwnd: HWND) {
         0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOZORDER,
       );
+    }
+
+    // After restoring borders the client area shrinks but some apps
+    // don't repaint to the new size.  Nudge width by 1px then send the
+    // real size to force a full client-area invalidation.
+    if borders_restored {
+      let mut client = RECT::default();
+      if GetClientRect(hwnd, &mut client).is_ok() {
+        let cw = (client.right - client.left).max(0).min(u16::MAX as i32) as usize;
+        let ch = (client.bottom - client.top).max(0).min(u16::MAX as i32) as usize;
+        let _ = SendMessageW(
+          hwnd,
+          WM_SIZE,
+          Some(WPARAM(0)),
+          Some(LPARAM((ch << 16 | (cw + 1)) as isize)),
+        );
+        let _ = SendMessageW(
+          hwnd,
+          WM_SIZE,
+          Some(WPARAM(0)),
+          Some(LPARAM((ch << 16 | cw) as isize)),
+        );
+      }
     }
 
     let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);

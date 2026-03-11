@@ -143,6 +143,8 @@ impl DbusmenuService {
       tokio::spawn(async move {
         print_shutdown_message("Quit via systray");
         let _ = restore_quake(&config, &conn).await;
+        // Ensure KWin scripts have time to finish before process exit
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         print_termination_complete();
         exit(0);
       });

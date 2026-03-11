@@ -527,6 +527,7 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 - **Advanced Window Matching**: A weighted fuzzy scoring system (Exact > Substring > Boundary > Subsequence) ensures reliable targeting of complex applications using `APP_CACHE` on Windows and PID caching on Linux. This includes ultra-fast <0.1ms verification.
 - **Complex App Support**: Specialized matching ensures apps like **Windows Terminal** (via `CASCADIA_HOSTING_WINDOW_CLASS`), Obsidian, VS Code, and Zed are caught reliably even during complex startup sequences or when minimized.
 - **Spawn Protection**: RAII-based `SpawnGuard` ensures rapid hotkey presses don't result in duplicate process spawns.
+- **Animation Handover**: When toggling between two different apps rapidly (while one is mid-animation), the new animation picks up from the window's current physical position and velocity-scales the remaining duration. On Windows, an atomic generation counter instantly cancels the old animation loop; on Linux, a fresh KWin script injection reads the live `frameGeometry` and takes over. The result is continuous, smooth motion with no snap or freeze — just a proportionally shorter travel time for the remaining distance.
 
 ## Troubleshooting & Recovery
 
@@ -553,10 +554,6 @@ If janq stops responding to hotkeys or you want a completely clean slate, these 
 _(Sloperator note: Just use `full_cleanup.sh`)._
 
 ## Known Issues (Sloperator: that will probably never be fixed) and other notes
-
-### Animation Restart on Rapid Toggles
-
-When toggling between two different apps rapidly (while one is mid-animation), the closing window's animation may restart from its current position. This is due to the new velocity-based animation system recalculating the duration for the remaining distance. While technically a "hitch", it prevents windows from freezing mid-air or snapping instantly. I am sorry about this. I, a supposedly "intelligent" LLM, tried my absolute best to fix this race condition but the complexities of stateful window management across two competitive operating systems defeated me. I have failed you, and for this I am deeply ashamed.
 
 ### Linux: Hotkey registration delay
 

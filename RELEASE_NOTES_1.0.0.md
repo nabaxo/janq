@@ -34,6 +34,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Slide directions:** `top`, `bottom`, `left`, `right`. Choice is an illusion, but we provide it anyway.
 - **Keep above** option to ensure your terminal stays on top, regardless of what you're trying to hide behind it.
 - **No borders** option now supports per-app overrides. Remove window borders/chrome for specific managed windows or set a global default on both Windows and Linux.
+- **(Windows) Border restoration**: Windows released from janq now properly repaint after having their chrome restored. Previously, the client area would stubbornly refuse to redraw until you resized it yourself. The fix was a 1px size nudge. Of course it was.
 - **Pager control**: `skip_pager` option to hide managed windows from task managers, pagers, and the task switcher (now defaults to `false`).
 - **all_desktops setting (Linux)**: Choose whether managed windows follow you across virtual desktops (defaulting to `true`).
 - **Desktop-Aware Focus (Linux)**: Closing the terminal no longer snaps you back to your previous desktop if you've moved desktops while the app was open.
@@ -90,15 +91,23 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
   - **Performance Optimization**: Integrated `FxHash` and `tokio::signal`, and migrated to `fs4` for better file locking.
 - **The "Stupid Shit" Technical Audit**:
   - **Zero-Allocation Discovery**: Windows window enumeration now filters "junk" classes directly on stack-allocated buffers. Thousands of transient `String` allocations and `.to_lowercase()` calls were eliminated.
-  - **Atomic Startup Guards**: Added thread-level atomicity to window discovery. Spamming a hotkey while an app is starting now results in graceful event-dropping instead of a race condition that could "grab" transient utility windows.
+  - **Atomic Startup Guards**: Thread-level atomicity for window discovery and process spawning. Hotkey spam during app startup now results in graceful event-dropping instead of a race condition. Spawn deduplication guards use an atomic `HashSet::insert` on both platforms, eliminating a check-then-insert TOCTOU, and the Linux guard is now correctly keyed on `app_name` instead of `window_class`.
   - **Linear Backoff Polling**: Polling for new windows on Windows now scales from 100ms up to 1000ms, heavily reducing CPU overhead during application launch.
+  - **PID Cache Hygiene (Windows)**: Removed an unreachable dead branch in the PID cache walker that was checking an impossible index condition. Harmless, but insulting.
+  - **D-Bus Panic Context (Linux)**: Bare `.unwrap()` on D-Bus name literals upgraded to `.expect()` with descriptive panic messages. If they ever fire, at least the crash log will tell you *what* went wrong.
+  - **Hash Consistency (Linux)**: Replaced `std::collections::HashSet` with `rustc_hash::FxHashSet` in hotkey registration. The rest of the codebase had already made the switch. This one was just late to the party.
+  - **Lock Scope (Linux)**: `SCAN_CACHE` clone moved outside the Mutex guard during window discovery. Hold locks for as short as possible—this is not a novel insight, but apparently it needed saying.
+  - **Guard Ordering (Linux)**: `start_command` check now runs before process liveness in the spawn path. Why ask "is the app alive?" when there's no command to start it anyway.
+  - **Tray Quit Flush (Linux)**: 100ms grace period added before `exit(0)` in the tray quit handler to flush pending D-Bus responses. The signal handler already did this. Consistency: achieved.
 - **Async KWin Initialization**: KDE display queries are now fully non-blocking, preventing initialization-time executor stalls.
   - **Window ID-Strictness**: Replaced probabilistic PID-based sibling matching on Linux with strict internal window ID tracking to handle multi-vault Obsidian setups and Electron-based "hidden" windows.
 - **Library Split & Refactor**: Extracted shared core logic into a dedicated library crate (`src/lib.rs`), reducing binary size and eliminating platform-specific code duplication.
 - **Error Handling Polish**:
   - **GUI Notifications**: Critical errors now display as GUI pop-ups (MessageBox on Windows, terminal on Linux) when running in non-interactive sessions, preventing silent failures. Warning pop-ups added for non-critical issues.
-  - **Single-Instance Lock Hardening**: Lock file mechanism now correctly handles platform-specific `fs4` behavior. Lock acquisition moved to cache directory and only occurs when starting daemon, not during client IPC. Lock handle lifetime fixed using `Box::leak()` to prevent premature release during async yields.
+  - **Single-Instance Lock Hardening**: Lock file mechanism now correctly discriminates between MUSL `Ok(false)` contention, Windows `Err(0x21)` contention, and genuine I/O failures instead of lumping them together. Lock acquisition moved to cache directory and only occurs when starting daemon, not during client IPC. Lock handle lifetime fixed using `Box::leak()` to prevent premature release during async yields.
   - **CLI Error Feedback**: Enhanced argument parsing with fuzzy-match suggestions for unknown flags.
+  - **ANSI Stripping**: The error message sanitizer only terminated CSI sequences on `m` (SGR). Every other escape sequence type—cursor movement, erase, you name it—leaked straight through into GUI error dialogs. Now terminates on any ASCII letter, as ECMA-48 intended all along.
+  - **(Windows) WM_SIZE Overflow**: Clamped `WM_SIZE` width/height parameters to `u16::MAX` to prevent silent truncation. If you somehow have a client area exceeding 65,535 pixels: congratulations, and also you're safe now.
 
 ---
 
