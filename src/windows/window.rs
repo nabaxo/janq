@@ -232,16 +232,6 @@ static MANAGED_HWNDS_CACHE: [AtomicIsize; 16] = {
 pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
 /// Bridge window handle for PostMessage-based signaling (modal-loop safe).
 pub static BRIDGE_HWND: OnceLock<CachedWindow> = OnceLock::new();
-/// Win32 event object signaled by `post_wake_message` to wake the main loop.
-/// `MsgWaitForMultipleObjects` waits on this + the message queue, so events
-/// are drained even after modal loops consume `WM_USER+N` messages.
-pub static WAKE_EVENT: OnceLock<SyncHandle> = OnceLock::new();
-
-/// Thread-safe wrapper for Win32 `HANDLE`. Event objects are safe to signal
-/// from any thread (`SetEvent`/`ResetEvent` are thread-safe Win32 APIs).
-pub struct SyncHandle(pub windows::Win32::Foundation::HANDLE);
-unsafe impl Send for SyncHandle {}
-unsafe impl Sync for SyncHandle {}
 
 pub fn get_last_external_focus() -> HWND {
   HWND(LAST_EXTERNAL_FOCUS.load(Ordering::Relaxed) as *mut _)
@@ -348,19 +338,11 @@ pub fn is_managed_window(hwnd: HWND) -> bool {
 }
 
 /// Posts a wake-up message to the main loop via the bridge window.
-/// Also signals WAKE_EVENT so `MsgWaitForMultipleObjects` returns even if
-/// the bridge wndproc consumes the message during a modal loop.
 pub fn post_wake_message(msg_id: u32) {
-  use windows::Win32::System::Threading::SetEvent;
   use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
   if let Some(bridge) = BRIDGE_HWND.get() {
     unsafe {
       let _ = PostMessageW(Some(bridge.hwnd), msg_id, WPARAM(0), LPARAM(0));
-    }
-  }
-  if let Some(event) = WAKE_EVENT.get() {
-    unsafe {
-      let _ = SetEvent(event.0);
     }
   }
 }
