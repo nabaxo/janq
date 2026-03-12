@@ -1,7 +1,7 @@
 # janq - A Fairly Solid Quake-Style Terminal/App Manager
 
 > [!WARNING]
-> Note that Github is only a mirror of my own private forge. Anyway, [fuck apartheid](https://bdsmovement.net/news/sign-pledge-boycott-microsoft%E2%80%99s-xbox), this repo os only here out of necessity. ¯\\\_(ツ)\_/¯
+> Note that Github is only a mirror of my own private forge. Anyway, [fuck apartheid](https://bdsmovement.net/news/sign-pledge-boycott-microsoft%E2%80%99s-xbox), this repo is only here out of necessity. ¯\\\_(ツ)\_/¯
 
 ### _janq is 100%, unadulterated vibe coded slop. User discretion is advised._
 
@@ -282,7 +282,7 @@ hotkey = "Meta+1"
 
 ### Default Values
 
-| Section       | Option               | Default          | Description                                                                          | Per-App |
+| Section       | Option               | Default          | Description                                                                          | Per_App |
 | :------------ | :------------------- | :--------------- | :----------------------------------------------------------------------------------- | :-----: |
 | `[app]`       | `window_class`       | **Required**     | Window class/name to match for toggling                                              |    —    |
 |               | `start_command`      | **Required**     | Command to launch the application                                                    |    —    |
@@ -603,6 +603,14 @@ Cubic-bezier easing curves with overshoot/undershoot (control points outside [0,
 **Workaround for Linux**: Use monotonic easing curves like `ease-out`, `cubic-out`, `sine-out`, or the built-in `back-*` curves which work correctly. Avoid custom cubic-bezier curves with control points _outside_ the [0,1] range.
 
 ***(Sloperator: The next two are issues only on system boot and user has set janq to run on start)***
+### Windows: Force-killing janq leaves managed windows in a broken state
+
+If janq is force-killed (Task Manager, `taskkill`, crash, etc.) instead of being shut down gracefully (`--quit`, tray quit, Ctrl+C), managed windows are left in janq's internal state — offscreen, transparent, with a hidden owner window, and stripped of `WS_EX_APPWINDOW`. Since the cleanup path (`restore_window_visibility`) never runs, these windows may become unresponsive, invisible, or unable to receive input. GPU-composited apps (WezTerm, Electron apps, Windows Terminal) can cascade into a DWM compositor stall where none of them accept input even if brought on-screen.
+
+**Recovery**: Force-kill all managed apps and restart them. Simply restarting janq is not sufficient — the affected app processes themselves need to be terminated.
+
+**Prevention**: Hope janq doesn't crash (it shouldn't) or use the tray quit option, or `./janq.exe --quit` in a terminal to shut down cleanly.
+
 ### Linux: On Boot, Window Size Not Remembered for Apps Without Explicit Dimensions
 
 Apps that rely on their own saved window geometry (e.g., Obsidian, other Electron apps) may lose their remembered size when managed by janq and no `width`/`height` is set in the config. This happens because KWin's `frameGeometry` API requires setting position and dimensions together — when janq parks the window offscreen at boot, it reads and writes back the window's current size, which may still be the default before the app has restored its saved geometry. Setting explicit `width` and `height` in the app's config is the current workaround.
