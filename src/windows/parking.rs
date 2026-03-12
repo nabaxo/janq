@@ -206,11 +206,21 @@ pub fn release_windows(windows: Vec<CachedWindow>) {
 }
 
 /// Restores all cached windows to visible state (for daemon exit).
+///
+/// Skips windows whose UI thread is hung (`IsHungAppWindow`) because
+/// `restore_hwnd` sends Win32 messages that would block indefinitely
+/// on an unresponsive window, stalling the entire shutdown path.
 pub fn restore_window_visibility() {
   get_animation_cancel().store(true, std::sync::atomic::Ordering::SeqCst);
   let cache = get_app_cache().read().unwrap();
   for cw in cache.values() {
-    restore_hwnd(cw.inner());
+    let hwnd = cw.inner();
+    unsafe {
+      if IsHungAppWindow(hwnd).as_bool() {
+        continue;
+      }
+    }
+    restore_hwnd(hwnd);
   }
 }
 
