@@ -82,6 +82,9 @@ static BRIDGE_EVENT_TX: OnceLock<Sender<DaemonEvent>> = OnceLock::new();
 /// Hotkey signature cache. Cleared on system resume to force re-registration.
 static LAST_SYNC_SIG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// Exit source label for bridge-wndproc shutdown path (modal-loop safe).
+static EXIT_SOURCE: std::sync::Mutex<&str> = std::sync::Mutex::new("Signal received");
+
 // =============================================================================
 // Bridge Window for Modal-Loop Safe Signaling
 // =============================================================================
@@ -119,6 +122,17 @@ fn init_bridge_window() {
       }
       post_wake_message(WM_USER + 1);
       return LRESULT(0);
+    }
+
+    // Direct exit — works even during TrackPopupMenu modal loops.
+    // Signal handlers post this instead of relying on event_rx (which is
+    // unreachable while a modal menu loop owns the message pump).
+    if msg == WM_USER + 4 {
+      let source = *EXIT_SOURCE.lock().unwrap_or_else(|e| e.into_inner());
+      print_shutdown_message(source);
+      restore_window_visibility();
+      print_termination_complete();
+      exit(0);
     }
 
     // Wake-up signal — re-apply theme.
@@ -315,8 +329,11 @@ pub async fn run_daemon(
         _ = sig_close.recv() => "Console Close",
     };
 
+    *EXIT_SOURCE.lock().unwrap() = signal_name;
     let _ = event_tx_signal.send(DaemonEvent::Exit(Some(signal_name)));
-    post_wake_message(WM_USER + 1);
+    // Post WM_USER+4 to the bridge window for guaranteed shutdown even
+    // when the main GetMessageW loop is suspended by a modal menu.
+    post_wake_message(WM_USER + 4);
   });
 
   config_watcher::spawn_config_watcher(path_to_watch.clone(), move || {
