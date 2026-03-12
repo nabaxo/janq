@@ -274,6 +274,14 @@ pub async fn run_daemon(
             if let Ok(bytes_read) = server.read(&mut buf).await {
               if bytes_read > 0 {
                 let msg = String::from_utf8_lossy(&buf[..bytes_read]);
+
+                if msg.trim() == "quit" {
+                  print_shutdown_message("Quit via IPC");
+                  restore_window_visibility();
+                  print_termination_complete();
+                  exit(0);
+                }
+
                 let cfg = config_ipc.read().unwrap().clone();
                 let target_app = janq::resolve_target_app(&msg, &cfg);
 
@@ -718,6 +726,27 @@ pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
   } else {
     client.write_all(b"toggle").await?;
   }
+  Ok(())
+}
+
+pub async fn send_quit() -> error::Result<()> {
+  use tokio::io::AsyncWriteExt;
+  use tokio::net::windows::named_pipe::ClientOptions;
+
+  let mut attempts = 0;
+  let mut client = loop {
+    match ClientOptions::new().open(PIPE_NAME) {
+      Ok(c) => break c,
+      Err(e) if attempts < 10 && e.raw_os_error() == Some(231) => {
+        attempts += 1;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+      }
+      Err(e) => return Err(e.into()),
+    }
+  };
+
+  client.write_all(b"quit").await?;
+  println!("janq: Quit signal sent to daemon.");
   Ok(())
 }
 

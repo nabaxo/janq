@@ -157,6 +157,15 @@ impl QuakeDaemon {
   async fn report_active_window(&self, payload: String) {
     kwin_report_active(payload).await;
   }
+
+  #[zbus(name = "Quit")]
+  async fn quit(&self) {
+    print_shutdown_message("Quit via IPC");
+    let config = { self.config.read().unwrap().clone() };
+    let _ = restore_quake(&config, &self.conn).await;
+    print_termination_complete();
+    exit(0);
+  }
 }
 
 struct StatusNotifierItem {
@@ -612,5 +621,23 @@ pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
       )
       .await?;
   }
+  Ok(())
+}
+
+pub async fn send_quit() -> error::Result<()> {
+  let conn = zbus::connection::Builder::session()?.build().await?;
+  // The daemon calls exit(0) before it can reply, so the D-Bus call
+  // always returns a "NoReply" / peer-disconnected error on success.
+  // Treat any error from the Quit call as success.
+  let _ = conn
+    .call_method(
+      Some(BusName::try_from("dev.nabaxo.janq.desktop").expect("valid D-Bus bus name")),
+      "/dev/nabaxo/janq/daemon",
+      Some(InterfaceName::try_from("dev.nabaxo.janq").expect("valid D-Bus interface name")),
+      "Quit",
+      &(),
+    )
+    .await;
+  println!("janq: Quit signal sent to daemon.");
   Ok(())
 }
