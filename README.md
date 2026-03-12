@@ -97,6 +97,7 @@ Check [Command Line Arguhments](#command-line-arguments) for more flags to use. 
 | :--------------------------- | :-------- | :--------------------------------------------------- |
 | `--daemon`                   | `-D`      | Run as a persistent process (Server Mode).           |
 | `--app [NAME]`               | `-a`      | Toggle a specific application from your config.      |
+| `--quit`                     | `-q`      | Gracefully stop the running daemon.                  |
 | `--help`                     | `-h`      | Print help information.                              |
 | `--version`                  | `-V`      | Print version information.                           |
 | **Linux Specific Arguments** |

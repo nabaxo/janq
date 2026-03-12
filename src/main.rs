@@ -67,6 +67,7 @@ fn attach_parent_console() {
 #[derive(Debug, Default)]
 struct Args {
   daemon: bool,
+  quit: bool,
   app: Option<String>,
   #[cfg(target_os = "linux")]
   enable_autostart: bool,
@@ -95,6 +96,7 @@ fn print_help() {
 {1}OPTIONS:{2}
   {4}-D, --daemon{2}          Run as a persistent process (Server Mode)
   {4}-a, --app{2} {3}[NAME]{2}      Name of the app to toggle (from config)
+  {4}-q, --quit{2}            Gracefully stop the running daemon
   {4}-h, --help{2}            Print help information
   {4}-V, --version{2}         Print version information",
     env!("CARGO_PKG_VERSION"), // {0}
@@ -164,6 +166,9 @@ fn parse_args() -> Args {
       },
       "--daemon" | "--demon" | "--deamon" | "-D" => {
         args.daemon = true;
+      },
+      "--quit" | "--exit" | "-q" => {
+        args.quit = true;
       },
       "--app" | "-a" => {
         if let Some(val) = iter.next() {
@@ -337,6 +342,14 @@ fn main() -> error::Result<()> {
     };
 
     let target_app_owned = target_app.map(|s| s.to_string());
+    if args.quit {
+      if let Err(e) = daemon::send_quit().await {
+        show_error(&format!("Failed to stop daemon: {}", e));
+        exit(1);
+      }
+      return Ok(());
+    }
+
     if args.daemon {
       if let Err(e) = acquire_lock_file() {
         show_error(&e.to_string());
