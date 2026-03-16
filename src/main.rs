@@ -41,17 +41,6 @@ mod daemon {
 #[cfg(target_os = "linux")]
 mod linux;
 
-#[cfg(target_os = "linux")]
-#[allow(unused_imports)]
-mod terminal {
-  pub use crate::linux::terminal::*;
-}
-#[cfg(target_os = "windows")]
-#[allow(unused_imports)]
-mod terminal {
-  pub use crate::windows::terminal::*;
-}
-
 #[cfg(target_os = "windows")]
 mod windows;
 

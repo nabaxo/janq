@@ -61,7 +61,7 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 
 ### Hotkey System
 - **Linux:** Native D-Bus sync with KDE. Your hotkeys will appear in System Settings, just like the real ones.
-- **Windows:** Native Win32 registration. Instant response, unlike most things on Windows.
+- **Windows:** Win32-backed hotkey registration. Instant response, unlike most things on Windows.
 - **Weighted matching** - Find windows by abbreviation or substring (e.g., `wt` → `WindowsTerminal`).
 - **Automated Icon Rule Lifecycle (Linux)**: Added a sophisticated synchronization engine for KWin Window Rules. Janq now automatically detects your apps' `.desktop` associations and creates/updates system rules to force correct taskbar icons. It safely prunes stale rules and manages the `kwinrulesrc` registry automatically. This behavior can be toggled via the new `kde_window_rules = true` setting in the `[window]` section.
 - **New `--setup` and `--cleanup` Flags (Linux)**: Dedicated commands to either force a full refresh of all system integrations or completely purge them (icons, desktop files, D-Bus services, and window rules) from your system.
