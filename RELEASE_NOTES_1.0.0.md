@@ -41,6 +41,8 @@ Welcome to janq 1.0.0, a cross-platform terminal manager that somehow manages to
 - **Force priority** mode (Linux) to sit above fullscreen apps using KWin's Fullscreen state.
 - **Focus restoration** - Attempting to put focus back where it was before we interrupted you. Results may vary.
 - **(Windows) Taskbar hiding for stubborn apps**: Apps that set `WS_EX_APPWINDOW` (looking at you, Basitune) would force a taskbar button to persist even when janq was trying to hide them. janq now strips this flag when managing a window and politely restores it on exit. Your taskbar is yours again.
+- **Self-Healing Recovery (Linux)**: When Plasma restarts or you wake your computer from a nap, KWin often conveniently forgets that janq exists and resets your hidden windows to be visible "ghost" blur rectangles. janq now monitors `org.kde.KWin`, `org.kde.plasmashell`, and system sleep signals like a hawk. It waits 2 seconds for the desktop to stop vibrating, then aggressively re-shoves your windows back offscreen and restores their properties. You saw nothing.
+- **Recovery Diagnostics**: Added explicit terminal logging for all recovery events, so you can watch janq fighting with KWin for window dominance in real-time.
 
 ### System Tray
 - **Full context menu (Linux)**: Right-click the tray icon and get a proper menu with per-app toggle items, shortcut display, and a Quit option. Implemented via a hand-rolled `com.canonical.dbusmenu` interface on the existing `zbus` connection, because apparently using a dedicated crate for this was too luxurious.

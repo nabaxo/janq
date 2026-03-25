@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GUI Warning Pop-ups**: Warnings now display as GUI pop-ups in non-interactive sessions (Windows/Linux).
 - **Improved CLI Error Handling**: Enhanced argument parsing with suggestions for unknown arguments. Now tolerates transpositions and small typos (e.g., `--hlep` suggests `--help`).
 - **Automated KWin Rule Lifecycle**: Implemented a sophisticated rule synchronization engine that manages `kwinrulesrc` automatically. It groups managed apps by desktop ID, applies regex-based matching, and surgically prunes stale or redundant janq rules directly from the filesystem to bypass KConfig errors.
+- **Self-Healing Recovery (Linux)**: Integrated D-Bus and system bus watchers for `org.kde.plasmashell`, `org.kde.KWin`, and `logind`'s `PrepareForSleep`. Managed windows now automatically re-park offscreen and restore their hidden properties (opacity, blur, skip-taskbar) 2 seconds after a shell restart, compositor replacement, or wake-from-sleep event.
+- **Diagnostic Recovery Logging**: Added explicit terminal feedback when recovery triggers are detected.
 - **`kde_window_rules` Setting**: New configuration option under `[window]` (defaulting to `true`) to control whether janq manages system window rules for taskbar icon fixes.
 - **Linux Setup & Cleanup**: New `--setup` CLI flag to force regeneration of desktop files, icons, and D-Bus services, and a `--cleanup` flag to completely purge janq system integration (rules, desktop files, services).
 - **D-Bus Reload Trigger**: Added automatic `org.freedesktop.DBus.ReloadConfig` calls (via `qdbus6` or `dbus-send`) when system services are installed, ensuring "activatable" services work without a logout.
@@ -74,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows WezTerm Reopening**: Fixed a bug where closed windows stayed in the management cache, preventing re-spawning. Added aggressive cache pruning upon PID death detection.
 - **Linux Focus Restore Lag**: Bypassed the metadata cache during toggle events to ensure focus restoration targets are captured with zero-latency D-Bus synchronization.
 - **Systray Icon Persistence**: Resolved an issue where the tray icon would disappear after a compositor or panel (StatusNotifierWatcher) restart on KDE Plasma.
+- **Plasma Ghost Windows (Linux)**: Fixed "ghost" window artifacts (persistent blur or reset opacity) appearing after a Plasma/KWin restart or wake-from-sleep by implementing a robust state re-synchronization engine.
 - **Type-Safety & Build Reliability**: Resolved numerous cross-platform type regressions and Win32 import conflicts introduced during the architectural deduplication.
 - **Shortcut display in tray**: Windows now displays shortcut on context menu in systray.
 - **Instant Focus**: Resolved issue on both Windows and Linux where `framerate = 0` (instant mode) would fail to grab focus correctly.
