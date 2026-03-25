@@ -245,6 +245,14 @@ pub async fn reset_refresh_rate_logging() {
   state.is_hz_initialized = false;
 }
 
+/// Resets all KWin-side state after a compositor restart.
+/// Clears the visible app tracker and forces refresh rate re-detection.
+pub async fn reset_state() {
+  let mut state = STATE.lock().await;
+  state.visible_app = None;
+  state.is_hz_initialized = false;
+}
+
 pub async fn init() {
   reset_refresh_rate_logging().await;
 }
