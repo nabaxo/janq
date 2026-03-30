@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-02-26
+## [1.0.0] - 2026-03-30
 
 ### Added
 - **Install script**: For easy installation and system integration on Linux.
@@ -60,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hash Collection Consistency (Linux)**: Replaced `std::collections::HashSet` with `rustc_hash::FxHashSet` in hotkey registration, aligning with the project's `FxHash` convention.
 - **(Windows) PID Cache Simplification**: Removed unreachable dead branch in PID cache lookup.
 - **(Windows) Dead code removal**: Removed unused `WAKE_EVENT` / `SyncHandle` / `MsgWaitForMultipleObjects` infrastructure that was planned but never completed. The bridge window `WM_USER+4` handler now covers the modal-loop exit path this code was intended to address.
+- **(Linux) Re-grab** Consolidated and bumped reg-rab time to 2 secondds.
 
 ### Fixed
 - **(Windows) Daemon unresponsive after tray menu stuck open**: When `TrackPopupMenu` entered a permanent modal loop (e.g. due to a foreground-window race), the main `GetMessageW` loop was suspended indefinitely. All daemon events — hotkeys, quit, Ctrl+C signals — queued in the channel but were never processed. The bridge window now handles `WM_USER+4` as a direct exit message dispatched even inside modal loops, and the Ctrl+C/Break/Close signal handler posts to it instead of relying on channel drain.

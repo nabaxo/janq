@@ -86,6 +86,8 @@ struct QuakeDaemon {
   conn: Connection,
 }
 
+const RE_GRAB_TIME: u64 = 2000;
+
 #[interface(name = "org.freedesktop.Application")]
 impl QuakeApplication {
   async fn activate(&self, _platform_data: HashMap<String, OwnedValue>) {
@@ -407,7 +409,7 @@ pub async fn run_daemon(
 
                 // Plasmashell restart can reset window state — re-grab all managed windows.
                 // We wait 2s to ensure the shell has finished its initial window configuration.
-                tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(RE_GRAB_TIME)).await;
                 println!("Plasma: Re-grabbing managed windows now...");
                 reset_state().await;
                 let cfg = config_for_sni_watch.read().unwrap().clone();
@@ -478,7 +480,7 @@ pub async fn run_daemon(
               if new_owner_present {
                 println!("KWin: Compositor restarted, re-grabbing all managed windows...");
                 // Let KWin fully initialize its scripting engine
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(RE_GRAB_TIME)).await;
 
                 reset_state().await;
 
@@ -569,7 +571,7 @@ pub async fn run_daemon(
         if let Ok(going_to_sleep) = msg.body().deserialize::<bool>() {
           if !going_to_sleep {
             println!("Sleep: System resumed, re-grabbing managed windows...");
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(RE_GRAB_TIME)).await;
             reset_state().await;
             let cfg = config_for_sleep.read().unwrap().clone();
             let mut apps_for_grabbing = Vec::new();
