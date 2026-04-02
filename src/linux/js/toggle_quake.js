@@ -281,7 +281,8 @@
                 const allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
                 for (const c of allClients) {
                   if (c.internalId && normalizeId(c.internalId) === normalizeId(config.prevWindowId)) {
-                    focusKick(c, false);
+                    const isOnCurrentDesktop = c.onAllDesktops || (c.desktops && c.desktops.indexOf(workspace.currentDesktop) !== -1);
+                    if (isOnCurrentDesktop) focusKick(c, false);
                     break;
                   }
                 }
@@ -321,7 +322,8 @@
           const allClients = workspace.windowList ? workspace.windowList() : workspace.clientList();
           for (const c of allClients) {
             if (c.internalId && normalizeId(c.internalId) === normalizeId(config.prevWindowId)) {
-              focusKick(c, false);
+              const isOnCurrentDesktop = c.onAllDesktops || (c.desktops && c.desktops.indexOf(workspace.currentDesktop) !== -1);
+              if (isOnCurrentDesktop) focusKick(c, false);
               break;
             }
           }
