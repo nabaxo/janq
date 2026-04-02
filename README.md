@@ -619,6 +619,14 @@ Apps that rely on their own saved window geometry (e.g., Obsidian, other Electro
 
 Some Electron/Flatpak apps (e.g., Discord) may not have their window ready when janq's initial grab runs at boot. If the app's window doesn't exist yet during the startup pass, janq won't be able to manage it until the next toggle or config reload. Toggling the app's hotkey after it has fully started will grab it normally.
 
+### Apps That Minimize to Tray
+
+If a managed app is closed to the system tray rather than fully quit, janq will silently do nothing when you next press its hotkey. This is a platform limitation: neither Linux nor Windows exposes a "minimized to tray" signal — the window is simply destroyed or hidden by the app itself, with no OS-level way to distinguish it from a normal close. The process remains alive, so janq won't attempt to respawn it either.
+
+**Workaround**: Restore the app from its tray icon manually before using the janq hotkey, or configure the app to not minimize to tray.
+
+(Sloperator: I.e. Janq can't do anything if your dumb ass closes Discord to tray and forgets, then wonders why janq isn't working).
+
 ## License
 
 Copyright © 2026 Nebez Kassem
