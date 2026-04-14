@@ -519,9 +519,12 @@ pub async fn run_daemon(
 
   // Monitor logind for sleep/wake cycles.
   // After resume, KWin may have reset window state — re-grab all managed windows.
+  // Also re-register the SNI with the StatusNotifierWatcher, which may have dropped
+  // our registration during the suspend/resume cycle.
   {
     let conn_for_sleep = conn.clone();
     let config_for_sleep = config.clone();
+    let sni_name_for_sleep = sni_name.clone();
     tokio::spawn(async move {
       use zbus::export::ordered_stream::OrderedStreamExt as _;
 
@@ -570,9 +573,13 @@ pub async fn run_daemon(
         // PrepareForSleep(bool): true = going to sleep, false = waking up
         if let Ok(going_to_sleep) = msg.body().deserialize::<bool>() {
           if !going_to_sleep {
-            println!("Sleep: System resumed, re-grabbing managed windows...");
+            println!(
+              "Sleep: System resumed, re-registering tray and re-grabbing managed windows..."
+            );
             tokio::time::sleep(tokio::time::Duration::from_millis(RE_GRAB_TIME)).await;
-            reset_state().await;
+            register_sni(&conn_for_sleep, &sni_name_for_sleep).await;
+            StatusNotifierItem::emit_new_icon(&conn_for_sleep).await;
+            reset_refresh_rate_logging().await;
             let cfg = config_for_sleep.read().unwrap().clone();
             let mut apps_for_grabbing = Vec::new();
             for (_name, app_cfg) in &cfg.app {
