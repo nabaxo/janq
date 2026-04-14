@@ -28,7 +28,9 @@
         target.opacity = 0.0;
         target.frameGeometry = { x: slidePos.hiddenX, y: slidePos.hiddenY, width: dims.width, height: dims.height };
       } else {
-        console.log(`janq_grab: Skipping position update for ${app.windowClass} (already visible).`);
+        console.log(`janq_grab: Restoring ${app.windowClass} to shown position.`);
+        target.opacity = 1.0;
+        target.frameGeometry = { x: slidePos.shownX, y: slidePos.shownY, width: dims.width, height: dims.height };
       }
     } else {
       console.log(`janq_grab: FAILED to find window for ${app.windowClass}`);

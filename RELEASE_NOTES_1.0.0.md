@@ -4,7 +4,7 @@
 
 # janq v1.0.0 — The Inaugural Release of Questionable Decisions
 
-**Release Date:** February 26, 2026
+**Release Date:** April 14, 2026
 
 > **janq** - The Janky Quake-Style Terminal Manager (Because apparently, the existing ones weren't janky enough)
 
