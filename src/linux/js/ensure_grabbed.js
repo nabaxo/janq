@@ -20,8 +20,17 @@
         area,
         context.full,
         dims.width,
-        dims.height
+        dims.height,
+        app.depthValue || 0,
+        app.depthIsPercent || false,
+        app.depthIsNegative || false,
+        app.depthIsCenter || false
       );
+
+      if (app.hideTitlebar && (app.slideFrom || "top") === "top" && target.clientGeometry) {
+        const tb = Math.max(0, target.clientGeometry.y - target.frameGeometry.y);
+        slidePos.shownY -= tb;
+      }
 
       if (!app.isVisible) {
         console.log(`janq_grab: Parking ${app.windowClass} offscreen (${app.slideFrom || "top"}).`);

@@ -161,6 +161,8 @@ pub fn run_animation_task_sync(
 
     // 3. Resolve positioning & slide
     let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
+    let depth_offset = app_cfg.resolve_depth_offset(&config.window);
+    let hide_titlebar = app_cfg.resolve_hide_titlebar(&config.window);
 
     let work_area_rect = WorkArea {
       left: work_area.left,
@@ -171,13 +173,19 @@ pub fn run_animation_task_sync(
     let positions = compute_slide_positions(
       &slide_from,
       &position_offset,
+      &depth_offset,
       work_area_rect,
       target_w,
       target_h,
     );
+    let titlebar_adjust = if hide_titlebar && matches!(slide_from, SlideDirection::Top) {
+      super::window::get_titlebar_height(target_hwnd.inner())
+    } else {
+      0
+    };
     let (shown_x, shown_y, hidden_x, hidden_y) = (
       positions.shown_x,
-      positions.shown_y,
+      positions.shown_y - titlebar_adjust,
       positions.hidden_x,
       positions.hidden_y,
     );
@@ -260,6 +268,11 @@ pub fn run_animation_task_sync(
               .and_then(|name| config.app.get(name.as_ref()))
               .map(|a| a.resolve_slide_config(&config.window))
               .unwrap_or_else(|| (SlideDirection::Top, PositionOffset::Center));
+            let sib_depth = sib_app_name
+              .as_ref()
+              .and_then(|name| config.app.get(name.as_ref()))
+              .map(|a| a.resolve_depth_offset(&config.window))
+              .unwrap_or_else(|| PositionOffset::Center);
 
             let sib_dir = &sib_slide.0;
             let sib_offset = &sib_slide.1;
@@ -271,7 +284,7 @@ pub fn run_animation_task_sync(
               bottom: s_work.bottom,
             };
             let sib_positions =
-              compute_slide_positions(sib_dir, sib_offset, sib_work_area, s_w, s_h);
+              compute_slide_positions(sib_dir, sib_offset, &sib_depth, sib_work_area, s_w, s_h);
 
             let (sib_easing_cfg, sib_dur_ms) = (
               &config.animation.hide_easing,

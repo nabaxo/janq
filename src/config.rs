@@ -143,6 +143,9 @@ pub enum PositionOffset {
   Center,
   Pixels(i32),
   Percent(f64),
+  /// Depth-only sentinel: resolve to negative titlebar height at runtime
+  /// (only applies when sliding from top). Accepts "auto" or "titlebar".
+  HideTitlebar,
 }
 
 impl<'de> serde::Deserialize<'de> for PositionOffset {
@@ -150,28 +153,100 @@ impl<'de> serde::Deserialize<'de> for PositionOffset {
   where
     D: serde::Deserializer<'de>,
   {
-    let s = String::deserialize(deserializer)?;
-    let lower = s.trim().to_lowercase();
-    if lower == "center" || lower == "0" {
-      return Ok(PositionOffset::Center);
-    }
+    deserializer.deserialize_any(PositionOffsetVisitor {
+      zero_is_center: true,
+    })
+  }
+}
 
-    match parse_unit_value(&s) {
-      Ok((val, true)) => Ok(PositionOffset::Percent(val)),
-      Ok((val, false)) => Ok(PositionOffset::Pixels(val as i32)),
-      Err(e) => {
-        let hint = if lower.chars().all(|c| c.is_alphabetic()) && !lower.is_empty() {
-          " Did you mean 'center'?"
-        } else {
-          ""
-        };
-        Err(serde::de::Error::custom(format!(
-          "Invalid position_offset format: {}{}",
-          e, hint
-        )))
-      }
+struct PositionOffsetVisitor {
+  zero_is_center: bool,
+}
+
+impl<'de> serde::de::Visitor<'de> for PositionOffsetVisitor {
+  type Value = PositionOffset;
+  fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    f.write_str("a position offset string or number")
+  }
+  fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+    parse_position_offset(v, self.zero_is_center).map_err(E::custom)
+  }
+  fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+    self.visit_str(&v)
+  }
+  fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+    if v == 0 && self.zero_is_center {
+      Ok(PositionOffset::Center)
+    } else {
+      Ok(PositionOffset::Pixels(v as i32))
     }
   }
+  fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+    self.visit_i64(v as i64)
+  }
+  fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Self::Value, E> {
+    self.visit_i64(v as i64)
+  }
+}
+
+fn parse_position_offset(s: &str, zero_is_center: bool) -> Result<PositionOffset, String> {
+  let lower = s.trim().to_lowercase();
+  if lower == "center" || (zero_is_center && lower == "0") {
+    return Ok(PositionOffset::Center);
+  }
+  if !zero_is_center && (lower == "auto" || lower == "titlebar" || lower == "hide_titlebar") {
+    return Ok(PositionOffset::HideTitlebar);
+  }
+  if !zero_is_center && lower == "0" {
+    return Ok(PositionOffset::Pixels(0));
+  }
+  match parse_unit_value(s) {
+    Ok((val, true)) => Ok(PositionOffset::Percent(val)),
+    Ok((val, false)) => Ok(PositionOffset::Pixels(val as i32)),
+    Err(e) => {
+      let hint = if lower.chars().all(|c| c.is_alphabetic()) && !lower.is_empty() {
+        " Did you mean 'center'?"
+      } else {
+        ""
+      };
+      Err(format!("Invalid position_offset format: {}{}", e, hint))
+    }
+  }
+}
+
+fn deserialize_depth_offset<'de, D>(deserializer: D) -> Result<PositionOffset, D::Error>
+where
+  D: serde::Deserializer<'de>,
+{
+  deserializer.deserialize_any(PositionOffsetVisitor {
+    zero_is_center: false,
+  })
+}
+
+fn deserialize_opt_depth_offset<'de, D>(deserializer: D) -> Result<Option<PositionOffset>, D::Error>
+where
+  D: serde::Deserializer<'de>,
+{
+  struct OptVisitor;
+  impl<'de> serde::de::Visitor<'de> for OptVisitor {
+    type Value = Option<PositionOffset>;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+      f.write_str("an optional position offset")
+    }
+    fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+      Ok(None)
+    }
+    fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+      Ok(None)
+    }
+    fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+      d.deserialize_any(PositionOffsetVisitor {
+        zero_is_center: false,
+      })
+      .map(Some)
+    }
+  }
+  deserializer.deserialize_option(OptVisitor)
 }
 
 /// A platform-agnostic rectangle for position calculations.
@@ -221,6 +296,7 @@ pub struct SlidePositions {
 pub fn compute_slide_positions(
   slide_from: &SlideDirection,
   position_offset: &PositionOffset,
+  depth_offset: &PositionOffset,
   work_area: WorkArea,
   window_w: i32,
   window_h: i32,
@@ -232,7 +308,9 @@ pub fn compute_slide_positions(
   // Calculate position along the edge (perpendicular to slide direction)
   let along_pos = if is_horizontal {
     match position_offset {
-      PositionOffset::Center => work_area.left + (screen_w - window_w) / 2,
+      PositionOffset::Center | PositionOffset::HideTitlebar => {
+        work_area.left + (screen_w - window_w) / 2
+      }
       PositionOffset::Pixels(px) => {
         if *px >= 0 {
           work_area.left + *px
@@ -250,7 +328,9 @@ pub fn compute_slide_positions(
     }
   } else {
     match position_offset {
-      PositionOffset::Center => work_area.top + (screen_h - window_h) / 2,
+      PositionOffset::Center | PositionOffset::HideTitlebar => {
+        work_area.top + (screen_h - window_h) / 2
+      }
       PositionOffset::Pixels(px) => {
         if *px >= 0 {
           work_area.top + *px
@@ -268,29 +348,47 @@ pub fn compute_slide_positions(
     }
   };
 
+  // Depth offset: distance the shown window is pushed into the screen from the slide edge.
+  // Negative values push the window further offscreen (e.g. to hide titlebar).
+  // `Center` centers the window on the slide axis.
+  let depth = match slide_from {
+    SlideDirection::Top | SlideDirection::Bottom => match depth_offset {
+      PositionOffset::Center => (screen_h - window_h) / 2,
+      PositionOffset::Pixels(px) => *px,
+      PositionOffset::Percent(pct) => (screen_h as f64 * *pct) as i32,
+      PositionOffset::HideTitlebar => 0,
+    },
+    SlideDirection::Left | SlideDirection::Right => match depth_offset {
+      PositionOffset::Center => (screen_w - window_w) / 2,
+      PositionOffset::Pixels(px) => *px,
+      PositionOffset::Percent(pct) => (screen_w as f64 * *pct) as i32,
+      PositionOffset::HideTitlebar => 0,
+    },
+  };
+
   // Calculate shown/hidden positions based on slide direction
   // Fixed: Added 10px buffer to hidden positions to ensure shadows are fully hidden (aligned with parking.rs)
   let (shown_x, shown_y, hidden_x, hidden_y) = match slide_from {
     SlideDirection::Top => (
       along_pos,
-      work_area.top,
+      work_area.top + depth,
       along_pos,
       work_area.top - window_h - 10,
     ),
     SlideDirection::Bottom => (
       along_pos,
-      work_area.bottom - window_h,
+      work_area.bottom - window_h - depth,
       along_pos,
       work_area.bottom + 10,
     ),
     SlideDirection::Left => (
-      work_area.left,
+      work_area.left + depth,
       along_pos,
       work_area.left - window_w - 10,
       along_pos,
     ),
     SlideDirection::Right => (
-      work_area.right - window_w,
+      work_area.right - window_w - depth,
       along_pos,
       work_area.right + 10,
       along_pos,
@@ -639,6 +737,9 @@ pub struct AppConfig {
   // Same alias here for individual app configs
   #[serde(alias = "offset")]
   pub position_offset: Option<PositionOffset>,
+  #[serde(default, deserialize_with = "deserialize_opt_depth_offset")]
+  pub depth_offset: Option<PositionOffset>,
+  pub hide_titlebar: Option<bool>,
   pub no_borders: Option<bool>,
 }
 
@@ -704,6 +805,24 @@ impl AppConfig {
       .clone()
       .unwrap_or(global.position_offset.clone());
     (direction, offset)
+  }
+
+  /// Resolves depth offset (distance into screen from slide edge) with fallback to global config.
+  pub fn resolve_depth_offset(&self, global: &WindowConfig) -> PositionOffset {
+    self
+      .depth_offset
+      .clone()
+      .unwrap_or(global.depth_offset.clone())
+  }
+
+  pub fn resolve_hide_titlebar(&self, global: &WindowConfig) -> bool {
+    if self.hide_titlebar.unwrap_or(global.hide_titlebar) {
+      return true;
+    }
+    matches!(
+      self.resolve_depth_offset(global),
+      PositionOffset::HideTitlebar
+    )
   }
 }
 
@@ -773,6 +892,9 @@ pub struct WindowConfig {
   // This allows both "position_offset" and "offset" in TOML
   #[serde(alias = "offset")]
   pub position_offset: PositionOffset,
+  #[serde(deserialize_with = "deserialize_depth_offset")]
+  pub depth_offset: PositionOffset,
+  pub hide_titlebar: bool,
   pub kde_window_rules: Option<bool>,
 }
 
@@ -792,6 +914,8 @@ impl Default for WindowConfig {
       auto_hide: false,
       slide_from: SlideDirection::default(),
       position_offset: PositionOffset::default(),
+      depth_offset: PositionOffset::Pixels(0),
+      hide_titlebar: false,
       kde_window_rules: None,
     }
   }

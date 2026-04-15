@@ -87,6 +87,7 @@ pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
 
       // Resolve slide config
       let (slide_from, position_offset) = app_cfg.resolve_slide_config(&config.window);
+      let depth_offset = app_cfg.resolve_depth_offset(&config.window);
 
       // Compute hidden position using shared logic
       let work_area_rect = janq::config::WorkArea {
@@ -98,6 +99,7 @@ pub fn park_window(cw: CachedWindow, config: &Config, app_cfg: &AppConfig) {
       let positions = janq::config::compute_slide_positions(
         &slide_from,
         &position_offset,
+        &depth_offset,
         work_area_rect,
         tw,
         th,

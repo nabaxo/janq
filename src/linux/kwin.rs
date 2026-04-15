@@ -61,6 +61,11 @@ struct ResolvedAnimationParts {
   pub is_pct: bool,
   pub is_neg: bool,
   pub is_center: bool,
+  pub depth_val: f64,
+  pub depth_is_pct: bool,
+  pub depth_is_neg: bool,
+  pub depth_is_center: bool,
+  pub hide_titlebar: bool,
   pub animate_opacity: bool,
   pub no_borders: bool,
   pub hide_easing: String,
@@ -76,11 +81,21 @@ fn get_animation_parts(app_cfg: &AppConfig, global_window: &Config) -> ResolvedA
     SlideDirection::Right => "right",
   };
   let (val, is_pct, is_neg) = match offset {
-    PositionOffset::Center => (0.0, false, false),
+    PositionOffset::Center | PositionOffset::HideTitlebar => (0.0, false, false),
     PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
     PositionOffset::Percent(pct) => (pct.abs() * 100.0, true, pct < 0.0),
   };
   let is_center = matches!(offset, PositionOffset::Center);
+
+  let depth = app_cfg.resolve_depth_offset(&global_window.window);
+  let (depth_val, depth_is_pct, depth_is_neg) = match depth {
+    PositionOffset::Center | PositionOffset::HideTitlebar => (0.0, false, false),
+    PositionOffset::Pixels(px) => (px.abs() as f64, false, px < 0),
+    PositionOffset::Percent(pct) => (pct.abs() * 100.0, true, pct < 0.0),
+  };
+  let depth_is_center = matches!(depth, PositionOffset::Center);
+  let hide_titlebar = app_cfg.resolve_hide_titlebar(&global_window.window);
+
   let animate_opacity = if matches!(global_window.animation.framerate, Framerate::Specific(0)) {
     false
   } else {
@@ -94,6 +109,11 @@ fn get_animation_parts(app_cfg: &AppConfig, global_window: &Config) -> ResolvedA
     is_pct,
     is_neg,
     is_center,
+    depth_val,
+    depth_is_pct,
+    depth_is_neg,
+    depth_is_center,
+    hide_titlebar,
     animate_opacity,
     no_borders,
     hide_easing: global_window.animation.hide_easing.to_string(),
@@ -506,8 +526,8 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
         let anim_parts = get_animation_parts(other_app, config);
 
         siblings_json_parts.push(format!(
-          "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, easing: \"{}\", animOp: {}, noBrd: {} }}",
-          cached.id, cached.pid, anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center, anim_parts.hide_easing, anim_parts.animate_opacity, anim_parts.no_borders
+          "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, depthVal: {}, depthPct: {}, depthNeg: {}, depthCtr: {}, easing: \"{}\", animOp: {}, noBrd: {} }}",
+          cached.id, cached.pid, anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center, anim_parts.depth_val, anim_parts.depth_is_pct, anim_parts.depth_is_neg, anim_parts.depth_is_center, anim_parts.hide_easing, anim_parts.animate_opacity, anim_parts.no_borders
         ));
       }
     }
@@ -636,11 +656,12 @@ async fn run_toggle_script(
   use std::fmt::Write;
   let _ = write!(
     script_content,
-    "(\n  {{ appName: \"{}\", windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, autoHide: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }},\n  {},\n  {}\n);",
+    "(\n  {{ appName: \"{}\", windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, autoHide: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {}, depthValue: {}, depthIsPercent: {}, depthIsNegative: {}, depthIsCenter: {}, hideTitlebar: {} }},\n  {},\n  {}\n);",
     params.app_name, app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
     duration, easing, params.visible, params.auto_hide, config.window.keep_above, anim_parts.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
     params.prev_id, params.target_id, params.target_pid, config.window.force_priority.unwrap_or(false),
     anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center,
+    anim_parts.depth_val, anim_parts.depth_is_pct, anim_parts.depth_is_neg, anim_parts.depth_is_center, anim_parts.hide_titlebar,
     params.siblings_json, refresh_rate
   );
 
@@ -702,10 +723,11 @@ pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Res
     let anim_parts = get_animation_parts(app_cfg, config);
 
     apps_json.push(format!(
-            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {} }}",
+            "{{ windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, targetWindowId: \"{}\", targetPid: {}, isVisible: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {}, depthValue: {}, depthIsPercent: {}, depthIsNegative: {}, depthIsCenter: {}, hideTitlebar: {} }}",
             app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
             config.window.keep_above, anim_parts.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), target_id, target_pid, is_visible, config.window.force_priority.unwrap_or(false),
-            anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center
+            anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center,
+            anim_parts.depth_val, anim_parts.depth_is_pct, anim_parts.depth_is_neg, anim_parts.depth_is_center, anim_parts.hide_titlebar
         ));
   }
 
