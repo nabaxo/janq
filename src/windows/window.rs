@@ -29,7 +29,8 @@ use rustc_hash::FxHashMap;
 use windows::{
   core::BOOL,
   Win32::{
-    Foundation::{HWND, LPARAM, RECT, WPARAM},
+    Foundation::{HWND, LPARAM, POINT, RECT, WPARAM},
+    Graphics::Gdi::ClientToScreen,
     Graphics::{
       Dwm::{
         DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CLOAKED,
@@ -203,6 +204,27 @@ pub fn set_taskbar_hidden(hwnd: HWND, hidden: bool) {
       let new_owner = if hidden { owner.0 as isize } else { 0 };
       SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, new_owner);
     }
+  }
+}
+
+/// Returns the pixel height of the window's server-side titlebar. Returns 0
+/// for CSD/custom-chrome apps (Electron, Chrome, VS Code, etc.) which own
+/// their full client area.
+pub fn get_titlebar_height(hwnd: HWND) -> i32 {
+  unsafe {
+    let mut win_rect = RECT::default();
+    let mut cli_rect = RECT::default();
+    if GetWindowRect(hwnd, &mut win_rect).is_err() || GetClientRect(hwnd, &mut cli_rect).is_err() {
+      return 0;
+    }
+    let mut pt = POINT {
+      x: cli_rect.left,
+      y: cli_rect.top,
+    };
+    if !ClientToScreen(hwnd, &mut pt).as_bool() {
+      return 0;
+    }
+    (pt.y - win_rect.top).max(0)
   }
 }
 

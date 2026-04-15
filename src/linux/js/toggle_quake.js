@@ -93,7 +93,11 @@
     finalHeight = dims.height;
   }
 
-  const slidePos = computeSlidePosition(config.slideFrom, config.offsetValue, config.offsetIsPercent, config.offsetIsNegative, config.offsetIsCenter, workArea, fullArea, finalWidth, finalHeight);
+  const slidePos = computeSlidePosition(config.slideFrom, config.offsetValue, config.offsetIsPercent, config.offsetIsNegative, config.offsetIsCenter, workArea, fullArea, finalWidth, finalHeight, config.depthValue, config.depthIsPercent, config.depthIsNegative, config.depthIsCenter);
+  if (config.hideTitlebar && config.slideFrom === "top" && target.clientGeometry) {
+    const tb = Math.max(0, target.clientGeometry.y - target.frameGeometry.y);
+    slidePos.shownY -= tb;
+  }
   const finalX = config.shouldShow ? slidePos.shownX : slidePos.hiddenX;
   const finalY = config.shouldShow ? slidePos.shownY : slidePos.hiddenY;
 
@@ -108,7 +112,7 @@
     if (!sibCfg) continue;
 
     const sibContext = resolveAreaContext(sib, "active", 0);
-    const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibContext.work, sibContext.full, sib.frameGeometry.width, sib.frameGeometry.height);
+    const sibOffscreen = computeSlidePosition(sibCfg.dir, sibCfg.val, sibCfg.pct, sibCfg.neg, sibCfg.ctr, sibContext.work, sibContext.full, sib.frameGeometry.width, sib.frameGeometry.height, sibCfg.depthVal, sibCfg.depthPct, sibCfg.depthNeg, sibCfg.depthCtr);
 
     const sDiffX = sibOffscreen.hiddenX - sib.frameGeometry.x;
     const sDiffY = sibOffscreen.hiddenY - sib.frameGeometry.y;

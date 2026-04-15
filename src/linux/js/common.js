@@ -280,8 +280,18 @@ const resolveDimensions = (width, isWidthPercent, height, isHeightPercent, area,
   return { width: finalWidth, height: finalHeight };
 };
 
-const computeSlidePosition = (direction, offsetVal, isPercent, isNegative, isCenter, workArea, fullArea, winW, winH) => {
+const computeSlidePosition = (direction, offsetVal, isPercent, isNegative, isCenter, workArea, fullArea, winW, winH, depthVal, depthIsPercent, depthIsNegative, depthIsCenter) => {
   let shownX, shownY, hiddenX, hiddenY;
+
+  // Depth: distance shown window is pushed into screen from slide edge.
+  // Resolved in pixels along the slide axis. Negative pushes window toward/past edge.
+  const computeDepth = (span) => {
+    if (depthIsCenter) {
+      return Math.floor((span - (direction === "top" || direction === "bottom" ? winH : winW)) / 2);
+    }
+    const raw = depthIsPercent ? (span * (depthVal || 0) / 100) : (depthVal || 0);
+    return depthIsNegative ? -raw : raw;
+  };
 
   if (direction === "top" || direction === "bottom") {
     // Fixed axis: X (Lock to workArea center/offset)
@@ -299,12 +309,13 @@ const computeSlidePosition = (direction, offsetVal, isPercent, isNegative, isCen
     }
     hiddenX = shownX;
 
+    const depth = computeDepth(workArea.height);
     // Add 10px margin so parked windows can't be grabbed at screen edges
     if (direction === "top") {
-      shownY = workArea.y;
+      shownY = workArea.y + depth;
       hiddenY = fullArea.y - winH - 10;
     } else {
-      shownY = workArea.y + workArea.height - winH;
+      shownY = workArea.y + workArea.height - winH - depth;
       hiddenY = fullArea.y + fullArea.height + 10;
     }
   } else {
@@ -323,12 +334,13 @@ const computeSlidePosition = (direction, offsetVal, isPercent, isNegative, isCen
     }
     hiddenY = shownY;
 
+    const depth = computeDepth(workArea.width);
     // Add 10px margin so parked windows can't be grabbed at screen edges
     if (direction === "left") {
-      shownX = workArea.x;
+      shownX = workArea.x + depth;
       hiddenX = fullArea.x - winW - 10;
     } else {
-      shownX = workArea.x + workArea.width - winW;
+      shownX = workArea.x + workArea.width - winW - depth;
       hiddenX = fullArea.x + fullArea.width + 10;
     }
   }

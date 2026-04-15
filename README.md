@@ -293,6 +293,8 @@ hotkey = "Meta+1"
 |               | `height`             | —                | Window height (`%` or `px`)                                                          |   ✔️    |
 |               | `slide_from`         | `"top"`          | Direction to slide in: `top`, `bottom`, `left`, `right`                              |   ✔️    |
 |               | `offset`             | `"center"`       | Position along edge: `center`, `50%`, `-10%`, `100px`, `-50px`                       |   ✔️    |
+|               | `depth_offset`       | `"0"`            | Offset into screen on slide axis: `center`, `50%`, `-30px` (hides titlebar), `100px`, `auto` / `titlebar` (auto-hide titlebar) |   ✔️    |
+|               | `hide_titlebar`      | `false`          | Auto-hide server-side titlebar (only when `slide_from = "top"`; SSD apps only)       |   ✔️    |
 |               | `keep_above`         | `false`          | Keep window above all others                                                         |   ❌    |
 |               | `no_borders`         | `false`          | Remove window borders/chrome for managed windows                                     |   ✔️    |
 |               | `skip_pager`         | `false`          | Hide window from task manager, pager, and switcher (Linux: also hides from Meta+Tab) |   ❌    |
@@ -344,6 +346,28 @@ The `offset` option controls where along the edge the window is positioned:
 
 > [!TIP]
 > Combine these settings for creative layouts: `slide_from = "right"` with `offset = "0px"` creates a sidebar that slides in from the right at the top corner.
+
+#### Depth Offset
+
+The `depth_offset` option shifts the shown window along the slide axis (perpendicular to the edge):
+
+| Value     | Description                                                                |
+| :-------- | :------------------------------------------------------------------------- |
+| `0`       | (**Default**) Flush with edge.                                             |
+| `center`  | Centered on the slide axis (e.g. vertically centered for top/bottom).      |
+| `100px`   | 100 pixels into the screen (pushes window more central).                   |
+| `-30px`   | 30 pixels past the edge (negative = hide titlebar / spill offscreen).      |
+| `10%`     | 10% of the work area along the slide axis.                                 |
+| `auto` / `titlebar` | Auto-detect the titlebar height and hide exactly that much (equivalent to `hide_titlebar = true`, only effective with `slide_from = "top"`). |
+
+#### Hide Titlebar
+
+`hide_titlebar = true` (or `depth_offset = "auto"` / `"titlebar"`) pulls the window up by exactly its server-side titlebar height so only the content area is visible.
+
+> [!NOTE]
+> - Only effective when `slide_from = "top"` — ignored for other directions.
+> - Works only for apps using **server-side decorations** (SSD): native Qt/KDE apps on Linux, classic Win32 apps on Windows.
+> - **Custom-chrome / CSD apps** (Electron, VS Code, Chrome, GTK apps with headerbars, modern Windows apps with custom titlebars) own their full client area and often put menus/tabs in what looks like a titlebar — janq deliberately will **not** hide these, since it would clip real UI.
 
 #### Easing Modes
 

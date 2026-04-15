@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-04-14
+## [1.0.0] - 2026-04-15
 
 ### Added
 - **Install script**: For easy installation and system integration on Linux.
@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Refresh Rate Logging**: Optimized Linux backend to log the refresh rate only once per session or upon configuration reload, preventing terminal spam.
 - **Strict Validation**: Configuration parsing now strictly enforces numeric framerates (no quoted numbers) and validates ranges (0-1000).
 - **Framerate Display**: Added `Display` implementation for `Framerate` to provide clean logging of configured values.
+- **`depth_offset` per-app/global setting**: New option on `[window]` and per-app that offsets the window into the screen along the slide axis. Accepts pixels (`"-30px"` to hide titlebar, `"100px"` to push central), percent (`"10%"`), or `"center"` (perfectly centered on slide axis). Applies to all four slide directions.
+- **`hide_titlebar` option**: Auto-detects the server-side titlebar height and hides exactly that much of the window (only effective when `slide_from = "top"`). Also accessible via `depth_offset = "auto"` or `"titlebar"`. Works only for SSD apps — custom-chrome/CSD apps (Electron, VS Code, Chrome, GTK headerbar apps) are deliberately left untouched to avoid clipping real UI.
 
 ### Changed
 - **Nightly Linux Build (default)**: Default Makefile target now uses `cargo +nightly -Zbuild-std=std,panic_abort` with `RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort"`, reducing binary size by ~494 KiB and RSS by ~452 KiB (2360 → 1908 KiB, a 19% reduction). Stable build remains available via `make build-linux-musl`.
