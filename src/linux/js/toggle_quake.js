@@ -47,6 +47,12 @@
 
   if (!target) return;
 
+  // Wipe any stale force-blur from a prior interrupted toggle. The show/hide
+  // animation re-enables blur for its own duration where appropriate, so this
+  // is a safe no-op in the normal flow but a guaranteed escape hatch when a
+  // previous script never reached its cleanup branch.
+  setForceBlur(target, false);
+
   // Resolve areas for the target
   const context = resolveAreaContext(target, config.displayMode, config.displayIndex, config.shouldShow);
   const workArea = context.work;
