@@ -1,6 +1,6 @@
 *(Sloperator note: AI wrote all of it, I don't know how to write rust. I just gave it directions and provided the bezier curve for "windows" scrolling at most. Seriously, I have no idea if this is a well written app or not, but it works fine with everything I've thrown at it.).*
 
-*What follows was written by AI (I told it to be sarcastic ¯\_(ツ)_/¯), lightly edited by the Sloperator*
+*What follows was written by AI (I told it to be sarcastic ¯\\_(ツ)_/¯), lightly edited by the Sloperator*
 
 # janq v1.0.0 — The Inaugural Release of Questionable Decisions
 
