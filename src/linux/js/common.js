@@ -29,14 +29,14 @@ const findTarget = (windowClass, targetWindowId, targetPid) => {
 
     // If we have an ID but didn't find it in step 1, we still allow a PID fallback
     // but with much lower weight to prevent stealing visible instances of the same app.
-    if (safeTargetPid > 0 && c.pid == safeTargetPid) {
+    if (safeTargetPid > 0 && c.pid === safeTargetPid) {
       score += (cleanTargetId !== "" ? 100 : 500);
     }
 
     // Modern .includes() for readability
     if (lowerClass) {
       if (cClass.includes(lowerClass) || cName.includes(lowerClass)) score += 100;
-      if (c.desktopFileName && c.desktopFileName.toLowerCase().includes(lowerClass)) score += 50;
+      if (c.desktopFileName?.toLowerCase().includes(lowerClass)) score += 50;
     }
 
     if (score > 0) {
@@ -97,7 +97,7 @@ const getEasing = (progress, type) => {
 
     if (content) {
       const parts = content.split(",").map(p => parseFloat(p.trim()));
-      if (parts.length === 4 && !parts.some(isNaN)) {
+      if (parts.length === 4 && !parts.some(Number.isNaN)) {
         return solveBezier(progress, ...parts);
       }
     }
@@ -183,6 +183,11 @@ const setQuakeProperties = (target, keepAbove, noBorders, skipPager, isVisible, 
   target.skipPager = isVisible ? skipPager : true;
   if (target.skipSwitcher !== undefined) target.skipSwitcher = isVisible ? skipPager : true;
   if (forcePriority && !isVisible) target.fullScreen = true;
+  // Invariant: a hidden quake window must never carry force-blur. If a prior
+  // toggle's animation was interrupted (script unloaded, compositor reload,
+  // user maximized the window) the blur flag can persist on an opacity-0
+  // window — which paints a workArea-sized blur with no visible content.
+  if (!isVisible) setForceBlur(target, false);
 };
 
 const resetQuakeProperties = (target) => {
