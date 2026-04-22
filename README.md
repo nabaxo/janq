@@ -19,6 +19,12 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 > [!CAUTION]
 > I have only tested this on like four machines, and I've tried getting it as [bug free](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes) as possible, but your mileage may vary and all that.
 
+_Here's an example with wezterm opening from the top with `show_easing = "quart-out"` and `hide_easing = "expo-in"` (see [configuration](#configuration) for more information):_
+
+<video controls src="https://nabaxo.dev/janq.mp4" width="100%"></video>
+
+[(Click here in case the embed doesn't work)](https://nabaxo.dev/janq.mp4)
+
 ## Table of Contents
 
 | Section                                                                                                    | Description                                                 |
@@ -32,6 +38,8 @@ It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or 
 | [Windows](#windows)                                                                                        | Native hotkeys, startup configuration, and path formatting  |
 | [Systray Behavior](#systray-behavior)                                                                      | Tray icon actions, menu order, and hot reloading            |
 | [Configuration](#configuration)                                                                            | Config file location, setup, and all available options      |
+| - [Setup](#setup)                                                                            | Config file location and setup      |
+| - [Default Values](#default-values)                                                                            | Table of all the settings and their default values       |
 | [Building](#building)                                                                                      | Prerequisites, build targets, and cross-compilation         |
 | [Related Projects](#related-projects)                                                                      | Libraries and APIs used by janq                             |
 | [Technical Implementation](#technical-implementation)                                                      | Performance details, animation physics, and window matching |
