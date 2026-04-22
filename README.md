@@ -596,6 +596,10 @@ On KDE Plasma, there's a small intentional delay (~500ms) when registering or up
 
 (Sloperator: There's some bug/feature in Windows 11 that messes up middle clicking tray icons, hence shift-left click on tray icon to close on windows).
 
+### Windows: Virtual desktop weirdness
+
+If a managed app is open on one virtual desktop and you hotkey janq from another, Windows snaps you to the window's desktop instead of showing it on your current one. Linux avoids this with `onAllDesktops = true`; there's no documented Win32 equivalent.
+
 ### App Compatibility: Opacity Animations
 
 (Sloperator: This mostly effects Linux, opacity seems to work fine on Windows, even on electron apps).
