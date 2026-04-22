@@ -27,25 +27,30 @@ _Here's an example with wezterm opening from the top with `show_easing = "quart-
 
 ## Table of Contents
 
-| Section                                                                                                    | Description                                                 |
-| :--------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------- |
-| [Supported Platforms](#supported-platforms)                                                                | Linux KDE Plasma 6 & Windows 10/11                          |
-| [Key Features](#key-features)                                                                              | Atomic switching, zero-config hotkeys, auto-hide, and more  |
-| [Installation](#installation)                                                                              | Download binaries or run the install script                 |
-| [Usage](#usage)                                                                                            | Smart startup & toggling behavior                           |
-| [Command-Line Arguments](#command-line-arguments)                                                          | CLI flags for daemon control, app toggling, and setup       |
-| [Linux (KDE)](#linux-kde)                                                                                  | Desktop integration, hotkeys, autostart, and cleanup        |
-| [Windows](#windows)                                                                                        | Native hotkeys, startup configuration, and path formatting  |
-| [Systray Behavior](#systray-behavior)                                                                      | Tray icon actions, menu order, and hot reloading            |
-| [Configuration](#configuration)                                                                            | Config file location, setup, and all available options      |
-| - [Setup](#setup)                                                                            | Config file location and setup      |
-| - [Default Values](#default-values)                                                                            | Table of all the settings and their default values       |
-| [Building](#building)                                                                                      | Prerequisites, build targets, and cross-compilation         |
-| [Related Projects](#related-projects)                                                                      | Libraries and APIs used by janq                             |
-| [Technical Implementation](#technical-implementation)                                                      | Performance details, animation physics, and window matching |
-| [Troubleshooting & Recovery](#troubleshooting--recovery)                                                   | Linux cleanup scripts for when things go wrong              |
-| [Known Issues and other notes](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes) | Animation quirks, platform limitations, and workarounds     |
-| [License](#license)                                                                                        | MIT                                                         |
+| Section                                                                                                                                                               | Description                                                 |
+| :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------- |
+| [Supported Platforms](#supported-platforms)                                                                                                                           | Linux KDE Plasma 6 & Windows 10/11                          |
+| [Key Features](#key-features)                                                                                                                                         | Atomic switching, zero-config hotkeys, auto-hide, and more  |
+| [Installation](#installation)                                                                                                                                         | Download binaries or run the install script                 |
+| [Usage](#usage)                                                                                                                                                       | Smart startup & toggling behavior                           |
+| - [Smart Startup & Toggling](#smart-startup--toggling)                                                                                                                | Daemon-reuse and first-run launch semantics                 |
+| [Command-Line Arguments](#command-line-arguments)                                                                                                                     | CLI flags for daemon control, app toggling, and setup       |
+| - [Linux (KDE)](#linux-kde)                                                                                                                                           | Desktop integration, hotkeys, autostart, and cleanup        |
+| - [Windows](#windows)                                                                                                                                                 | Native hotkeys, startup configuration, and path formatting  |
+| [Systray Behavior](#systray-behavior)                                                                                                                                 | Tray icon actions, menu order, and hot reloading            |
+| [Configuration](#configuration)                                                                                                                                       | Config file location, setup, and all available options      |
+| - [Setup](#setup)                                                                                                                                                     | Example config and recommended starting point               |
+| _**- [Configuration Reference](#configuration-reference)**_                                                                                                                 | Full table of every setting with defaults and descriptions  |
+| - [Animation Framerate & VSync (Windows)](#animation-framerate--vsync-windows)                                                                                        | Platform-specific framerate notes                           |
+| [Building](#building)                                                                                                                                                 | Prerequisites, build targets, and cross-compilation         |
+| - [Prerequisites](#prerequisites)                                                                                                                                     | Required toolchains and system packages                     |
+| - [Build](#build)                                                                                                                                                     | Build commands per target                                   |
+| [Related Projects](#related-projects)                                                                                                                                 | Libraries and APIs used by janq                             |
+| [Technical Implementation](#technical-implementation)                                                                                                                 | Performance details, animation physics, and window matching |
+| [Troubleshooting & Recovery](#troubleshooting--recovery)                                                                                                              | Linux cleanup scripts for when things go wrong during development              |
+| - [Linux Recovery Utilities](#linux-recovery-utilities-for-when-things-go-wrong)                                                                                      | Per-script cleanup catalog                                  |
+| [Known Issues and other notes](#known-issues-sloperator-that-will-probably-never-be-fixed-and-other-notes)                                                            | Animation quirks, platform limitations, and workarounds     |
+| [License](#license)                                                                                                                                                   | MIT                                                         |
 
 ## Supported Platforms
 
@@ -195,26 +200,6 @@ janq lives in your system tray (notification area) and provides a context menu f
 
 ## Configuration
 
-### Search Priority for configuration file
-
-janq searches for a configuration file _(janq.toml or .janq.toml)_ in the following order:
-
-1.  **Binary Directory** (Portable Mode):
-    - Same folder as the `janq` executable.
-2.  **XDG Config Directory**:
-    - `~/.config/janq/` or `~/.config/janq/`
-    - _On Windows_: `%AppData%\Roaming\janq\`
-3.  **User Configuration**:
-    - `~/`
-    - _On Windows_: `%UserProfile%\`
-
-(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. Option 3, the AI told me is stupid, since the crate we're using checks _any changes_ to containing _folder_. I only left it for completeness).
-
-> [!NOTE]
-> **Platform Validation**: janq validates your configuration against your current operating system. If you attempt to use Linux-specific settings (like `all_desktops` or `force_priority`) on Windows, janq will block startup with an error and explain which settings are incompatible.
-
-> [!CAUTION]
-> **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. janq includes a safeguard to prevent destroying your system integration.
 
 ### Setup
 
@@ -265,7 +250,28 @@ hotkey = "Meta+Z"
 > [!WARNING]
 > (Sloperator: Configuring a multiwindow app will act supremely janky. Do not do it. Or do. I'm not your mom. ¯\\\_(ツ)\_/¯. Do give her my regards though, you should call her more often).
 
-#### Electron & Flatpak Apps
+#### Search Priority for configuration file
+
+janq searches for a configuration file _(janq.toml or .janq.toml)_ in the following order:
+
+1.  **Binary Directory** (Portable Mode):
+    - Same folder as the `janq` executable.
+2.  **XDG Config Directory**:
+    - `~/.config/janq/` or `~/.config/janq/`
+    - _On Windows_: `%AppData%\Roaming\janq\`
+3.  **User Configuration**:
+    - `~/`
+    - _On Windows_: `%UserProfile%\`
+
+(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. Option 3, the AI told me is stupid, since the crate we're using checks _any changes_ to containing _folder_. I only left it for completeness).
+
+> [!NOTE]
+> **Platform Validation**: janq validates your configuration against your current operating system. If you attempt to use Linux-specific settings (like `all_desktops` or `force_priority`) on Windows, janq will block startup with an error and explain which settings are incompatible.
+
+> [!CAUTION]
+> **Data Integrity**: On Linux, running a binary from a directory that contains an empty/invalid config (if found in the binary folder) will _not_ overwrite your existing shortcuts. janq includes a safeguard to prevent destroying your system integration.
+
+#### Tips: Electron & Flatpak Apps
 
 Electron apps (Discord, Obsidian, Slack, VS Code, etc.) aggressively throttle their renderer and timers when their window loses focus or is occluded. Since janq hides windows offscreen, this can cause a stale/frozen frame when toggling back. For apps with real-time activity (voice chat, notifications), add these Chromium flags:
 
@@ -288,7 +294,7 @@ hotkey = "Meta+1"
 > [!NOTE]
 > These flags are most useful for apps with real-time background activity (Discord, Slack, Teams). For apps like Obsidian that are mostly idle when hidden, a plain `start_command = "flatpak run md.obsidian.Obsidian"` is fine. Add `--disable-renderer-backgrounding` only if you notice a visual flash when toggling back.
 
-### Default Values
+### Configuration Reference
 
 | Section       | Option               | Default          | Description                                                                          | Per_App |
 | :------------ | :------------------- | :--------------- | :----------------------------------------------------------------------------------- | :-----: |
@@ -306,10 +312,10 @@ hotkey = "Meta+1"
 |               | `keep_above`         | `false`          | Keep window above all others                                                         |   ❌    |
 |               | `no_borders`         | `false`          | Remove window borders/chrome for managed windows                                     |   ✔️    |
 |               | `skip_pager`         | `false`          | Hide window from task manager, pager, and switcher (Linux: also hides from Meta+Tab) |   ❌    |
+|               | `auto_show`          | `false`          | Open first configured window on daemon startup                                                        |   ❌    |
+|               | `auto_hide`          | `false`          | Hide window when it loses focus                                                      |   ❌    |
 |               | `all_desktops`       | `true`           | (Linux) Window follows you across virtual desktops                                   |   ❌    |
 |               | `force_priority`     | `false`          | (Linux) Use KWin Fullscreen state to sit on top of other fullscreen apps             |   ❌    |
-|               | `auto_show`          | `false`          | Show window on daemon startup                                                        |   ❌    |
-|               | `auto_hide`          | `false`          | Hide window when it loses focus                                                      |   ❌    |
 |               | `kde_window_rules`   | `true`           | (Linux) Automatically manage KWin window rules for icon fixes                        |   ❌    |
 | `[animation]` | `duration`\*         | —                | Set both show/hide duration at once                                                  |   ❌    |
 |               | `show_duration`      | `350` (ms)       | Duration of the show animation                                                       |   ❌    |
@@ -324,7 +330,7 @@ hotkey = "Meta+1"
 
 \*`duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined. **Note: Durations are scaled based on distance to ensure a constant movement velocity.**
 
-(Sloperator: For your own sanity, just use the single `duration` and `easing` keys, check [here](#sibling-animation-duration-divergence)).
+(Sloperator: For your own sanity, just use the single `duration` key, check [here](#sibling-animation-duration-divergence)).
 
 \*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit.)
 _**Note**: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use._.
