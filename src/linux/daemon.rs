@@ -620,12 +620,16 @@ pub async fn run_daemon(
         if let Some(_app_cfg) = cfg.app.get(app_name) {
           println!("janq: Auto-showing requested app: {}", app_name);
           sleep(Duration::from_millis(500)).await;
-          let _ = toggle_quake(app_name, &cfg, &conn).await;
+          if crate::linux::kwin::get_visible_app().await.is_none() {
+            let _ = toggle_quake(app_name, &cfg, &conn).await;
+          }
         }
       } else if let Some(first_app) = cfg.app.keys().next() {
         println!("janq: Auto-showing first app: {}", first_app);
         sleep(Duration::from_millis(500)).await;
-        let _ = toggle_quake(first_app, &cfg, &conn).await;
+        if crate::linux::kwin::get_visible_app().await.is_none() {
+          let _ = toggle_quake(first_app, &cfg, &conn).await;
+        }
       }
     }
   }
