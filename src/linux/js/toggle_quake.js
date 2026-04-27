@@ -278,7 +278,7 @@
                 for (let s = targetIndex - 1; s >= 0; s--) {
                   const c = stacking[s];
                   const isOnCurrentDesktop = c.onAllDesktops || (c.desktops && c.desktops.indexOf(workspace.currentDesktop) !== -1);
-                  if (c.normalWindow && c.opacity > 0 && (c.resourceClass || c.resourceName) && isOnCurrentDesktop) {
+                  if (c.normalWindow && !c.minimized && c.opacity > 0 && (c.resourceClass || c.resourceName) && isOnCurrentDesktop) {
                     targetBehind = c;
                     break;
                   }
@@ -292,7 +292,7 @@
                 for (const c of allClients) {
                   if (c.internalId && normalizeId(c.internalId) === normalizeId(config.prevWindowId)) {
                     const isOnCurrentDesktop = c.onAllDesktops || (c.desktops && c.desktops.indexOf(workspace.currentDesktop) !== -1);
-                    if (isOnCurrentDesktop) focusKick(c, false);
+                    if (isOnCurrentDesktop && !c.minimized) focusKick(c, false);
                     break;
                   }
                 }
@@ -333,7 +333,7 @@
           for (const c of allClients) {
             if (c.internalId && normalizeId(c.internalId) === normalizeId(config.prevWindowId)) {
               const isOnCurrentDesktop = c.onAllDesktops || (c.desktops && c.desktops.indexOf(workspace.currentDesktop) !== -1);
-              if (isOnCurrentDesktop) focusKick(c, false);
+              if (isOnCurrentDesktop && !c.minimized) focusKick(c, false);
               break;
             }
           }

@@ -26,7 +26,7 @@ use windows::Win32::{
 use crate::windows::easing::get_easing;
 use crate::windows::window::{
   apply_border_style, force_focus, get_animation_cancel, get_animation_state, get_app_cache,
-  get_frame_insets, get_last_external_focus, is_shell_window, monitor_enum_proc,
+  get_best_restoration_target, get_frame_insets, is_shell_window, monitor_enum_proc,
   set_taskbar_hidden, AnimationState, CachedWindow, MonitorEnumCtx,
 };
 use janq::config::{
@@ -786,9 +786,9 @@ pub fn run_animation_task_sync(
         let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
       }
       if restore_focus {
-        let last_focus = get_last_external_focus();
-        if !last_focus.0.is_null() && IsWindowVisible(last_focus).as_bool() {
-          force_focus(last_focus);
+        let best_target = get_best_restoration_target();
+        if !best_target.0.is_null() {
+          force_focus(best_target);
         }
       }
     }

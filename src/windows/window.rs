@@ -20,6 +20,7 @@
 //! `APP_CACHE` maps app names to their window handles for fast toggle
 //! and restoration on daemon exit.
 
+use std::collections::VecDeque;
 use std::sync::{
   atomic::{AtomicBool, AtomicIsize, Ordering},
   Mutex, OnceLock, RwLock,
@@ -240,7 +241,7 @@ static ANIMATION_TASK_CANCEL: OnceLock<std::sync::atomic::AtomicBool> = OnceLock
 static VISIBLE_APP: OnceLock<RwLock<Option<std::sync::Arc<str>>>> = OnceLock::new();
 static APP_CACHE: OnceLock<RwLock<FxHashMap<std::sync::Arc<str>, CachedWindow>>> = OnceLock::new();
 static ANIMATION_STATE: OnceLock<Mutex<Option<AnimationState>>> = OnceLock::new();
-static LAST_EXTERNAL_FOCUS: AtomicIsize = AtomicIsize::new(0);
+static FOCUS_HISTORY: OnceLock<Mutex<VecDeque<isize>>> = OnceLock::new();
 static MANAGED_APP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
 static MANAGED_PIDS_CACHE: [std::sync::atomic::AtomicU32; 64] = {
   const ATOMIC_ZERO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -255,8 +256,26 @@ pub static MAIN_THREAD_ID: OnceLock<u32> = OnceLock::new();
 /// Bridge window handle for PostMessage-based signaling (modal-loop safe).
 pub static BRIDGE_HWND: OnceLock<CachedWindow> = OnceLock::new();
 
-pub fn get_last_external_focus() -> HWND {
-  HWND(LAST_EXTERNAL_FOCUS.load(Ordering::Relaxed) as *mut _)
+pub fn get_focus_history() -> &'static Mutex<VecDeque<isize>> {
+  FOCUS_HISTORY.get_or_init(|| Mutex::new(VecDeque::with_capacity(3)))
+}
+
+/// Returns the most recent focused window that is still valid, visible, and not minimized.
+pub fn get_best_restoration_target() -> HWND {
+  let history = get_focus_history().lock().unwrap();
+  for &hwnd_val in history.iter() {
+    let hwnd = HWND(hwnd_val as *mut _);
+    unsafe {
+      if IsWindow(Some(hwnd)).as_bool()
+        && IsWindowVisible(hwnd).as_bool()
+        && !IsIconic(hwnd).as_bool()
+        && is_suitable_target(hwnd)
+      {
+        return hwnd;
+      }
+    }
+  }
+  HWND::default()
 }
 
 pub fn get_managed_app_has_focus() -> bool {
@@ -386,7 +405,14 @@ pub unsafe extern "system" fn focus_hook_proc(
 
       // 1. Record restoration target (skip shell/transient/internal)
       if is_suitable_target(hwnd) {
-        LAST_EXTERNAL_FOCUS.store(hwnd.0 as isize, Ordering::Relaxed);
+        let mut history = get_focus_history().lock().unwrap();
+        let hwnd_val = hwnd.0 as isize;
+        // Remove if already present to move to front
+        history.retain(|&h| h != hwnd_val);
+        history.push_front(hwnd_val);
+        if history.len() > 3 {
+          history.pop_back();
+        }
       }
 
       // 2. Trigger auto-hide if a managed window IS actually visible
