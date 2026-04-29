@@ -61,37 +61,30 @@ fn has_matching_event(buf: &[u8], target: &[u8]) -> bool {
 // Public API
 // =============================================================================
 
-/// Starts an inotify watch on the config file's parent directory and returns a
-/// receiver that fires `()` whenever a relevant event is detected.
+/// Starts an inotify watch on the given file's parent directory and returns a
+/// receiver that fires `()` whenever a relevant event names the file.
 ///
-/// A dedicated blocking reader thread (`janq-inotify`) is spawned to drain the
-/// inotify fd; the receiver can be polled from async code.
-pub fn watch_config(config_path: Option<PathBuf>) -> Option<tokio_mpsc::UnboundedReceiver<()>> {
-  // Resolve the config file path and its parent directory.
-  let config_file = config_path.unwrap_or_else(|| {
-    crate::paths::home_dir()
-      .map(|h| h.join(".janq.toml"))
-      .unwrap_or_default()
-  });
-
-  let abs_config = config_file
+/// A dedicated blocking reader thread is spawned to drain the inotify fd; the
+/// receiver can be polled from async code.
+pub fn watch_file_changes(file_path: PathBuf) -> Option<tokio_mpsc::UnboundedReceiver<()>> {
+  let abs_file = file_path
     .canonicalize()
-    .unwrap_or_else(|_| config_file.clone());
-  let watch_dir = abs_config
+    .unwrap_or_else(|_| file_path.clone());
+  let watch_dir = abs_file
     .parent()
     .map(|p| p.to_path_buf())
-    .unwrap_or_else(|| abs_config.clone());
-  let target_filename: Vec<u8> = abs_config
+    .unwrap_or_else(|| abs_file.clone());
+  let target_filename: Vec<u8> = abs_file
     .file_name()
     .map(|n| n.as_bytes().to_vec())
     .unwrap_or_default();
 
   if target_filename.is_empty() {
-    crate::error::show_error("Config watcher: cannot determine config filename");
+    crate::error::show_error("inotify: cannot determine target filename");
     return None;
   }
 
-  println!("Watcher: Monitoring config file: {:?}", abs_config);
+  println!("Watcher: Monitoring file: {:?}", abs_file);
 
   // --- Create inotify fd (blocking, close-on-exec) --------------------------
   let fd = unsafe { inotify_init1(IN_CLOEXEC) };
@@ -106,7 +99,7 @@ pub fn watch_config(config_path: Option<PathBuf>) -> Option<tokio_mpsc::Unbounde
   let c_path = match CString::new(watch_dir.as_os_str().as_bytes()) {
     Ok(p) => p,
     Err(_) => {
-      crate::error::show_error("Config watcher: invalid watch path (interior NUL)");
+      crate::error::show_error("inotify: invalid watch path (interior NUL)");
       unsafe { close(fd) };
       return None;
     }
@@ -154,4 +147,15 @@ pub fn watch_config(config_path: Option<PathBuf>) -> Option<tokio_mpsc::Unbounde
     .ok();
 
   Some(rx)
+}
+
+/// Watches the janq config file for changes. Thin wrapper around
+/// [`watch_file_changes`] that resolves the default path when none is provided.
+pub fn watch_config(config_path: Option<PathBuf>) -> Option<tokio_mpsc::UnboundedReceiver<()>> {
+  let config_file = config_path.unwrap_or_else(|| {
+    crate::paths::home_dir()
+      .map(|h| h.join(".janq.toml"))
+      .unwrap_or_default()
+  });
+  watch_file_changes(config_file)
 }
