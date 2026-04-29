@@ -309,6 +309,9 @@ hotkey = "Meta+1"
 |               | `offset`             | `"center"`       | Position along edge: `center`, `50%`, `-10%`, `100px`, `-50px`                       |   ✔️    |
 |               | `depth_offset`       | `"0"`            | Offset into screen on slide axis: `center`, `50%`, `-30px` (hides titlebar), `100px`, `auto` / `titlebar` (auto-hide titlebar) |   ✔️    |
 |               | `hide_titlebar`      | `false`          | Auto-hide server-side titlebar (only when `slide_from = "top"`; SSD apps only)       |   ✔️    |
+|               | `mono_icon`          | `false`          | Force monochrome tray icon in both light and dark modes (adapts to system theme)     |   ❌    |
+|               | `mono_icon_light`    | `false`          | Use monochrome tray icon only when the system is in light mode                       |   ❌    |
+|               | `mono_icon_dark`     | `false`          | Use monochrome tray icon only when the system is in dark mode                        |   ❌    |
 |               | `keep_above`         | `false`          | Keep window above all others                                                         |   ❌    |
 |               | `no_borders`         | `false`          | Remove window borders/chrome for managed windows                                     |   ✔️    |
 |               | `skip_pager`         | `false`          | Hide window from task manager, pager, and switcher (Linux: also hides from Meta+Tab) |   ❌    |

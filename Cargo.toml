@@ -30,6 +30,9 @@ fs4 = "0.13.1"
 
 [build-dependencies]
 embed-resource = "3"
+# Used by build.rs to pre-render SVG tray icons to ARGB on Linux targets.
+# Build-only — not linked into the runtime binary.
+resvg = { version = "0.45", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.0", default-features = false, features = ["tokio"] }

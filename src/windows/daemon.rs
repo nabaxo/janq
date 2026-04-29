@@ -139,6 +139,9 @@ fn init_bridge_window() {
     // Handling here ensures it fires even during TrackPopupMenu modal loops.
     if msg == WM_USER + 1 {
       apply_theme_preference();
+      if let Some(tx) = BRIDGE_EVENT_TX.get() {
+        let _ = tx.send(DaemonEvent::ThemeChanged);
+      }
       return LRESULT(0);
     }
 
@@ -218,6 +221,7 @@ enum DaemonEvent {
   ReloadHotkeys,
   RespawnCheck,
   FocusLost,
+  ThemeChanged,
   Exit(Option<&'static str>),
 }
 
@@ -408,7 +412,13 @@ pub async fn run_daemon(
   let (initial_menu, mut app_menu_items, mut quit_item_id) =
     build_tray_menu(&config.read().unwrap());
 
-  let icon = tray_icon::Icon::from_resource(1, None).expect("Failed to load icon from resource");
+  let icon_id = if config.read().unwrap().window.wants_mono(is_dark_mode()) {
+    mono_icon_resource_id()
+  } else {
+    1
+  };
+  let icon =
+    tray_icon::Icon::from_resource(icon_id, None).expect("Failed to load icon from resource");
   let tray_icon = Some(
     TrayIconBuilder::new()
       .with_menu(Box::new(initial_menu))
@@ -534,6 +544,28 @@ pub async fn run_daemon(
 
             if let Some(ti) = &tray_icon {
               let _ = ti.set_menu(Some(Box::new(new_menu)));
+              let id = if cfg.window.wants_mono(is_dark_mode()) {
+                mono_icon_resource_id()
+              } else {
+                1
+              };
+              if let Ok(ico) = tray_icon::Icon::from_resource(id, None) {
+                let _ = ti.set_icon(Some(ico));
+              }
+            }
+          }
+
+          DaemonEvent::ThemeChanged => {
+            let cfg = config.read().unwrap();
+            if let Some(ti) = &tray_icon {
+              let id = if cfg.window.wants_mono(is_dark_mode()) {
+                mono_icon_resource_id()
+              } else {
+                1
+              };
+              if let Ok(ico) = tray_icon::Icon::from_resource(id, None) {
+                let _ = ti.set_icon(Some(ico));
+              }
             }
           }
 
@@ -936,6 +968,14 @@ fn is_dark_mode() -> bool {
     }
   }
   false
+}
+
+fn mono_icon_resource_id() -> u16 {
+  if is_dark_mode() {
+    3
+  } else {
+    2
+  } // 3 = icon-w (white for dark), 2 = icon-b (black for light)
 }
 
 fn apply_theme_preference() {

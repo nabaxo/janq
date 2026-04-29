@@ -895,6 +895,9 @@ pub struct WindowConfig {
   #[serde(deserialize_with = "deserialize_depth_offset")]
   pub depth_offset: PositionOffset,
   pub hide_titlebar: bool,
+  pub mono_icon: bool,
+  pub mono_icon_light: bool,
+  pub mono_icon_dark: bool,
   pub kde_window_rules: Option<bool>,
 }
 
@@ -916,8 +919,27 @@ impl Default for WindowConfig {
       position_offset: PositionOffset::default(),
       depth_offset: PositionOffset::Pixels(0),
       hide_titlebar: false,
+      mono_icon: false,
+      mono_icon_light: false,
+      mono_icon_dark: false,
       kde_window_rules: None,
     }
+  }
+}
+
+impl WindowConfig {
+  /// Resolves whether the tray should use the monochrome icon for the current
+  /// system theme. `mono_icon` forces mono unconditionally; the per-theme
+  /// variants take effect only when the system is in that mode.
+  pub fn wants_mono(&self, is_dark: bool) -> bool {
+    self.mono_icon || (is_dark && self.mono_icon_dark) || (!is_dark && self.mono_icon_light)
+  }
+
+  /// True when any mono-icon setting is active — used to gate optional
+  /// startup work (e.g. the Linux kdeglobals watcher) so default installs
+  /// don't pay for plumbing they'll never use.
+  pub fn any_mono(&self) -> bool {
+    self.mono_icon || self.mono_icon_light || self.mono_icon_dark
   }
 }
 

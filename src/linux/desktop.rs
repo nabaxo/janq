@@ -1,4 +1,10 @@
-use std::{env::current_exe, fs, os::unix::fs::symlink, path::PathBuf, process::Command};
+use std::{
+  env::current_exe,
+  fs,
+  os::unix::fs::symlink,
+  path::{Path, PathBuf},
+  process::Command,
+};
 
 use janq::paths::{config_dir, data_local_dir};
 
@@ -243,33 +249,46 @@ fn run_kbuildsycoca6() {
   }
 }
 
-pub fn install_icon() -> janq::error::Result<()> {
-  let icon_data = include_bytes!("../../icon.svg");
-  let icon_dir = data_local_dir()
-    .expect("No XDG data directory found - is $HOME set?")
-    .join("icons/hicolor/scalable/apps");
-
-  fs::create_dir_all(&icon_dir)?;
-  let icon_path = icon_dir.join("janq.svg");
-
-  // Compare contents to detect updates (not just existence)
-  let needs_update = match fs::read(&icon_path) {
+fn install_icon_file(data: &[u8], dir: &Path, filename: &str) -> janq::error::Result<()> {
+  fs::create_dir_all(dir)?;
+  let path = dir.join(filename);
+  let needs_update = match fs::read(&path) {
     Ok(existing) => {
-      let changed = existing != icon_data.as_slice();
+      let changed = existing != data;
       if changed {
-        println!("Icon changed, updating: {:?}", icon_path);
+        println!("Icon changed, updating: {:?}", path);
       }
       changed
     }
     Err(_) => {
-      println!("Icon not found, installing: {:?}", icon_path);
+      println!("Icon not found, installing: {:?}", path);
       true
     }
   };
-
   if needs_update {
-    fs::write(&icon_path, icon_data)?;
-    println!("Icon written successfully");
+    fs::write(&path, data)?;
+  }
+  Ok(())
+}
+
+pub fn install_icon() -> janq::error::Result<()> {
+  let base = data_local_dir()
+    .expect("No XDG data directory found - is $HOME set?")
+    .join("icons/hicolor/scalable");
+
+  install_icon_file(
+    include_bytes!("../../icon.svg"),
+    &base.join("apps"),
+    "janq.svg",
+  )?;
+
+  // Prior versions installed a symbolic SVG into status/. Plasma's tray then
+  // auto-substituted it for the colored icon regardless of our mono_icon setting.
+  // Tray rendering is now driven by IconPixmap (see linux::icon), so the theme
+  // file is no longer needed — remove any leftover from an earlier install.
+  let legacy_symbolic = base.join("status/janq-symbolic.svg");
+  if legacy_symbolic.exists() {
+    let _ = fs::remove_file(&legacy_symbolic);
   }
 
   Ok(())
@@ -295,13 +314,18 @@ pub fn purge_system_integration() -> janq::error::Result<()> {
     println!("✓ Removed D-Bus service file: {:?}", service_path);
   }
 
-  // 4. Remove Icon
-  let icon_path = data_local_dir()
+  // 4. Remove Icons
+  let icon_base = data_local_dir()
     .expect("No XDG data directory found - is $HOME set?")
-    .join("icons/hicolor/scalable/apps/janq.svg");
-  if icon_path.exists() {
-    fs::remove_file(&icon_path)?;
-    println!("✓ Removed icon: {:?}", icon_path);
+    .join("icons/hicolor/scalable");
+  for path in [
+    icon_base.join("apps/janq.svg"),
+    icon_base.join("status/janq-symbolic.svg"),
+  ] {
+    if path.exists() {
+      fs::remove_file(&path)?;
+      println!("✓ Removed icon: {:?}", path);
+    }
   }
 
   // 5. Purge KWin rules

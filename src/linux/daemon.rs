@@ -48,6 +48,7 @@ use std::process::id;
 
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
 use crate::linux::hotkey::sync_kde_shortcuts;
+use crate::linux::icon::IconPixmap;
 use crate::linux::kwin::{
   clear_removed_apps_from_cache, grab_apps, init as init_kwin,
   report_active_window as kwin_report_active, reset_refresh_rate_logging, reset_state,
@@ -175,8 +176,6 @@ struct StatusNotifierItem {
   conn: Connection,
 }
 
-type IconPixmap = Vec<(i32, i32, Vec<u8>)>;
-
 #[interface(name = "org.kde.StatusNotifierItem")]
 impl StatusNotifierItem {
   fn activate(&self, _x: i32, _y: i32) {
@@ -223,11 +222,28 @@ impl StatusNotifierItem {
   }
   #[zbus(property)]
   fn icon_name(&self) -> String {
-    "janq".into()
+    // Split by resolved mono state (mono_icon / mono_icon_light / mono_icon_dark
+    // combined with the active theme): theme lookup for the colored case (cheap,
+    // Plasma handles everything), empty for the symbolic case (forces Plasma to
+    // fall back to our recolored IconPixmap). Per SNI spec a non-empty IconName
+    // takes precedence over IconPixmap.
+    let dark = crate::linux::icon::is_dark_theme();
+    if self.config.read().unwrap().window.wants_mono(dark) {
+      String::new()
+    } else {
+      "janq".into()
+    }
   }
   #[zbus(property)]
   fn icon_pixmap(&self) -> IconPixmap {
-    vec![] // Empty forces KDE to use icon_name (SVG from icon theme)
+    // Empty when the colored icon is active so Plasma uses IconName and never
+    // pages in the embedded ARGB blobs.
+    let dark = crate::linux::icon::is_dark_theme();
+    if self.config.read().unwrap().window.wants_mono(dark) {
+      crate::linux::icon::symbolic_pixmap()
+    } else {
+      Vec::new()
+    }
   }
   #[zbus(property)]
   fn item_is_menu(&self) -> bool {
@@ -245,6 +261,11 @@ impl StatusNotifierItem {
 
 impl StatusNotifierItem {
   /// Emit NewIcon on the SNI object so Plasma refreshes the tray icon.
+  ///
+  /// We also explicitly emit PropertiesChanged for both IconName and IconPixmap
+  /// because the `mono_icon = true` path keeps IconName empty on both sides of
+  /// a theme change — without a pixmap_changed nudge, Plasma has no reason to
+  /// re-read the property and the recolor stays stale.
   pub async fn emit_new_icon(conn: &Connection) {
     let iface_ref = conn
       .object_server()
@@ -252,6 +273,9 @@ impl StatusNotifierItem {
       .await;
     if let Ok(iface) = iface_ref {
       let ctxt = iface.signal_emitter();
+      let sni = iface.get().await;
+      let _ = sni.icon_name_changed(ctxt).await;
+      let _ = sni.icon_pixmap_changed(ctxt).await;
       let _ = StatusNotifierItem::new_icon(&ctxt).await;
     }
   }
@@ -593,6 +617,32 @@ pub async fn run_daemon(
     });
   }
 
+  // Monitor kdeglobals for color-scheme changes — only when some mono_icon
+  // setting is active. Spawning the inotify thread + tokio task + mpsc channel
+  // is ~20 KB RSS of pure waste for the default colored case. Users who enable
+  // any mono setting at runtime get a correctly-resolved icon on the next
+  // config reload (which already emits NewIcon), but won't receive live
+  // theme-change updates until a daemon restart — acceptable tradeoff.
+  if config.read().unwrap().window.any_mono() {
+    let conn_for_theme = conn.clone();
+    tokio::spawn(async move {
+      let mut rx = match crate::linux::icon::watch_kdeglobals() {
+        Some(r) => r,
+        None => return,
+      };
+      // KConfig fires multiple inotify events per theme switch (one per
+      // rewritten section), but `refresh_theme_cache()` returns `false` when
+      // the computed is-dark value hasn't flipped, so redundant events are
+      // idempotent reads with no emission. That makes debouncing unnecessary
+      // at this workload — theme flips are rare and kdeglobals is a few KB.
+      while rx.recv().await.is_some() {
+        if crate::linux::icon::refresh_theme_cache() {
+          StatusNotifierItem::emit_new_icon(&conn_for_theme).await;
+        }
+      }
+    });
+  }
+
   // Small delay to ensure D-Bus service is fully registered before KWin scripts call back
   sleep(Duration::from_millis(100)).await;
   // Initial setup (Sequential with stagger to reduce KWin contention)
@@ -653,8 +703,9 @@ pub async fn run_daemon(
 
       let new_config = config_for_watcher.read().unwrap().clone();
 
-      // Notify tray that menu layout changed
+      // Notify tray that menu layout changed and icon may have changed
       crate::linux::tray::DbusmenuService::notify_layout_changed(&conn_for_watcher).await;
+      StatusNotifierItem::emit_new_icon(&conn_for_watcher).await;
 
       let conn_in_async = conn_for_watcher.clone();
       let new_config_in_async = new_config; // Removed .clone() since we already cloned from read()
