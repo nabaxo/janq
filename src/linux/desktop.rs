@@ -277,7 +277,7 @@ pub fn install_icon() -> janq::error::Result<()> {
     .join("icons/hicolor/scalable");
 
   install_icon_file(
-    include_bytes!("../../icon.svg"),
+    include_bytes!("../../assets/icon.svg"),
     &base.join("apps"),
     "janq.svg",
   )?;

@@ -14,15 +14,15 @@ fn main() {
   let target = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
   if target == "windows" {
-    println!("cargo:rerun-if-changed=icon.ico");
-    println!("cargo:rerun-if-changed=icon-b.ico");
-    println!("cargo:rerun-if-changed=icon-w.ico");
-    println!("cargo:rerun-if-changed=janq.rc");
-    let _ = embed_resource::compile("janq.rc", embed_resource::NONE);
+    println!("cargo:rerun-if-changed=assets/icon.ico");
+    println!("cargo:rerun-if-changed=assets/icon-b.ico");
+    println!("cargo:rerun-if-changed=assets/icon-w.ico");
+    println!("cargo:rerun-if-changed=assets/janq.rc");
+    let _ = embed_resource::compile("assets/janq.rc", embed_resource::NONE);
   }
 
   if target == "linux" {
-    println!("cargo:rerun-if-changed=icon-symbolic.svg");
+    println!("cargo:rerun-if-changed=assets/icon-symbolic.svg");
     render_symbolic_tray_pixmaps();
   }
 }
@@ -40,7 +40,8 @@ fn render_symbolic_tray_pixmaps() {
   // a default CSS context. Force white so the demultiplied output carries the
   // silhouette entirely in the alpha channel — runtime can then swap RGB to any
   // theme color without touching alpha.
-  let symbolic_src = fs::read_to_string("icon-symbolic.svg").expect("read icon-symbolic.svg");
+  let symbolic_src =
+    fs::read_to_string("assets/icon-symbolic.svg").expect("read icon-symbolic.svg");
   let symbolic = symbolic_src.replace("currentColor", "#ffffff");
 
   let opt = Options::default();
