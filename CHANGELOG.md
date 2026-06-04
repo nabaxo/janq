@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Momentum-Aware Animations**: Overhauled animation engines on both platforms to support "Handover" states. Toggling an app mid-animation now picks up from the current opacity/position instead of snapping back to the start.
 - **Auto-Hide focus watcher**: New `auto_hide` option in the `[window]` block to automatically hide the window when it loses focus.
 - **Systray menu on Linux**: Added tray functionality via `ksni` to Linux with full menu and shortcut display.
+- **KWin Script Recovery**: Three-layer recovery system for stuck KWin script slots and invisible windows from crashed sessions. On daemon startup, stale scripts are automatically purged. `--recover` / `-r` CLI flag sends a recovery signal to the running daemon (purges scripts, clears caches, re-grabs all windows). Systray right-click menu includes a "Recover" entry for the same action without a terminal.
 - **Animation Framerate Control**: New `framerate` option for the `[animation]` block.
   - Supports `"auto"` (VSync/Platform default), a specific number (e.g., `60`, `120`), or `0` to disable animations entirely (instant transitions).
   - Cross-platform implementation using `DwmFlush` on Windows and frequency-clamped timers on Linux.
