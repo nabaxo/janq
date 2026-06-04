@@ -77,7 +77,13 @@ _Here's an example with wezterm opening from the top with `show_easing = "quart-
 1. - **Windows:**
      Download the binary from [releases](/nabaxo/janq/releases).
    - **Linux:**
-     Run the install-script like so:
+     Run the install script like so:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nabaxo/janq/main/install-github.sh | sh -s -- --help
+```
+
+If GitHub is unavailable, use the Forgejo mirror directly:
 
 ```sh
 curl -f https://git.nabaxo.dev/nabaxo/janq/raw/branch/main/install.sh | sh -s -- --help
