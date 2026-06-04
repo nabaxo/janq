@@ -63,6 +63,8 @@ struct Args {
   #[cfg(target_os = "linux")]
   disable_autostart: bool,
   #[cfg(target_os = "linux")]
+  recover: bool,
+  #[cfg(target_os = "linux")]
   setup: bool,
   #[cfg(target_os = "linux")]
   uninstall: bool,
@@ -98,7 +100,8 @@ fn print_help() {
 
   #[cfg(target_os = "linux")]
   println!(
-    "\n  {0}-i, --setup{1}           Force refresh of system/desktop/D-Bus
+    "\n  {0}-r, --recover{1}         Purge stale scripts and re-grab all windows
+  {0}-i, --setup{1}           Force refresh of system/desktop/D-Bus
   {0}-u, --cleanup{1}         Remove all janq system integration
   {0}--enable-autostart{1}    Enable autostart (creates symlink)
   {0}--disable-autostart{1}   Disable autostart (removes symlink)",
@@ -174,6 +177,10 @@ fn parse_args() -> Args {
       #[cfg(target_os = "linux")]
       "--disable-autostart" | "--disableautostart" => {
         args.disable_autostart = true;
+      },
+      #[cfg(target_os = "linux")]
+      "--recover" | "-r" => {
+        args.recover = true;
       },
       #[cfg(target_os = "linux")]
       "--setup" | "-i" => {
@@ -331,6 +338,16 @@ fn main() -> error::Result<()> {
     };
 
     let target_app_owned = target_app.map(|s| s.to_string());
+
+    #[cfg(target_os = "linux")]
+    if args.recover {
+      if let Err(e) = daemon::send_recover().await {
+        show_error(&format!("Failed to send recover signal: {}", e));
+        exit(1);
+      }
+      return Ok(());
+    }
+
     if args.quit {
       if let Err(e) = daemon::send_quit().await {
         show_error(&format!("Failed to stop daemon: {}", e));

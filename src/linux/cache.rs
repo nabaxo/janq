@@ -46,3 +46,9 @@ pub fn remove_from_cache(app_name: &str) {
   let mut cache = get_cache().lock().unwrap();
   cache.remove(app_name);
 }
+
+/// Clears the entire cache (used during recovery to force re-discovery).
+pub fn clear_cache() {
+  let mut cache = get_cache().lock().unwrap();
+  cache.clear();
+}

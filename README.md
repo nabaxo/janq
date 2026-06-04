@@ -114,6 +114,7 @@ Check [Command Line Arguhments](#command-line-arguments) for more flags to use. 
 | `--help`                     | `-h`      | Print help information.                              |
 | `--version`                  | `-V`      | Print version information.                           |
 | **Linux Specific Arguments** |
+| `--recover`                  | `-r`      | Purge stale KWin scripts and re-grab all windows.    |
 | `--setup`                    | `-i`      | Force refresh of system/desktop/D-Bus/Rules.\*       |
 | `--cleanup`                  | `-u`      | Remove all janq system integration.                  |
 | `--enable-autostart`         | —         | Enable autostart (creates symlink to .desktop-file). |
@@ -189,7 +190,7 @@ start_command = 'C:\Program Files\Terminal\wt.exe'
 janq lives in your system tray (notification area) and provides a context menu for quick actions.
 
 - **Left Click**: Toggles the **first** application defined in your configuration file.
-- **Right Click**: Opens the menu to toggle specific applications, reload the configuration, or exit.
+- **Right Click**: Opens the menu to toggle specific applications, recover from stuck states (Linux), or exit.
 - (Linux) **Middle Click**: Instantly exits the daemon.
 - (Windows) **Shift+Left Click**: Instantly exits the daemon.
 - **Menu Order**: The application list in the tray menu follows the exact order of the `[app]` blocks in your `janq.toml`.
@@ -572,6 +573,16 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 - **Animation Handover**: When toggling between two different apps rapidly (while one is mid-animation), the new animation picks up from the window's current physical position and velocity-scales the remaining duration. On Windows, an atomic generation counter instantly cancels the old animation loop; on Linux, a fresh KWin script injection reads the live `frameGeometry` and takes over. The result is continuous, smooth motion with no snap or freeze — just a proportionally shorter travel time for the remaining distance.
 
 ## Troubleshooting & Recovery
+
+### Built-in Recovery (Linux)
+
+If janq stops responding to hotkeys or a managed window is stuck invisible (e.g., after a crash or force-kill), use the built-in recovery:
+
+- **Systray**: Right-click the tray icon → **Recover**
+- **CLI**: `janq --recover` (or `-r`)
+- **Automatic**: On every daemon startup, stale KWin script slots from prior sessions are purged automatically.
+
+Recovery purges all occupied KWin script name slots, clears internal window/PID caches, resets visibility state, and re-grabs all configured windows. It does not restart apps — only fixes the connection between janq and already-running windows.
 
 ### Linux Recovery Utilities (For When Things Go Wrong)
 

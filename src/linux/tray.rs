@@ -14,7 +14,7 @@ use zbus::zvariant::{OwnedValue, Value};
 use zbus::{interface, Connection};
 
 use crate::linux::hotkey::normalize_shortcut_for_kde;
-use crate::linux::kwin::{restore_quake, toggle_quake};
+use crate::linux::kwin::{recover_all, restore_quake, toggle_quake};
 use janq::config::Config;
 use janq::shutdown::{print_shutdown_message, print_termination_complete};
 
@@ -89,6 +89,13 @@ fn build_layout(config: &Config) -> (i32, HashMap<String, OwnedValue>, Vec<Owned
     children.push(Value::from(child).try_into().unwrap());
   }
 
+  // Recover
+  {
+    let props = item_props("Recover", None, None);
+    let child: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) = (10002, props, vec![]);
+    children.push(Value::from(child).try_into().unwrap());
+  }
+
   // Quit
   {
     let props = item_props("Quit", None, None);
@@ -148,6 +155,12 @@ impl DbusmenuService {
         print_termination_complete();
         exit(0);
       });
+    } else if id == 10002 {
+      let config = config.clone();
+      let conn = self.conn.clone();
+      tokio::spawn(async move {
+        recover_all(&config, &conn).await;
+      });
     } else if id >= 1 && id <= app_count {
       let idx = (id - 1) as usize;
       if let Some(name) = config.app.keys().nth(idx) {
@@ -199,6 +212,8 @@ impl DbusmenuService {
         result.push((id, item_props("", Some("separator"), None)));
       } else if id == 10001 {
         result.push((id, item_props("Quit", None, None)));
+      } else if id == 10002 {
+        result.push((id, item_props("Recover", None, None)));
       }
     }
     Ok(result)

@@ -39,7 +39,7 @@ use tokio::{
 };
 use zbus::{names::BusName, names::InterfaceName, zvariant::ObjectPath, Connection};
 
-use crate::linux::cache::{get_cached_window, remove_from_cache, update_cache};
+use crate::linux::cache::{clear_cache, get_cached_window, remove_from_cache, update_cache};
 use crate::linux::desktop::find_desktop_file_id;
 use crate::linux::terminal::{
   check_window_exists, check_window_exists_with_candidates, ensure_terminal_running,
@@ -801,6 +801,43 @@ pub async fn restore_quake(config: &Config, conn: &Connection) -> Result<()> {
     let _ = restore_app(name, &app_cfg.window_class, conn).await;
   }
   Ok(())
+}
+
+/// Unloads all known KWin script name slots to clear stale scripts from prior sessions.
+pub async fn purge_stale_scripts(conn: &Connection) {
+  const STALE_NAMES: &[&str] = &[
+    "janq_toggle_engine",
+    "janq_init_script",
+    "janq_restore_script",
+  ];
+  for name in STALE_NAMES {
+    let _ = conn
+      .call_method(
+        Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
+        "/Scripting",
+        Some(
+          InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name"),
+        ),
+        "unloadScript",
+        &(*name),
+      )
+      .await;
+  }
+}
+
+/// Full recovery: purge stale scripts, clear caches, reset state, re-grab all windows.
+pub async fn recover_all(config: &Config, conn: &Connection) {
+  println!("janq: Recovery started — purging scripts, clearing caches, re-grabbing windows...");
+  purge_stale_scripts(conn).await;
+  reset_state().await;
+  clear_cache();
+
+  let mut apps_for_grabbing = Vec::new();
+  for app_cfg in config.app.values() {
+    apps_for_grabbing.push((app_cfg, config));
+  }
+  let _ = grab_apps(&apps_for_grabbing, conn).await;
+  println!("janq: Recovery complete.");
 }
 
 pub async fn reset_visibility(config: &Config) {

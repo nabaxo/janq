@@ -50,7 +50,7 @@ use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headles
 use crate::linux::hotkey::sync_kde_shortcuts;
 use crate::linux::icon::IconPixmap;
 use crate::linux::kwin::{
-  clear_removed_apps_from_cache, grab_apps, init as init_kwin,
+  clear_removed_apps_from_cache, grab_apps, init as init_kwin, purge_stale_scripts, recover_all,
   report_active_window as kwin_report_active, reset_refresh_rate_logging, reset_state,
   reset_visibility, restore_app, restore_quake, sync_kwin_rules, toggle_quake,
 };
@@ -159,6 +159,12 @@ impl QuakeDaemon {
   #[zbus(name = "ReportActiveWindow")]
   async fn report_active_window(&self, payload: String) {
     kwin_report_active(payload).await;
+  }
+
+  #[zbus(name = "Recover")]
+  async fn recover(&self) {
+    let config = { self.config.read().unwrap().clone() };
+    recover_all(&config, &self.conn).await;
   }
 
   #[zbus(name = "Quit")]
@@ -645,6 +651,10 @@ pub async fn run_daemon(
 
   // Small delay to ensure D-Bus service is fully registered before KWin scripts call back
   sleep(Duration::from_millis(100)).await;
+
+  // Purge stale KWin scripts from prior sessions (crash recovery)
+  purge_stale_scripts(&conn).await;
+
   // Initial setup (Sequential with stagger to reduce KWin contention)
   {
     let cfg = config.read().unwrap().clone();
@@ -836,6 +846,21 @@ pub async fn send_toggle(app_name: Option<String>) -> error::Result<()> {
       )
       .await?;
   }
+  Ok(())
+}
+
+pub async fn send_recover() -> error::Result<()> {
+  let conn = zbus::connection::Builder::session()?.build().await?;
+  conn
+    .call_method(
+      Some(BusName::try_from("dev.nabaxo.janq.desktop").expect("valid D-Bus bus name")),
+      "/dev/nabaxo/janq/daemon",
+      Some(InterfaceName::try_from("dev.nabaxo.janq").expect("valid D-Bus interface name")),
+      "Recover",
+      &(),
+    )
+    .await?;
+  println!("janq: Recovery signal sent to daemon.");
   Ok(())
 }
 
