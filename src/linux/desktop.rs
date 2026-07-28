@@ -81,7 +81,7 @@ fn generate_desktop_file_impl(
   let exe_path = format!("\"{}\"", exe_path_raw);
 
   // 1. Install Icon
-  install_icon()?;
+  let icons_changed = install_icon().unwrap_or(false);
 
   // Determine the Exec command for the main entry
   let exec_cmd = format!("{} --daemon", exe_path);
@@ -180,7 +180,7 @@ fn generate_desktop_file_impl(
     fs::write(&service_path, service_content)?;
   }
 
-  let modified = changed || service_changed || force;
+  let modified = changed || service_changed || icons_changed || force;
 
   // 4. Update KDE Sycoca and D-Bus if anything changed
   if modified && run_kbuild {
@@ -230,7 +230,7 @@ fn run_dbus_reload() {
   }
 }
 
-fn run_kbuildsycoca6() {
+pub fn run_kbuildsycoca6() {
   match Command::new("kbuildsycoca6")
     .arg("--noincremental")
     .status()
@@ -249,7 +249,7 @@ fn run_kbuildsycoca6() {
   }
 }
 
-fn install_icon_file(data: &[u8], dir: &Path, filename: &str) -> janq::error::Result<()> {
+fn install_icon_file(data: &[u8], dir: &Path, filename: &str) -> janq::error::Result<bool> {
   fs::create_dir_all(dir)?;
   let path = dir.join(filename);
   let needs_update = match fs::read(&path) {
@@ -268,30 +268,42 @@ fn install_icon_file(data: &[u8], dir: &Path, filename: &str) -> janq::error::Re
   if needs_update {
     fs::write(&path, data)?;
   }
-  Ok(())
+  Ok(needs_update)
 }
 
-pub fn install_icon() -> janq::error::Result<()> {
+/// Install all tray and application icons into the user's hicolor theme dir.
+/// Returns `true` if any file was written or symlink created (so the caller
+/// can decide whether to invalidate KDE's icon cache via kbuildsycoca6).
+pub fn install_icon() -> janq::error::Result<bool> {
   let base = data_local_dir()
     .expect("No XDG data directory found - is $HOME set?")
     .join("icons/hicolor/scalable");
 
-  install_icon_file(
+  let mut any_changed = false;
+
+  any_changed |= install_icon_file(
     include_bytes!("../../assets/icon.svg"),
     &base.join("apps"),
     "janq.svg",
   )?;
 
-  // Prior versions installed a symbolic SVG into status/. Plasma's tray then
-  // auto-substituted it for the colored icon regardless of our mono_icon setting.
-  // Tray rendering is now driven by IconPixmap (see linux::icon), so the theme
-  // file is no longer needed — remove any leftover from an earlier install.
-  let legacy_symbolic = base.join("status/janq-symbolic.svg");
-  if legacy_symbolic.exists() {
-    let _ = fs::remove_file(&legacy_symbolic);
+  // janq-color.svg is a symlink to janq.svg — same pixels, distinct name so
+  // Plasma never auto-substitutes it with janq-symbolic (no -symbolic sibling).
+  let apps_dir = base.join("apps");
+  let color_link = apps_dir.join("janq-color.svg");
+  if !color_link.exists() && !color_link.is_symlink() {
+    symlink(apps_dir.join("janq.svg"), &color_link)
+      .map_err(|e| janq::format_error_boxed!("Failed to create janq-color.svg symlink: {}", e))?;
+    any_changed = true;
   }
 
-  Ok(())
+  any_changed |= install_icon_file(
+    include_bytes!("../../assets/icon-symbolic.svg"),
+    &base.join("apps"),
+    "janq-symbolic.svg",
+  )?;
+
+  Ok(any_changed)
 }
 
 pub fn purge_system_integration() -> janq::error::Result<()> {
@@ -320,7 +332,8 @@ pub fn purge_system_integration() -> janq::error::Result<()> {
     .join("icons/hicolor/scalable");
   for path in [
     icon_base.join("apps/janq.svg"),
-    icon_base.join("status/janq-symbolic.svg"),
+    icon_base.join("apps/janq-color.svg"),
+    icon_base.join("apps/janq-symbolic.svg"),
   ] {
     if path.exists() {
       fs::remove_file(&path)?;

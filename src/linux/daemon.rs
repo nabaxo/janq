@@ -48,7 +48,7 @@ use std::process::id;
 
 use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headless};
 use crate::linux::hotkey::sync_kde_shortcuts;
-use crate::linux::icon::IconPixmap;
+
 use crate::linux::kwin::{
   clear_removed_apps_from_cache, grab_apps, init as init_kwin, purge_stale_scripts, recover_all,
   report_active_window as kwin_report_active, reset_refresh_rate_logging, reset_state,
@@ -228,28 +228,21 @@ impl StatusNotifierItem {
   }
   #[zbus(property)]
   fn icon_name(&self) -> String {
-    // Split by resolved mono state (mono_icon / mono_icon_light / mono_icon_dark
-    // combined with the active theme): theme lookup for the colored case (cheap,
-    // Plasma handles everything), empty for the symbolic case (forces Plasma to
-    // fall back to our recolored IconPixmap). Per SNI spec a non-empty IconName
-    // takes precedence over IconPixmap.
+    // Route to the symbolic or color SVG by name — Plasma resolves these from
+    // the hicolor theme installed by install_icon().
+    // "janq-symbolic" ends in -symbolic so Plasma applies CSS recoloring.
+    // "janq-color" has no -symbolic counterpart so Plasma never auto-substitutes.
     let dark = crate::linux::icon::is_dark_theme();
     if self.config.read().unwrap().window.wants_mono(dark) {
-      String::new()
+      "janq-symbolic".into()
     } else {
-      "janq".into()
+      "janq-color".into()
     }
   }
   #[zbus(property)]
-  fn icon_pixmap(&self) -> IconPixmap {
-    // Empty when the colored icon is active so Plasma uses IconName and never
-    // pages in the embedded ARGB blobs.
-    let dark = crate::linux::icon::is_dark_theme();
-    if self.config.read().unwrap().window.wants_mono(dark) {
-      crate::linux::icon::symbolic_pixmap()
-    } else {
-      Vec::new()
-    }
+  fn icon_pixmap(&self) -> Vec<(i32, i32, Vec<u8>)> {
+    // Icon is served entirely via IconName — pixmap is always empty.
+    Vec::new()
   }
   #[zbus(property)]
   fn item_is_menu(&self) -> bool {
@@ -305,6 +298,21 @@ async fn register_sni(conn: &Connection, sni_name: &str) {
   }
 }
 
+fn spawn_theme_watcher(conn: &Connection) {
+  let conn_for_theme = conn.clone();
+  tokio::spawn(async move {
+    let mut rx = match crate::linux::icon::watch_kdeglobals() {
+      Some(r) => r,
+      None => return,
+    };
+    while rx.recv().await.is_some() {
+      if crate::linux::icon::refresh_theme_cache() {
+        StatusNotifierItem::emit_new_icon(&conn_for_theme).await;
+      }
+    }
+  });
+}
+
 pub async fn run_daemon(
   initial_config: Config,
   config_path: Option<PathBuf>,
@@ -319,9 +327,13 @@ pub async fn run_daemon(
     .await?;
 
   // Install icon BEFORE registering SNI so Plasma's QIconLoader can
-  // resolve "janq" from the hicolor theme on its first query.
+  // resolve icon names from the hicolor theme on its first query.
   // Without this, Plasma caches a negative lookup for the session.
-  let _ = crate::linux::desktop::install_icon();
+  // If any icon file was newly written, flush KDE's icon cache now so that
+  // the `janq-color` and `janq-symbolic` names are discoverable immediately.
+  if crate::linux::desktop::install_icon().unwrap_or(false) {
+    crate::linux::desktop::run_kbuildsycoca6();
+  }
 
   let pid = id();
   let sni_name = format!("org.kde.StatusNotifierItem-janq-{}", pid);
@@ -623,31 +635,9 @@ pub async fn run_daemon(
     });
   }
 
-  // Monitor kdeglobals for color-scheme changes — only when some mono_icon
-  // setting is active. Spawning the inotify thread + tokio task + mpsc channel
-  // is ~20 KB RSS of pure waste for the default colored case. Users who enable
-  // any mono setting at runtime get a correctly-resolved icon on the next
-  // config reload (which already emits NewIcon), but won't receive live
-  // theme-change updates until a daemon restart — acceptable tradeoff.
-  if config.read().unwrap().window.any_mono() {
-    let conn_for_theme = conn.clone();
-    tokio::spawn(async move {
-      let mut rx = match crate::linux::icon::watch_kdeglobals() {
-        Some(r) => r,
-        None => return,
-      };
-      // KConfig fires multiple inotify events per theme switch (one per
-      // rewritten section), but `refresh_theme_cache()` returns `false` when
-      // the computed is-dark value hasn't flipped, so redundant events are
-      // idempotent reads with no emission. That makes debouncing unnecessary
-      // at this workload — theme flips are rare and kdeglobals is a few KB.
-      while rx.recv().await.is_some() {
-        if crate::linux::icon::refresh_theme_cache() {
-          StatusNotifierItem::emit_new_icon(&conn_for_theme).await;
-        }
-      }
-    });
-  }
+  // Monitor kdeglobals for color-scheme changes (mono_icon_dark / mono_icon_light).
+  // Always spawned — if no mono setting is active the watcher just sleeps idle.
+  spawn_theme_watcher(&conn);
 
   // Small delay to ensure D-Bus service is fully registered before KWin scripts call back
   sleep(Duration::from_millis(100)).await;
