@@ -315,9 +315,9 @@ hotkey = "Meta+1"
 |               | `offset`             | `"center"`       | Position along edge: `center`, `50%`, `-10%`, `100px`, `-50px`                       |   ✔️    |
 |               | `depth_offset`       | `"0"`            | Offset into screen on slide axis: `center`, `50%`, `-30px` (hides titlebar), `100px`, `auto` / `titlebar` (auto-hide titlebar) |   ✔️    |
 |               | `hide_titlebar`      | `false`          | Auto-hide server-side titlebar (only when `slide_from = "top"`; SSD apps only)       |   ✔️    |
-|               | `mono_icon`          | `false`          | Force monochrome tray icon in both light and dark modes (adapts to system theme)     |   ❌    |
-|               | `mono_icon_light`    | `false`          | Use monochrome tray icon only when the system is in light mode                       |   ❌    |
-|               | `mono_icon_dark`     | `false`          | Use monochrome tray icon only when the system is in dark mode                        |   ❌    |
+|               | `mono_icon`\*\*\*    | `false`          | Force monochrome tray icon in both light and dark modes (adapts to system theme)     |   ❌    |
+|               | `mono_icon_light`\*\*\* | `false`       | Use monochrome tray icon only when the system is in light mode                       |   ❌    |
+|               | `mono_icon_dark`\*\*\*  | `false`       | Use monochrome tray icon only when the system is in dark mode                        |   ❌    |
 |               | `keep_above`         | `false`          | Keep window above all others                                                         |   ❌    |
 |               | `no_borders`         | `false`          | Remove window borders/chrome for managed windows                                     |   ✔️    |
 |               | `skip_pager`         | `false`          | Hide window from task manager, pager, and switcher (Linux: also hides from Meta+Tab) |   ❌    |
@@ -343,6 +343,8 @@ hotkey = "Meta+1"
 
 \*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit.)
 _**Note**: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use._.
+
+\*\*\*(Linux) First-time activation may require a plasmashell restart. See [known issues](#linux-monochrome-tray-icon-may-require-plasmashell-restart).
 
 #### Slide Direction
 
@@ -679,6 +681,10 @@ Apps that rely on their own saved window geometry (e.g., Obsidian, other Electro
 ### Linux: On Boot, Slow-Starting Apps May Not Be Grabbed
 
 Some Electron/Flatpak apps (e.g., Discord) may not have their window ready when janq's initial grab runs at boot. If the app's window doesn't exist yet during the startup pass, janq won't be able to manage it until the next toggle or config reload. Toggling the app's hotkey after it has fully started will grab it normally.
+
+### Linux: Monochrome Tray Icon May Require Plasmashell Restart
+
+When switching to `mono_icon = true` for the first time, the monochrome icon may not appear until plasmashell is restarted (`kquitapp6 plasmashell && kstart plasmashell`). This happens because Plasma's in-memory icon cache (KIconLoader) doesn't pick up newly installed icon files in `~/.local/share/icons/hicolor/` until its file watcher is re-initialized. Subsequent theme changes and config reloads work correctly after the first restart.
 
 ### Apps That Minimize to Tray
 

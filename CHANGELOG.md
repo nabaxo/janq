@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-07-28
+
+### Changed
+- **Tray icon (Linux)**: Replaced `resvg` build-time SVG rasterization and runtime `IconPixmap` rendering with pure `IconName`-based icon serving. Plasma now resolves `janq-symbolic` and `janq-color` SVGs directly from the hicolor theme, handling CSS recoloring natively. Removes `resvg` build dependency and all ARGB pixmap infrastructure.
+- **Symbolic SVG (Linux)**: Optimized and added KDE `id="current-color-scheme"` style block and `ColorScheme-Text` class to `icon-symbolic.svg` so Plasma's KIconEngine applies theme-aware recoloring.
+- **Build script**: Removed stale `resvg`/IconPixmap references from `build.rs` documentation.
+
+### Removed
+- **`resvg` build dependency**: No longer needed — tray icon SVGs are resolved natively by Plasma instead of being pre-rendered to ARGB pixmaps at build time.
+
+### Known Issues
+- **Tray icon cache (Linux)**: First-time `mono_icon = true` may require a plasmashell restart (`kquitapp6 plasmashell && kstart plasmashell`) for Plasma's KIconLoader to discover the newly installed symbolic SVG. Subsequent theme changes and config reloads work correctly.
+
 ## [1.0.0] - 2026-04-15
 
 ### Added
