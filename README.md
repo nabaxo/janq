@@ -111,19 +111,19 @@ Check [Command Line Arguhments](#command-line-arguments) for more flags to use. 
 
 ## Command-Line Arguments
 
-| Argument                     | Shorthand | Description                                          |
-| :--------------------------- | :-------- | :--------------------------------------------------- |
-| `--daemon`                   | `-D`      | Run as a persistent process (Server Mode).           |
-| `--app [NAME]`               | `-a`      | Toggle a specific application from your config.      |
-| `--quit`                     | `-q`      | Gracefully stop the running daemon.                  |
-| `--help`                     | `-h`      | Print help information.                              |
-| `--version`                  | `-V`      | Print version information.                           |
-| **Linux Specific Arguments** |
-| `--recover`                  | `-r`      | Purge stale KWin scripts and re-grab all windows.    |
-| `--setup`                    | `-i`      | Force refresh of system/desktop/D-Bus/Rules.\*       |
-| `--cleanup`                  | `-u`      | Remove all janq system integration.                  |
-| `--enable-autostart`         | —         | Enable autostart (creates symlink to .desktop-file). |
-| `--disable-autostart`        | —         | Disable autostart (removes symlink).                 |
+| Argument                     | Shorthand  | Description                                          |
+| :--------------------------- | :--------- | :--------------------------------------------------- |
+| `--daemon`                   | `-d`       | Run as a persistent process (Server Mode).           |
+| `--app [NAME]`               | `-a`       | Toggle a specific application from your config.      |
+| `--quit`                     | `-q`       | Gracefully stop the running daemon.                  |
+| `--help`                     | `-h`       | Print help information.                              |
+| `--version`                  | `-v`       | Print version information.                           |
+| **Linux Specific Arguments** |            |                                                      |
+| `--recover`                  | `-r`       | Purge stale KWin scripts and re-grab all windows.    |
+| `--setup`                    | `-i`       | Force refresh of system/desktop/D-Bus/Rules.\*       |
+| `--cleanup`                  | `-u`       | Remove all janq system integration.                  |
+| `--enable-autostart`         | —          | Enable autostart (creates symlink to .desktop-file). |
+| `--disable-autostart`        | —          | Disable autostart (removes symlink).                 |
 
 \* This creates a `.desktop` file, adds whatever is in your config as kwin-rules for nice icon integration.
 
@@ -495,40 +495,44 @@ rustup toolchain install nightly
 
 # Cross-compilation targets
 rustup target add x86_64-unknown-linux-musl
-rustup target add x86_64-pc-windows-gnu
+rustup target add x86_64-pc-windows-msvc
 rustup target add x86_64-unknown-linux-musl --toolchain nightly
+
+# cargo-xwin (for cross-compiling Windows MSVC binaries on Linux)
+cargo install cargo-xwin
 
 # rustfmt (for format/lint)
 rustup component add rustfmt
 rustup component add rustfmt --toolchain nightly
 ```
 
-You'll also need a C cross-compiler on Linux:
+You'll also need system packages on Linux:
 
 ```sh
 # Debian/Ubuntu
-sudo apt install musl-tools gcc-mingw-w64-x86-64 clang make
+sudo apt install musl-tools clang llvm make
 
 # Fedora/RHEL
-sudo dnf install musl-gcc mingw64-gcc clang make
+sudo dnf install musl-gcc clang llvm make
 
 # Arch
-sudo pacman -S musl mingw-w64-gcc clang make
+sudo pacman -S musl clang llvm make
 ```
 
 ### Build
 
 ```bash
 # Default: nightly optimized Linux build (smallest binary + lowest RSS)
-make build                     # Builds nightly Linux + stable Windows
+make build                     # Builds nightly Linux + Windows (MSVC)
 
 # Individual targets
 make build-linux-nightly       # Binary: ./dist/janq (nightly, ~1.6 MiB RSS)
 make build-linux-musl          # Binary: ./dist/janq-stable (stable, ~2.4 MiB RSS)
-make build-windows-static      # Binary: ./dist/janq.exe
+make build-windows-msvc        # Binary: ./dist/janq.exe (MSVC, cross-compiled via cargo-xwin)
 
 # Others
 make build-linux-glibc         # Binary: ./dist/janq-glibc
+make build-windows-static      # Binary: ./dist/janq.exe (MinGW, statically linked)
 make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 ```
 

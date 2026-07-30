@@ -11,7 +11,7 @@ OPT_S := RUSTFLAGS="-C opt-level=s"
 NIGHTLY_FLAGS := RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort"
 NIGHTLY_ARGS := +nightly -Zbuild-std=std,panic_abort
 
-build: format lint build-linux-nightly build-windows-static
+build: format lint build-linux-nightly build-windows-msvc
 
 lint:
 	cargo fmt --all -- --check
@@ -43,6 +43,10 @@ build-windows-nonstatic: prepare-dist
 build-windows-static: prepare-dist
 	RUSTFLAGS="-C opt-level=z -C link-arg=-static" cargo build --release --target x86_64-pc-windows-gnu
 	cp target/x86_64-pc-windows-gnu/release/janq.exe $(DIST_DIR)/janq.exe
+
+build-windows-msvc: prepare-dist
+	$(OPT_Z) cargo xwin build --release --target x86_64-pc-windows-msvc
+	cp target/x86_64-pc-windows-msvc/release/janq.exe $(DIST_DIR)/janq.exe
 
 build-windows: build-windows-static build-windows-nonstatic
 

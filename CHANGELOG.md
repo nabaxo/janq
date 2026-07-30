@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-07-30
+
+### Fixed
+- **(Windows) Invisible cursor and blank window after toggle**: Fixed rendering artifacts caused by `WS_EX_LAYERED` interaction with show animation — strips layered style after animation, adds `WM_SETCURSOR` nudge, and applies `SWP_FRAMECHANGED` to force repaint.
+- **(Windows) Icon not embedded in MSVC builds**: `embed_resource::compile()` returns a `CompilationResult` marked `#[must_use]` — the previous `let _ =` silently dropped it, preventing the linker instruction from being emitted.
+
+### Changed
+- **Windows build target**: Default Makefile Windows target switched from MinGW static (`build-windows-static`) to MSVC (`build-windows-msvc`) via `cargo-xwin`. MSVC-compiled binaries avoid CrowdStrike EDR heuristic false positives triggered by MinGW cross-compilation.
+- **CLI shorthands**: `-D` → `-d` (daemon), `-V` → `-v` (version). Arguments are now case-insensitive via `to_ascii_lowercase()` normalization before matching.
+- **Build prerequisites**: Replaced `gcc-mingw-w64` with `llvm` and `cargo-xwin` for Windows cross-compilation.
+
 ## [1.0.1] - 2026-07-28
 
 ### Changed

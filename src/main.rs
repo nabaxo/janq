@@ -85,11 +85,11 @@ fn print_help() {
   {5}janq{2} {3}[OPTION]{2}
 
 {1}OPTIONS:{2}
-  {4}-D, --daemon{2}          Run as a persistent process (Server Mode)
+  {4}-d, --daemon{2}           Run as a persistent process (Server Mode)
   {4}-a, --app{2} {3}[NAME]{2}      Name of the app to toggle (from config)
   {4}-q, --quit{2}            Gracefully stop the running daemon
   {4}-h, --help{2}            Print help information
-  {4}-V, --version{2}         Print version information",
+  {4}-v, --version{2}         Print version information",
     env!("CARGO_PKG_VERSION"), // {0}
     HDR,                       // {1}
     RST,                       // {2}
@@ -147,16 +147,17 @@ fn parse_args() -> Args {
   let mut iter = env::args().skip(1);
 
   while let Some(arg) = iter.next() {
+    let arg = arg.to_ascii_lowercase();
     define_flags!(arg.as_str(), args, iter, [
       "--help" | "-h" => {
         print_help();
         exit(0);
       },
-      "--version" | "-V" => {
+      "--version" | "-v" => {
         println!("janq {}", env!("CARGO_PKG_VERSION"));
         exit(0);
       },
-      "--daemon" | "--demon" | "--deamon" | "-D" => {
+      "--daemon" | "--demon" | "--deamon" | "-d" => {
         args.daemon = true;
       },
       "--quit" | "--exit" | "-q" => {
