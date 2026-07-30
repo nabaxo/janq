@@ -670,6 +670,14 @@ Cubic-bezier easing curves with overshoot/undershoot (control points outside [0,
 **Workaround for Linux**: Use monotonic easing curves like `ease-out`, `cubic-out`, `sine-out`, or the built-in `back-*` curves which work correctly. Avoid custom cubic-bezier curves with control points _outside_ the [0,1] range.
 
 ***(Sloperator: The next two are issues only on system boot and user has set janq to run on start)***
+### Windows: Hung app abandoned during config reload
+
+If a managed app hangs (stops pumping its message queue) while a config reload triggers `release_windows` — e.g. you change its `window_class` or remove it from the config — the hung window is skipped rather than restored. It stays parked offscreen: transparent, `WS_EX_TOOLWINDOW`, no taskbar button. Because the cache entry was already dropped before the restore attempt, nothing will retry it.
+
+**Recovery**: Restart the affected app.
+
+**Why**: The alternative is worse — blocking indefinitely on a hung window's message queue, which latches the animation-cancel flag and kills toggling for *every* managed app until the daemon is restarted.
+
 ### Windows: Force-killing janq leaves managed windows in a broken state
 
 If janq is force-killed (Task Manager, `taskkill`, crash, etc.) instead of being shut down gracefully (`--quit`, tray quit, Ctrl+C), managed windows are left in janq's internal state — offscreen, transparent, with a hidden owner window, and stripped of `WS_EX_APPWINDOW`. Since the cleanup path (`restore_window_visibility`) never runs, these windows may become unresponsive, invisible, or unable to receive input. GPU-composited apps (WezTerm, Electron apps, Windows Terminal) can cascade into a DWM compositor stall where none of them accept input even if brought on-screen.
