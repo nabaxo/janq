@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::{
-  Foundation::{COLORREF, HWND, LPARAM, RECT, TRUE},
+  Foundation::{COLORREF, HWND, LPARAM, RECT, TRUE, WPARAM},
   Graphics::{
     Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED},
     Gdi::{
@@ -770,6 +770,18 @@ pub fn run_animation_task_sync(
     // --- Finalize ---
     if should_show {
       let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
+
+      // Strip WS_EX_LAYERED now that alpha is 255 — leaving it on disrupts
+      // GPU-rendered cursors in apps like WezTerm.
+      let ex = GetWindowLongW(target_hwnd.inner(), GWL_EXSTYLE) as u32;
+      if (ex & WS_EX_LAYERED.0) != 0 {
+        SetWindowLongW(
+          target_hwnd.inner(),
+          GWL_EXSTYLE,
+          (ex & !WS_EX_LAYERED.0) as i32,
+        );
+      }
+
       let _ = SetWindowPos(
         target_hwnd.inner(),
         Some(z_order),
@@ -777,10 +789,33 @@ pub fn run_animation_task_sync(
         final_target_y,
         target_w,
         target_h,
-        SWP_SHOWWINDOW,
+        SWP_SHOWWINDOW | SWP_FRAMECHANGED,
       );
       let _ = ShowWindow(target_hwnd.inner(), SW_SHOW);
       force_focus(target_hwnd.inner());
+
+      // Nudge cursor re-evaluation — AttachThreadInput in force_focus can
+      // swallow WM_SETCURSOR, leaving the cursor invisible.
+      let _ = SendMessageW(
+        target_hwnd.inner(),
+        WM_SETCURSOR,
+        Some(WPARAM(target_hwnd.inner().0 as usize)),
+        Some(LPARAM(HTCLIENT as isize)),
+      );
+
+      // Force Chromium/Electron apps (Obsidian, VS Code) to repaint after
+      // SW_HIDE suspended their GPU compositor.
+      let mut client = RECT::default();
+      if GetClientRect(target_hwnd.inner(), &mut client).is_ok() {
+        let cw = (client.right - client.left).max(0).min(u16::MAX as i32) as usize;
+        let ch = (client.bottom - client.top).max(0).min(u16::MAX as i32) as usize;
+        let _ = SendMessageW(
+          target_hwnd.inner(),
+          WM_SIZE,
+          Some(WPARAM(0)),
+          Some(LPARAM((ch << 16 | cw) as isize)),
+        );
+      }
     } else {
       if IsWindowVisible(target_hwnd.inner()).as_bool() {
         let _ = ShowWindow(target_hwnd.inner(), SW_HIDE);
