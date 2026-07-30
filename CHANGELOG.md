@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-07-30
+
+### Fixed
+- **(Windows) Hung app could disable toggling for every managed window**: `release_windows` sets the animation-cancel flag, restores each window, then clears it — but `restore_hwnd` used `SendMessageW`, which has no timeout and blocks until the target thread pumps its message queue. A wedged app left the flag latched at `true` permanently, aborting every subsequent animation for *all* managed apps, and consumed the Tokio worker running the config-watcher task. The `WM_SIZE` repaint nudges now use `SendMessageTimeoutW` with `SMTO_ABORTIFHUNG` and a 250 ms bound, so a slow-but-alive window is still fully restored and only misses its nudge. `release_windows` additionally skips `IsHungAppWindow` targets as a fast path, since `SetWindowPos` and `ShowWindow` also dispatch synchronously.
+- **(Windows) Black frame at the start of the show animation when `show_opacity_point = 0.0`**: `0.0 / 0.0` produces `NaN`, `clamp()` propagates it, and the `u8` cast saturates to alpha 0 for one frame. The show path now guards the division; the hide path already did.
+- **(Windows) 0×0 animation when `GetWindowRect` fails**: a failed call left `r_target` at `RECT::default()`, so apps relying on auto-sized dimensions animated to a zero-size window. Now bails when the measurement failed *and* a dimension is actually unset — configs with explicit `width`/`height` never read the rect and are unaffected.
+- **(Windows) `WM_SETCURSOR` sent with a menu-mode LPARAM**: the high-order word carried `0`, which per MSDN means "window entering menu mode", instead of the mouse message that prompted the update. Now sends `WM_MOUSEMOVE`. `DefWindowProc` keys off the low word either way, so this is a correctness fix rather than a behavioral one.
+- **(Linux) inotify watcher thread spawn failure silently ignored**: `.ok()` discarded the spawn result and returned a live receiver on a channel with no sender, leaving config reload permanently dead with no diagnostic. The failure is now reported and propagated.
+
+### Changed
+- **(Linux) inotify spawn failure is no longer non-fatal**: propagating the error routes it into the existing supervisor loop, which retries up to `MAX_RETRY_COUNT` and then exits with a GUI error. A persistent thread-spawn failure therefore terminates the daemon rather than degrading to "toggling works, config reload silently does not". This matches how every other initialization failure in the watcher is already handled.
+
+### Known Issues
+- **(Windows) A hung window is not restored on config reload**: when `release_windows` skips an unresponsive window, the window stays parked offscreen — transparent, `WS_EX_TOOLWINDOW`, no taskbar button — and the caller has already dropped it from the cache, so nothing retries it. Recovery is restarting the affected app. This is a deliberate tradeoff over stalling the daemon indefinitely.
+
 ## [1.0.2] - 2026-07-30
 
 ### Fixed

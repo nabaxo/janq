@@ -138,7 +138,14 @@ pub fn run_animation_task_sync(
     let (width, height) = app_cfg.resolve_dimensions(&config.window);
 
     let mut r_target = RECT::default();
-    let _ = GetWindowRect(target_hwnd.inner(), &mut r_target);
+    let got_rect = GetWindowRect(target_hwnd.inner(), &mut r_target).is_ok();
+
+    // Only the "unset dimension" branches below read r_target. If the call
+    // failed we'd silently animate to 0x0; configs with explicit sizes are
+    // unaffected, so bail only when we actually need the measurement.
+    if !got_rect && (width.val <= 0.0 || height.val <= 0.0) {
+      return;
+    }
 
     let target_w = if width.val > 0.0 {
       (if width.is_percent {
@@ -589,7 +596,13 @@ pub fn run_animation_task_sync(
         if animate_opacity {
           let t_alpha = {
             let raw_op_progress = if should_show {
-              (target_progress / op_point).clamp(0.0, 1.0)
+              // Guard op_point == 0.0: 0.0 / 0.0 is NaN and clamp() propagates
+              // it, producing a black frame. Zero-length fade = instantly opaque.
+              if op_point > 0.0 {
+                (target_progress / op_point).clamp(0.0, 1.0)
+              } else {
+                1.0
+              }
             } else {
               let denom = 1.0 - op_point;
               ((target_progress - op_point) / if denom <= 0.0 { 0.0001 } else { denom })
@@ -796,11 +809,16 @@ pub fn run_animation_task_sync(
 
       // Nudge cursor re-evaluation — AttachThreadInput in force_focus can
       // swallow WM_SETCURSOR, leaving the cursor invisible.
+      // High word is the mouse message that prompted the update; 0 would mean
+      // "entering menu mode". DefWindowProc keys off the low word either way,
+      // but apps that inspect the high word get the documented value.
       let _ = SendMessageW(
         target_hwnd.inner(),
         WM_SETCURSOR,
         Some(WPARAM(target_hwnd.inner().0 as usize)),
-        Some(LPARAM(HTCLIENT as isize)),
+        Some(LPARAM(
+          ((WM_MOUSEMOVE as isize) << 16) | (HTCLIENT as isize),
+        )),
       );
 
       // Force Chromium/Electron apps (Obsidian, VS Code) to repaint after

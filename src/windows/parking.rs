@@ -15,6 +15,11 @@ use crate::windows::window::{
 };
 use janq::config::{AppConfig, Config};
 
+/// Upper bound on how long a restore may block waiting for a window's thread
+/// to acknowledge a message. Generous enough that a healthy-but-busy app still
+/// gets its repaint nudge, short enough that a wedged one can't stall a restore.
+const RESTORE_MSG_TIMEOUT_MS: u32 = 250;
+
 /// Parks a window offscreen based on its slide direction config.
 ///
 /// Makes the window transparent and positions it just outside the visible
@@ -161,23 +166,28 @@ pub fn restore_hwnd(hwnd: HWND) {
     // After restoring borders the client area shrinks but some apps
     // don't repaint to the new size.  Nudge width by 1px then send the
     // real size to force a full client-area invalidation.
+    //
+    // Sent with a timeout, not plain `SendMessageW`: that blocks forever on a
+    // window whose thread isn't pumping, and every caller of `restore_hwnd`
+    // runs on a thread we can't afford to lose (config reload, daemon exit).
+    // A window slow enough to hit the timeout just misses its repaint nudge —
+    // it is still restored, unlike skipping it entirely.
     if borders_restored {
       let mut client = RECT::default();
       if GetClientRect(hwnd, &mut client).is_ok() {
         let cw = (client.right - client.left).max(0).min(u16::MAX as i32) as usize;
         let ch = (client.bottom - client.top).max(0).min(u16::MAX as i32) as usize;
-        let _ = SendMessageW(
-          hwnd,
-          WM_SIZE,
-          Some(WPARAM(0)),
-          Some(LPARAM((ch << 16 | (cw + 1)) as isize)),
-        );
-        let _ = SendMessageW(
-          hwnd,
-          WM_SIZE,
-          Some(WPARAM(0)),
-          Some(LPARAM((ch << 16 | cw) as isize)),
-        );
+        for lparam in [ch << 16 | (cw + 1), ch << 16 | cw] {
+          SendMessageTimeoutW(
+            hwnd,
+            WM_SIZE,
+            WPARAM(0),
+            LPARAM(lparam as isize),
+            SMTO_ABORTIFHUNG,
+            RESTORE_MSG_TIMEOUT_MS,
+            None,
+          );
+        }
       }
     }
 
@@ -196,13 +206,28 @@ pub fn restore_hwnd(hwnd: HWND) {
 }
 
 /// Releases the given windows - cancels animation and restores them.
+///
+/// Skips windows whose UI thread is hung (`IsHungAppWindow`). If a restore
+/// blocked here, the animation-cancel flag below would stay latched at `true`
+/// forever, killing toggling for every managed app - not just the hung one.
+///
+/// This is the fast path only; `restore_hwnd`'s own messages are sent with a
+/// timeout, so a window that is merely slow is bounded rather than skipped.
+/// Note the tradeoff: a skipped window stays parked offscreen and has already
+/// been dropped from the cache by the caller, so nothing will retry it.
 pub fn release_windows(windows: Vec<CachedWindow>) {
   if windows.is_empty() {
     return;
   }
   get_animation_cancel().store(true, std::sync::atomic::Ordering::SeqCst);
   for cw in windows {
-    restore_hwnd(cw.inner());
+    let hwnd = cw.inner();
+    unsafe {
+      if IsHungAppWindow(hwnd).as_bool() {
+        continue;
+      }
+    }
+    restore_hwnd(hwnd);
   }
   get_animation_cancel().store(false, std::sync::atomic::Ordering::SeqCst);
 }

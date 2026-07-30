@@ -123,7 +123,7 @@ pub fn watch_file_changes(file_path: PathBuf) -> Option<tokio_mpsc::UnboundedRec
   let (tx, rx) = tokio_mpsc::unbounded_channel::<()>();
 
   // --- Blocking reader thread ------------------------------------------------
-  std::thread::Builder::new()
+  let reader = std::thread::Builder::new()
     .name("janq-inotify".into())
     .spawn(move || {
       use std::io::Read;
@@ -143,8 +143,15 @@ pub fn watch_file_changes(file_path: PathBuf) -> Option<tokio_mpsc::UnboundedRec
           Err(_) => break,
         }
       }
-    })
-    .ok();
+    });
+
+  // Without the reader thread the channel is dead and config edits would be
+  // silently ignored. Report it and return None so the caller can retry,
+  // matching how the failures above are handled.
+  if let Err(e) = reader {
+    crate::error::show_error(&format!("inotify: failed to spawn watcher thread: {}", e));
+    return None;
+  }
 
   Some(rx)
 }
