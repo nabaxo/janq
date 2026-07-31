@@ -418,6 +418,9 @@ pub fn find_desktop_file_id(window_class: &str) -> Option<String> {
                 if val_lower == class_lower {
                   return Some(file_name);
                 }
+                if val_lower.contains(&class_lower) || class_lower.contains(&val_lower) {
+                  candidates.push((file_name.clone(), 40));
+                }
               }
             }
           }

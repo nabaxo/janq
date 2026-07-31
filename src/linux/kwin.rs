@@ -963,7 +963,7 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
     kept_ids.push(id.clone());
     applied_any = true;
 
-    let regex = classes.join("|");
+    let regex = format!("(?i){}", classes.join("|"));
     let kv = [
       ("Description", &target_description),
       ("enabled", &"true".to_string()),
@@ -1051,6 +1051,7 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
 
     // Ask KWin to reload its rules immediately
     run_kwin_reconfigure();
+    println!("janq: KWin window rules updated.");
   }
 
   Ok(())
