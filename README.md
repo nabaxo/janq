@@ -694,6 +694,12 @@ Apps that rely on their own saved window geometry (e.g., Obsidian, other Electro
 
 Some Electron/Flatpak apps (e.g., Discord) may not have their window ready when janq's initial grab runs at boot. If the app's window doesn't exist yet during the startup pass, janq won't be able to manage it until the next toggle or config reload. Toggling the app's hotkey after it has fully started will grab it normally.
 
+### Linux: Flatpak Apps May Change Their Window Class After Updates
+
+Flatpak apps can silently change their `WM_CLASS` (e.g., Obsidian changed from `obsidian` to `md.Obsidian`). janq's fuzzy matching and KWin rules use case-insensitive substring matching, so toggles and rule matching will still work. However, the KWin rule's desktop file lookup (`find_desktop_file_id`) may fail to match the new class, causing the app to show a generic Wayland icon in the taskbar instead of its proper icon.
+
+**Fix**: Update `window_class` in your `janq.toml` to match the new class (e.g., `window_class = "md.Obsidian"`), then restart janq or save the config to trigger a reload.
+
 ### Linux: Monochrome Tray Icon May Require Plasmashell Restart
 
 When switching to `mono_icon = true` for the first time, the monochrome icon may not appear until plasmashell is restarted (`kquitapp6 plasmashell && kstart plasmashell`). This happens because Plasma's in-memory icon cache (KIconLoader) doesn't pick up newly installed icon files in `~/.local/share/icons/hicolor/` until its file watcher is re-initialized. Subsequent theme changes and config reloads work correctly after the first restart.

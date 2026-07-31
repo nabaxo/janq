@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-07-31
+
+### Fixed
+- **(Linux) KWin rules stopped matching after Flatpak WM_CLASS change**: Flatpak apps can silently change their `WM_CLASS` on update (e.g., Obsidian: `obsidian` → `md.Obsidian`). KWin rule regex was case-sensitive, so a case change broke window matching. Rules now use `(?i)` prefix for case-insensitive matching.
+- **(Linux) Generic Wayland icon after WM_CLASS change**: `find_desktop_file_id` matched `StartupWMClass` only by exact equality. When the runtime class was a substring of the desktop file's `StartupWMClass` (or vice versa), lookup failed and the app showed a generic Wayland icon. Now falls back to case-insensitive substring matching.
+
+### Changed
+- **(Linux) Log message on KWin rule update**: Daemon now prints when KWin window rules are updated.
+
 ## [1.0.3] - 2026-07-30
 
 ### Fixed
