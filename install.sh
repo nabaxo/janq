@@ -9,24 +9,22 @@ BINARY_NAME="janq"
 INSTANCE_URL="https://git.nabaxo.dev"
 REPO_PATH="nabaxo/janq"
 API_URL="${INSTANCE_URL}/api/v1/repos/${REPO_PATH}/releases/latest"
-FALLBACK_URL="${INSTANCE_URL}/${REPO_PATH}/raw/branch/main/dist/${BINARY_NAME}"
 
 echo "Checking for latest release..."
-DOWNLOAD_URL=""
 
 JSON_DATA=$(curl -s "${API_URL}")
+DOWNLOAD_URL=""
 
 if [ -n "$JSON_DATA" ]; then
     DOWNLOAD_URL=$(echo "$JSON_DATA" | tr ',' '\n' | grep "browser_download_url" | grep "/${BINARY_NAME}\"" | head -n 1 | cut -d '"' -f 4)
 fi
 
 if [ -z "$DOWNLOAD_URL" ]; then
-    echo "No release asset found. Falling back to latest binary from dist..."
-    DOWNLOAD_URL="${FALLBACK_URL}"
-else
-    echo "Found release asset: ${DOWNLOAD_URL}"
+    echo "Error: No release asset found at ${API_URL}"
+    exit 1
 fi
 
+echo "Found release asset: ${DOWNLOAD_URL}"
 echo "Downloading from: ${DOWNLOAD_URL}"
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL "${DOWNLOAD_URL}" -o "/tmp/${BINARY_NAME}"

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-08-03
+
+### Added
+- **GitHub Actions release workflow**: Builds Linux (nightly musl, `immediate-abort`) and Windows (MSVC via `cargo-xwin`) on tag push. Creates GitHub release with changelog body and build provenance attestations.
+
+### Changed
+- **Example configs moved**: `dist/*.example.toml` → `examples/`.
+- **Install scripts**: Removed dead `dist/` fallback URLs; scripts now require a release asset or error cleanly.
+- **Makefile**: Simplified `clean` target now that example TOMLs no longer live in `dist/`.
+
+### Removed
+- **Tracked binaries**: `dist/janq` and `dist/janq.exe` removed from repo; `dist/` added to `.gitignore`. Build output still goes to `dist/` locally.
+
 ## [1.0.5] - 2026-08-02
 
 ### Changed

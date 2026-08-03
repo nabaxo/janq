@@ -8,12 +8,10 @@ BINARY_NAME="janq"
 # GitHub URLs (primary)
 GH_REPO="nabaxo/janq"
 GH_API_URL="https://api.github.com/repos/${GH_REPO}/releases/latest"
-GH_FALLBACK_URL="https://raw.githubusercontent.com/${GH_REPO}/main/dist/${BINARY_NAME}"
 
 # Forgejo URLs (fallback)
 FORGEJO_URL="https://git.nabaxo.dev"
 FORGEJO_API_URL="${FORGEJO_URL}/api/v1/repos/${GH_REPO}/releases/latest"
-FORGEJO_FALLBACK_URL="${FORGEJO_URL}/${GH_REPO}/raw/branch/main/dist/${BINARY_NAME}"
 
 fetch() {
     if command -v curl >/dev/null 2>&1; then
@@ -50,24 +48,15 @@ DOWNLOAD_URL=""
 echo "Checking GitHub for latest release..."
 DOWNLOAD_URL=$(find_release_url "$GH_API_URL")
 
-# 2. Fall back to GitHub raw dist
-if [ -z "$DOWNLOAD_URL" ]; then
-    echo "No GitHub release asset. Trying GitHub raw dist..."
-    if fetch_json "$GH_FALLBACK_URL" >/dev/null 2>&1; then
-        DOWNLOAD_URL="$GH_FALLBACK_URL"
-    fi
-fi
-
-# 3. Fall back to Forgejo release
+# 2. Fall back to Forgejo release
 if [ -z "$DOWNLOAD_URL" ]; then
     echo "GitHub unavailable. Trying Forgejo release..."
     DOWNLOAD_URL=$(find_release_url "$FORGEJO_API_URL")
 fi
 
-# 4. Fall back to Forgejo raw dist
 if [ -z "$DOWNLOAD_URL" ]; then
-    echo "No Forgejo release asset. Falling back to Forgejo raw dist..."
-    DOWNLOAD_URL="$FORGEJO_FALLBACK_URL"
+    echo "Error: No release asset found on GitHub or Forgejo"
+    exit 1
 fi
 
 echo "Downloading from: ${DOWNLOAD_URL}"
