@@ -43,8 +43,10 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Install cargo-xwin
-        run: cargo install cargo-xwin
+      - name: Install cargo-xwin and llvm
+        run: |
+          sudo apt-get install -y llvm
+          cargo install cargo-xwin
 
       - name: Build Windows binary
         run: |
