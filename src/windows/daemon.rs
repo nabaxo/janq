@@ -915,6 +915,14 @@ fn build_tray_menu(
   let tray_menu = Menu::new();
   let mut app_items = FxHashMap::default();
 
+  let title = MenuItem::new(
+    format!("janq - v{}", env!("CARGO_PKG_VERSION")),
+    false,
+    None,
+  );
+  let _ = tray_menu.append(&title);
+  let _ = tray_menu.append(&PredefinedMenuItem::separator());
+
   for name in cfg.app.keys() {
     let hks = cfg.app[name].hotkey.as_vec();
     let hk_str = hks.first().cloned().unwrap_or_default();

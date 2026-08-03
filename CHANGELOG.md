@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **GitHub Actions release workflow**: Builds Linux (nightly musl, `immediate-abort`) and Windows (MSVC via `cargo-xwin`) on tag push. Creates GitHub release with changelog body and build provenance attestations.
+- **Version in tray menu**: Right-click context menu now shows `janq - v{version}` as a disabled title item at the top (both Linux and Windows).
 
 ### Changed
 - **Example configs moved**: `dist/*.example.toml` → `examples/`.

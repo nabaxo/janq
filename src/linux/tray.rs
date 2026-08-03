@@ -59,6 +59,25 @@ fn item_props(
 fn build_layout(config: &Config) -> (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) {
   let mut children: Vec<OwnedValue> = Vec::new();
 
+  // Version title (disabled)
+  {
+    let mut props = item_props(
+      &format!("janq - v{}", env!("CARGO_PKG_VERSION")),
+      None,
+      None,
+    );
+    props.insert("enabled".into(), Value::from(false).try_into().unwrap());
+    let child: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) = (10003, props, vec![]);
+    children.push(Value::from(child).try_into().unwrap());
+  }
+
+  // Separator after title
+  {
+    let props = item_props("", Some("separator"), None);
+    let child: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) = (10004, props, vec![]);
+    children.push(Value::from(child).try_into().unwrap());
+  }
+
   for (i, (name, app_cfg)) in config.app.iter().enumerate() {
     let id = (i + 1) as i32;
 
