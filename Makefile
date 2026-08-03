@@ -80,4 +80,4 @@ size-compare:
 
 clean:
 	cargo clean
-	if [ -d $(DIST_DIR) ]; then find $(DIST_DIR) -maxdepth 1 -type f ! -name "*.toml" -delete; fi
+	rm -rf $(DIST_DIR)
