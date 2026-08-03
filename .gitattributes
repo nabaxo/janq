@@ -1,2 +1,0 @@
-dist/janq filter=lfs diff=lfs merge=lfs -text
-dist/janq.exe filter=lfs diff=lfs merge=lfs -text
