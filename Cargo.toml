@@ -1,8 +1,8 @@
 [package]
 name = "janq"
-version = "1.0.4"
+version = "1.0.5"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.88"
 resolver = "2"
 description = "Quake-style dropdown terminal manager for Linux (KDE) and Windows"
 
@@ -36,7 +36,7 @@ zbus = { version = "5.0", default-features = false, features = ["tokio"] }
 tokio = { version = "1.49.0", features = ["process"] }
 
 [target.'cfg(windows)'.dependencies]
-notify = { version = "8.2", default-features = false }
+notify = { version = "9.0.0-rc.4", default-features = false }
 # Windows needs multi-threaded runtime and named pipe support
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "net", "io-util"] }
 windows = { version = "0.62", features = [
@@ -55,7 +55,7 @@ windows = { version = "0.62", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
 ], default-features = false }
-tray-icon = "0.21"
+tray-icon = "0.24"
 global-hotkey = "0.7"
 
 [profile.release]

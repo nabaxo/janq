@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-08-02
+
+### Changed
+- **Dependencies**: Updated all dependencies to latest compatible versions via `cargo update`.
+- **`notify`**: Upgraded from 8.2 to 9.0.0-rc.4. Event paths on Windows now preserve watched path separator style; relative watch paths consistently produce relative event paths.
+- **`tray-icon`**: Upgraded from 0.21 to 0.24. Adds optional GTK feature, Windows tooltip and visibility fixes.
+- **`tokio`**: 1.49 → 1.53.
+- **`zbus`**: 5.14 → 5.18.
+- **MSRV**: Raised from 1.70 to 1.88 (required by notify 9).
+
 ## [1.0.4] - 2026-07-31
 
 ### Fixed
