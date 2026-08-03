@@ -8,7 +8,7 @@
 <img src="assets/icon.svg" width="190" height="190" align="left">
 
 **janq** is a lightweight, high-performance Quake-style terminal wrapper "vibe" coded with scorn and contempt in Rust. Not all vibes are good, sometimes vibes are _rancid_. The regressions I had to fix like you wouldn't believe... (ノಠ益ಠ)ノ彡┻━┻
-But in the end I managed to wrangle the Wondrous Machine enough so that janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and ~1.7 MB on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and Linux.
+But in the end I managed to wrangle the Wondrous Machine enough so that janq uses ~2MB RAM on both Windows and Linux.
 
 It manages your favorite terminal emulator (WezTerm, Windows Terminal, etc.) or whatever app you feel like, allowing you to toggle it with a global hotkey, featuring smooth animations and multi-monitor support.
 
@@ -56,7 +56,7 @@ _Here's an example with wezterm opening from the top with `show_easing = "quart-
 - **Linux**: KDE Plasma 6 (Wayland via KWin scripts, D-Bus activation, and StatusNotifierItem)
 - **Windows**: Windows 10\*/11 (Native WinAPI)
 
-(Sloperator: The slopmachine says it runs on Windows 10, I have no idea if it actually runs on Window 10. ¯\\\_(ツ)\_/¯)
+(Sloperator: The slopmachine says it runs on Windows 10, I have no idea if it actually runs on Windows 10. ¯\\\_(ツ)\_/¯)
 
 ## Key Features
 
@@ -88,7 +88,7 @@ If GitHub is unavailable, use the Forgejo mirror directly:
 curl -f https://git.nabaxo.dev/nabaxo/janq/raw/branch/main/install.sh | sh -s -- --help
 ```
 
-Check [Command Line Arguhments](#command-line-arguments) for more flags to use. Note that it's not recommened to run the `--setup` argument directly, unless you already have a [`~/.config/janq/janq.toml`](#setup) ready to go, since that forces a refresh of kwin rules etc based on your config.
+Check [Command Line Arguments](#command-line-arguments) for more flags to use. Note that it's not recommended to run the `--setup` argument directly, unless you already have a [`~/.config/janq/janq.toml`](#setup) ready to go, since that forces a refresh of kwin rules etc based on your config.
 
 > [!IMPORTANT]
 > Both distributed binaries are for x86; I'm afraid you have to [build](#building) it yourself for that fancy ARM CPU of yours.
@@ -263,13 +263,13 @@ janq searches for a configuration file _(janq.toml or .janq.toml)_ in the follow
 1.  **Binary Directory** (Portable Mode):
     - Same folder as the `janq` executable.
 2.  **XDG Config Directory**:
-    - `~/.config/janq/` or `~/.config/janq/`
-    - _On Windows_: `%AppData%\Roaming\janq\`
+    - _On Linux:_ `~/.config/janq/`
+    - _On Windows:_ `%APPDATA%\janq\` (which is `%USERPROFILE%\AppData\Roaming\janq\`)
 3.  **User Configuration**:
     - `~/`
-    - _On Windows_: `%UserProfile%\`
+    - _On Windows_: `%USERPROFILE%\`
 
-(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. Option 3, the AI told me is stupid, since the crate we're using checks _any changes_ to containing _folder_. I only left it for completeness).
+(Sloperator's note: Just put it next to the binary, unless you have dotfile repo, then use option 2. On Windows, honestly, just stick with option 1. Option 3, the AI told me is stupid, since the crate we're using checks _any changes_ to containing _folder_. I only left it for completeness).
 
 > [!NOTE]
 > **Platform Validation**: janq validates your configuration against your current operating system. If you attempt to use Linux-specific settings (like `all_desktops` or `force_priority`) on Windows, janq will block startup with an error and explain which settings are incompatible.
@@ -304,9 +304,9 @@ hotkey = "Meta+1"
 
 | Section       | Option               | Default          | Description                                                                          | Per_App |
 | :------------ | :------------------- | :--------------- | :----------------------------------------------------------------------------------- | :-----: |
-| `[app]`       | `window_class`       | **Required**     | Window class/name to match for toggling                                              |    —    |
-|               | `start_command`      | **Required**     | Command to launch the application                                                    |    —    |
-|               | `hotkey`             | `"Meta+Grave"`   | Global hotkey(s) to toggle the app                                                   |    —    |
+| `[app]`       | `window_class`       | **Required**     | Window class/name to match for toggling                                              |    🔒    |
+|               | `start_command`      | **Required**     | Command to launch the application                                                    |    🔒    |
+|               | `hotkey`             | `"Meta+Grave"`   | Global hotkey(s) to toggle the app                                                   |    🔒    |
 | `[window]`    | `display_mode`       | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific`                           |   ❌    |
 |               | `display_index`      | `0`              | Monitor index when `display_mode = "specific"`                                       |   ❌    |
 |               | `width`              | —                | Window width (`%` or `px`)                                                           |   ✔️    |
@@ -337,12 +337,14 @@ hotkey = "Meta+1"
 |               | `hide_opacity_point` | `0.8`            | Animation progress (0-1) when fade-out starts                                        |   ❌    |
 |               | `framerate`\*\*      | `"auto"`         | Animation framerate: `auto`, `0` (disable), or `1-1000` (FPS)                        |   ❌    |
 
+🔒 = per-app only (set inside each `[app]` block) · ✔️ = global default, overridable per-app · ❌ = global only
+
 \*`duration` and `easing` serve as global defaults for both directions. Specific fields (e.g. `show_duration`, `hide_easing`) always take absolute priority when defined. **Note: Durations are scaled based on distance to ensure a constant movement velocity.**
 
 (Sloperator: For your own sanity, just use the single `duration` key, check [here](#sibling-animation-duration-divergence)).
 
 \*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit.)
-_**Note**: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use._.
+_**Note**: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use._
 
 \*\*\*(Linux) First-time activation may require a plasmashell restart. See [known issues](#linux-monochrome-tray-icon-may-require-plasmashell-restart).
 
@@ -449,7 +451,7 @@ janq supports a wide range of keycodes for defining hotkeys. Keys are case-insen
 
 > [!TIP]
 > **Single Hotkey Support**: You can define hotkeys without any modifiers (e.g., `hotkey = "F1"` or `hotkey = "PageUp"`).
->
+
 > [!IMPORTANT]
 > **Global Hijacking**: If you use a single character key (like `hotkey = "s"`) as a global shortcut, it will act globally across your system while the daemon is running. Pressing that key will toggle your application instead of typing the character. We recommend using **Function keys (`F1`-`F12`)** or **Navigation keys** for single-key hotkeys.
 
@@ -559,7 +561,6 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 - **[KWin Scripting API](https://develop.kde.org/docs/plasma/kwin/)**: Direct integration for Wayland window management on Linux.
 - **[windows](https://github.com/microsoft/windows-rs)**: Native Windows API bindings for window management and positioning.
 - **[tray-icon](https://github.com/tauri-apps/tray-icon)** & **[global-hotkey](https://github.com/tauri-apps/global-hotkey)**: Managing the system tray and global shortcuts on Windows.
-
 - **[notify](https://github.com/notify-rs/notify)**: Powering the configuration hot-reloading feature on Windows (Linux uses raw inotify syscalls).
 
 ## Technical Implementation
@@ -569,7 +570,7 @@ make build-windows-nonstatic   # Binary: ./dist/janq-nonstatic.exe
 ### Performance & Platform backend
 
 - **Platform Parity**: janq achieves cross-platform parity by utilizing native APIs. On Windows, it uses the Win32 API and `BeginDeferWindowPos` for atomic, flicker-free multi-window transitions. On Linux (KDE Plasma 6), it injects JavaScript directly into KWin's scripting engine via D-Bus.
-- **Memory Footprint**: janq, on _**cold start** (where you don't have any of the apps to be managed open already),_ uses like ~2.5 MB RAM on Windows and ~1.7 MB on my Fedora KDE system. On not a cold start, it idles at ~2MB RAM on Windows and ~1.7MB on Linux. It manages animations at 144Hz+.
+- **Memory Footprint**: janq uses ~2MB RAM on both Windows and Linux. It manages animations at 144Hz+.
 - **Velocity-Style Animations**: Both platforms use "Velocity-Style" animations where duration scales based on travel distance, ensuring constant movement speed regardless of window position. This coordinated "swipe" ensures the outgoing app slides UP while the new one slides DOWN in perfect sync.
 - **Unified Async Architecture**: Uses a cross-platform Tokio-based async runtime with a single unified event loop for IPC, animations, and heartbeats.
 - **Self-Healing Supervision**: Background tasks (D-Bus monitoring, config watching) are wrapped in supervisor loops that automatically attempt reconnection or re-initialization every 5 seconds upon failure.
@@ -633,7 +634,7 @@ If a managed app is open on one virtual desktop and you hotkey janq from another
 
 ### App Compatibility: Opacity Animations
 
-(Sloperator: This mostly effects Linux, opacity seems to work fine on Windows, even on electron apps).
+(Sloperator: This mostly affects Linux, opacity seems to work fine on Windows, even on electron apps).
 
 Some applications (especially Electron-based ones or XWayland clients) may experience unreliable transparency or "stutter" during motion on Linux.
 
