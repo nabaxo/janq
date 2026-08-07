@@ -566,8 +566,13 @@ pub fn force_focus(hwnd: HWND) {
       }
     }
 
-    // 4. Fallback: ShowWindow with SW_SHOW is often more forceful than SetForegroundWindow
-    let _ = ShowWindow(hwnd, SW_SHOW);
+    // 4. Fallback: only ShowWindow if the target isn't already visible.
+    // SW_SHOW on a visible snapped window disrupts Windows 11 snap state.
+    if !IsWindowVisible(hwnd).as_bool() {
+      let _ = ShowWindow(hwnd, SW_SHOW);
+    } else {
+      let _ = BringWindowToTop(hwnd);
+    }
     let _ = SetForegroundWindow(hwnd);
   }
 }

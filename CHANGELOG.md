@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-08-07
+
+### Fixed
+- **(Windows) Snapped window loses snap state after toggle-hide**: `force_focus` fallback path called `ShowWindow(SW_SHOW)` on already-visible restoration targets, which disrupted Windows 11 snap layouts. Now skips `ShowWindow` for visible windows and uses `BringWindowToTop` (z-order only) instead.
+
 ## [1.0.6] - 2026-08-03
 
 ### Added
