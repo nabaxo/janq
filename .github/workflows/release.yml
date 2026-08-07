@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   build-linux:
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -35,6 +36,7 @@ jobs:
           path: target/x86_64-unknown-linux-musl/release/janq
 
   build-windows:
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
