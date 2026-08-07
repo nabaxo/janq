@@ -580,6 +580,17 @@ pub fn run_animation_task_sync(
           || ANIMATION_GENERATION.load(Ordering::SeqCst) != my_gen
         {
           let _ = timeEndPeriod(1);
+          // Strip WS_EX_LAYERED so GPU-rendered cursors aren't disrupted
+          // when the animation is cancelled before finalization.
+          let ex = GetWindowLongW(target_hwnd.inner(), GWL_EXSTYLE) as u32;
+          if (ex & WS_EX_LAYERED.0) != 0 {
+            let _ = SetLayeredWindowAttributes(target_hwnd.inner(), COLORREF(0), 255, LWA_ALPHA);
+            SetWindowLongW(
+              target_hwnd.inner(),
+              GWL_EXSTYLE,
+              (ex & !WS_EX_LAYERED.0) as i32,
+            );
+          }
           return;
         }
 
@@ -842,6 +853,14 @@ pub fn run_animation_task_sync(
         let best_target = get_best_restoration_target();
         if !best_target.0.is_null() {
           force_focus(best_target);
+          let _ = SendMessageW(
+            best_target,
+            WM_SETCURSOR,
+            Some(WPARAM(best_target.0 as usize)),
+            Some(LPARAM(
+              ((WM_MOUSEMOVE as isize) << 16) | (HTCLIENT as isize),
+            )),
+          );
         }
       }
     }

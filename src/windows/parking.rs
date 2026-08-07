@@ -193,6 +193,13 @@ pub fn restore_hwnd(hwnd: HWND) {
 
     let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
+    // Strip WS_EX_LAYERED now that alpha is 255 — leaving it on disrupts
+    // GPU-rendered cursors in apps like WezTerm.
+    let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    if (ex & WS_EX_LAYERED.0) != 0 {
+      SetWindowLongW(hwnd, GWL_EXSTYLE, (ex & !WS_EX_LAYERED.0) as i32);
+    }
+
     // Only move if strictly necessary (usually we want to restore to a visible area)
     let (x, y, flags) = (100, 100, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
     let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), x, y, 0, 0, flags);

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.7] - 2026-08-07
 
 ### Fixed
+- **(Windows) Cursor disappears on managed windows**: `WS_EX_LAYERED` was left on windows after cancelled animations (rapid toggles) and after daemon restore, disrupting GPU-rendered cursors in apps like WezTerm. Now stripped in all three paths: animation finalization, animation cancellation, and window restore. Also added `WM_SETCURSOR` nudge on the hide path's focus-restoration target to fix cursor loss from `AttachThreadInput` swallowing cursor messages.
 - **(Windows) Snapped window loses snap state after toggle-hide**: `force_focus` fallback path called `ShowWindow(SW_SHOW)` on already-visible restoration targets, which disrupted Windows 11 snap layouts. Now skips `ShowWindow` for visible windows and uses `BringWindowToTop` (z-order only) instead.
 
 ## [1.0.6] - 2026-08-03
