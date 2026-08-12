@@ -231,13 +231,19 @@ static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
 
 async fn get_max_refresh_rate() -> f64 {
   println!("janq: Detecting display refresh rate...");
-  let output = TokioCommand::new("kscreen-doctor")
-    .arg("-o")
-    .output()
-    .await
-    .ok()
-    .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-    .unwrap_or_default();
+  let result = TokioCommand::new("kscreen-doctor").arg("-o").output().await;
+
+  let output = match result {
+    Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+    Err(_) => {
+      println!(
+        "janq: kscreen-doctor not found, defaulting to 60Hz. \
+         Install kscreen-doctor for automatic refresh rate detection, \
+         or set desired framerate in janq.toml"
+      );
+      return 60.0;
+    }
+  };
 
   let max_hz = output
     .lines()
