@@ -88,9 +88,11 @@ pub fn validate_hotkey(s: &str) -> Result<(), String> {
       // If we already have a base key, this MUST have been intended as a modifier
       crate::matching::suggest_similar(&part_lower, MODIFIERS)
     } else {
-      // Otherwise it could be a typo of either
-      crate::matching::suggest_similar(&part_lower, MODIFIERS)
-        .or_else(|| crate::matching::suggest_similar(&part_lower, VALID_KEYS))
+      // Otherwise it could be a typo of either — check both and pick best
+      {
+        let all: Vec<&str> = MODIFIERS.iter().chain(VALID_KEYS.iter()).copied().collect();
+        crate::matching::suggest_similar(&part_lower, &all)
+      }
     };
 
     let hint = if let Some(s) = suggestion {
