@@ -218,15 +218,12 @@ struct KWinState {
   previous_window_id: Option<Box<str>>,
   /// Maximum detected display refresh rate for smooth animation.
   max_refresh_rate: f64,
-  /// Whether kscreen-doctor has been called yet.
-  is_hz_initialized: bool,
 }
 
 static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
   visible_app: None,
   previous_window_id: None,
   max_refresh_rate: 60.0,
-  is_hz_initialized: false,
 });
 
 async fn get_max_refresh_rate() -> f64 {
@@ -266,9 +263,16 @@ async fn get_max_refresh_rate() -> f64 {
   final_hz
 }
 
-pub async fn reset_refresh_rate_logging() {
+pub async fn detect_refresh_rate(config: &Config) {
   let mut state = STATE.lock().await;
-  state.is_hz_initialized = false;
+  if matches!(config.animation.framerate, Framerate::Auto) {
+    state.max_refresh_rate = get_max_refresh_rate().await;
+  } else {
+    println!(
+      "janq: Display refresh rate is read from config: {}Hz",
+      config.animation.framerate
+    );
+  }
 }
 
 /// Resets all KWin-side state after a compositor restart.
@@ -276,11 +280,10 @@ pub async fn reset_refresh_rate_logging() {
 pub async fn reset_state() {
   let mut state = STATE.lock().await;
   state.visible_app = None;
-  state.is_hz_initialized = false;
 }
 
-pub async fn init() {
-  reset_refresh_rate_logging().await;
+pub async fn init(config: &Config) {
+  detect_refresh_rate(config).await;
 }
 
 // Window cache is now managed in src/linux/cache.rs
@@ -483,20 +486,6 @@ pub async fn get_visible_app() -> Option<std::sync::Arc<str>> {
 }
 
 pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) -> Result<()> {
-  {
-    let mut state = STATE.lock().await;
-    if !state.is_hz_initialized {
-      if matches!(config.animation.framerate, Framerate::Auto) {
-        state.max_refresh_rate = get_max_refresh_rate().await;
-      } else {
-        println!(
-          "janq: Display refresh rate is read from config: {}Hz",
-          config.animation.framerate
-        );
-      }
-      state.is_hz_initialized = true;
-    }
-  }
   let mut state = STATE.lock().await;
 
   let app_cfg = match config.app.get(app_name) {

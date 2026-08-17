@@ -50,8 +50,8 @@ use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headles
 use crate::linux::hotkey::sync_kde_shortcuts;
 
 use crate::linux::kwin::{
-  clear_removed_apps_from_cache, grab_apps, init as init_kwin, purge_stale_scripts, recover_all,
-  report_active_window as kwin_report_active, reset_refresh_rate_logging, reset_state,
+  clear_removed_apps_from_cache, detect_refresh_rate, grab_apps, init as init_kwin,
+  purge_stale_scripts, recover_all, report_active_window as kwin_report_active, reset_state,
   reset_visibility, restore_app, restore_quake, sync_kwin_rules, toggle_quake,
 };
 use crate::linux::terminal::{
@@ -319,7 +319,7 @@ pub async fn run_daemon(
   target_app: Option<String>,
 ) -> error::Result<()> {
   println!("Starting janq daemon (PID {})...", std::process::id());
-  init_kwin().await;
+  init_kwin(&initial_config).await;
   let config = Arc::new(RwLock::new(initial_config));
   let conn = zbus::connection::Builder::session()?
     .internal_executor(false)
@@ -621,8 +621,8 @@ pub async fn run_daemon(
             tokio::time::sleep(tokio::time::Duration::from_millis(RE_GRAB_TIME)).await;
             register_sni(&conn_for_sleep, &sni_name_for_sleep).await;
             StatusNotifierItem::emit_new_icon(&conn_for_sleep).await;
-            reset_refresh_rate_logging().await;
             let cfg = config_for_sleep.read().unwrap().clone();
+            detect_refresh_rate(&cfg).await;
             let mut apps_for_grabbing = Vec::new();
             for (_name, app_cfg) in &cfg.app {
               apps_for_grabbing.push((app_cfg, &cfg));
@@ -748,8 +748,7 @@ pub async fn run_daemon(
       }
       let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
 
-      // Ensure refresh rate is re-logged on next toggle if config changed
-      reset_refresh_rate_logging().await;
+      detect_refresh_rate(&new_config_in_async).await;
 
       // 3. Update desktop file (don't run kbuild inside, we'll do it last)
       let desktop_changed = match generate_desktop_file_headless(&new_config_in_async) {

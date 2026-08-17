@@ -344,7 +344,7 @@ hotkey = "Meta+1"
 (Sloperator: For your own sanity, just use the single `duration` key, check [here](#sibling-animation-duration-divergence)).
 
 \*\*(Sloperator: I don't know why I even put this in, I guess if you wanna go lower framerate than your actual framerate for performance reasons. Anyway just omitting this or setting it to `auto`, janq detects the display with the highest framerate and uses that; This is also the smoothest on windows due to some technical bullshit.)
-_**Note**: Providing a fixed framerate on Linux skips the `kscreen-doctor` detection call entirely, saving a bit of CPU/RAM during use._
+_**Note (Linux)**: Auto-detection uses `kscreen-doctor`. If it's not installed, janq defaults to 60Hz. Install it for accurate refresh rate detection, or set a fixed `framerate` value in your config._
 
 \*\*\*(Linux) First-time activation may require a plasmashell restart. See [known issues](#linux-monochrome-tray-icon-may-require-plasmashell-restart).
 

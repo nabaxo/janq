@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-08-17
+
+### Fixed
+- **Hotkey validation suggests wrong key**: `suggest_similar` checked modifiers before keys and short-circuited, so typos like `n3` suggested `alt` instead of `f3`. Now merges all key types before ranking.
+- **(Linux) Refresh rate detection fails when kscreen-doctor is missing**: Added graceful fallback to 60Hz when `kscreen-doctor` is not installed. Detection now runs at daemon startup and on config/sleep changes instead of lazily on first toggle.
+
 ## [1.0.7] - 2026-08-07
 
 ### Fixed
