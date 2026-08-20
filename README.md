@@ -115,6 +115,7 @@ Check [Command Line Arguments](#command-line-arguments) for more flags to use. N
 | :--------------------------- | :--------- | :--------------------------------------------------- |
 | `--daemon`                   | `-d`       | Run as a persistent process (Server Mode).           |
 | `--app [NAME]`               | `-a`       | Toggle a specific application from your config.      |
+| `--config [PATH]`            | `-c`       | Path to config file (janq.toml).                     |
 | `--quit`                     | `-q`       | Gracefully stop the running daemon.                  |
 | `--help`                     | `-h`       | Print help information.                              |
 | `--version`                  | `-v`       | Print version information.                           |

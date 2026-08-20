@@ -58,6 +58,7 @@ struct Args {
   daemon: bool,
   quit: bool,
   app: Option<String>,
+  config: Option<String>,
   #[cfg(target_os = "linux")]
   enable_autostart: bool,
   #[cfg(target_os = "linux")]
@@ -85,8 +86,9 @@ fn print_help() {
   {5}janq{2} {3}[OPTION]{2}
 
 {1}OPTIONS:{2}
-  {4}-d, --daemon{2}           Run as a persistent process (Server Mode)
+  {4}-d, --daemon{2}          Run as a persistent process (Server Mode)
   {4}-a, --app{2} {3}[NAME]{2}      Name of the app to toggle (from config)
+  {4}-c, --config{2} {3}[PATH]{2}   Path to config file (janq.toml)
   {4}-q, --quit{2}            Gracefully stop the running daemon
   {4}-h, --help{2}            Print help information
   {4}-v, --version{2}         Print version information",
@@ -123,6 +125,8 @@ macro_rules! define_flags {
       _ => {
         if $arg.starts_with("--app=") {
           $args.app = Some($arg.trim_start_matches("--app=").to_string());
+        } else if $arg.starts_with("--config=") {
+          $args.config = Some($arg.trim_start_matches("--config=").to_string());
         } else {
           let mut valid: Vec<&str> = Vec::new();
           $(
@@ -168,6 +172,14 @@ fn parse_args() -> Args {
           args.app = Some(val);
         } else {
           show_error("Error: --app requires a value");
+          exit(1);
+        }
+      },
+      "--config" | "-c" => {
+        if let Some(val) = iter.next() {
+          args.config = Some(val);
+        } else {
+          show_error("Error: --config requires a path");
           exit(1);
         }
       },
@@ -267,7 +279,7 @@ fn main() -> error::Result<()> {
 
   let args = parse_args();
 
-  let (config, config_path) = match config::load_config(None) {
+  let (config, config_path) = match config::load_config(args.config.map(std::path::PathBuf::from)) {
     Ok(c) => c,
     Err(e) => {
       show_error(&e.to_string());
