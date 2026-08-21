@@ -542,7 +542,6 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
       .await
       .unwrap_or(("".into(), 0));
 
-
     let effective_hz = match config.animation.framerate {
       Framerate::Auto => state.max_refresh_rate,
       Framerate::Specific(fps) => fps as f64,

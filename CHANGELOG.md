@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No changes yet.
+
+## [1.0.9] - 2026-08-21
+
 ### Added
 - **Custom config path**: New `--config <PATH>` / `-c` CLI switch to specify a config file instead of using the default search paths.
+
+### Fixed
+- **(Linux) Unmanaged windows grabbed as siblings**: When multiple windows shared a PID (e.g., multiple Obsidian/Electron windows), toggling a different app would grab and hide all windows matching that PID — not just the managed one. Sibling matching now uses window ID only, which is authoritative from the cache.
+- **(Linux) Window discovery ignored cache when candidates provided**: `check_window_exists` skipped the cache and went straight to fuzzy matching when called with a candidate list (e.g., during `grab_apps`). Could match a different window of the same class. Now checks cache first and only falls back to fuzzy matching when the cached window is missing or stale.
 
 ## [1.0.8] - 2026-08-17
 

@@ -89,6 +89,87 @@ struct QuakeDaemon {
 
 const RE_GRAB_TIME: u64 = 2000;
 
+fn spawn_dbus_restart_monitor(
+  conn: &Connection,
+  config: &Arc<RwLock<Config>>,
+  dbus_name: &'static str,
+  label: &'static str,
+  fatal_on_failure: bool,
+  sni: Option<(String, Connection)>,
+) {
+  let conn = conn.clone();
+  let config = config.clone();
+  tokio::spawn(async move {
+    use zbus::export::ordered_stream::OrderedStreamExt as _;
+    use zbus::fdo::DBusProxy;
+
+    let mut retry_count = 0;
+    loop {
+      let run_result: zbus::Result<()> = async {
+        let dbus_proxy = DBusProxy::new(&conn).await?;
+        let mut stream = dbus_proxy
+          .receive_name_owner_changed_with_args(&[(0, dbus_name)])
+          .await?;
+
+        while let Some(signal) = stream.next().await {
+          if let Ok(args) = signal.args() {
+            let new_owner_present = args
+              .new_owner()
+              .as_ref()
+              .map(|o| !o.as_str().is_empty())
+              .unwrap_or(false);
+
+            if new_owner_present {
+              println!(
+                "{}: Service restarted, re-grabbing managed windows...",
+                label
+              );
+
+              if let Some((ref sni_name, ref sni_conn)) = sni {
+                register_sni(sni_conn, sni_name).await;
+                StatusNotifierItem::emit_new_icon(sni_conn).await;
+              }
+
+              tokio::time::sleep(tokio::time::Duration::from_millis(RE_GRAB_TIME)).await;
+              reset_state().await;
+
+              let cfg = config.read().unwrap().clone();
+              let mut apps_for_grabbing = Vec::new();
+              for (_name, app_cfg) in &cfg.app {
+                apps_for_grabbing.push((app_cfg, &cfg));
+              }
+              let _ = grab_apps(&apps_for_grabbing, &conn).await;
+              println!("{}: Re-grab complete.", label);
+            }
+          }
+        }
+        Ok(())
+      }
+      .await;
+
+      if let Err(e) = run_result {
+        if retry_count < janq::MAX_RETRY_COUNT {
+          eprintln!("{}: Monitor failed: {}. Retrying in 5s...", label, e);
+          retry_count += 1;
+          tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        } else if fatal_on_failure {
+          let msg = format!(
+            "{} monitor failed persistently: {}\n\njanq will now exit.",
+            label, e
+          );
+          crate::error::show_error(&msg);
+          std::process::exit(1);
+        } else {
+          eprintln!("{}: Monitor failed persistently: {}. Giving up.", label, e);
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+  });
+}
+
 #[interface(name = "org.freedesktop.Application")]
 impl QuakeApplication {
   async fn activate(&self, _platform_data: HashMap<String, OwnedValue>) {
@@ -412,152 +493,16 @@ pub async fn run_daemon(
   // was on disk or its theme cache was stale from a prior negative lookup.
   StatusNotifierItem::emit_new_icon(&conn).await;
 
-  // Monitor StatusNotifierWatcher for restarts and re-register our SNI.
-  // When plasmashell restarts (crash, panel reconfigure, theme change, etc.),
-  // the watcher forgets all registered items. We detect reappearance via the
-  // NameOwnerChanged signal and re-register so the icon comes back automatically.
-  {
-    let conn_for_sni_watch = conn.clone();
-    let sni_name_for_sni_watch = sni_name.clone();
-    let config_for_sni_watch = config.clone();
-    tokio::spawn(async move {
-      use zbus::export::ordered_stream::OrderedStreamExt as _;
-      use zbus::fdo::DBusProxy;
-
-      let mut retry_count = 0;
-      loop {
-        let run_result: zbus::Result<()> = async {
-          let dbus_proxy = DBusProxy::new(&conn_for_sni_watch).await?;
-
-          // Pre-filtered stream: only wakes for org.kde.plasmashell name changes.
-          // This name is more definitive for a shell restart than the SNI watcher itself.
-          let mut stream = dbus_proxy
-            .receive_name_owner_changed_with_args(&[(0, "org.kde.plasmashell")])
-            .await?;
-
-          while let Some(signal) = stream.next().await {
-            if let Ok(args) = signal.args() {
-              // new_owner is non-empty when the watcher has (re)appeared.
-              let new_owner_present = args
-                .new_owner()
-                .as_ref()
-                .map(|o| !o.as_str().is_empty())
-                .unwrap_or(false);
-
-              if new_owner_present {
-                println!("Plasma: Shell restarted, re-registering tray and re-grabbing windows...");
-                register_sni(&conn_for_sni_watch, &sni_name_for_sni_watch).await;
-                StatusNotifierItem::emit_new_icon(&conn_for_sni_watch).await;
-
-                // Plasmashell restart can reset window state — re-grab all managed windows.
-                // We wait 2s to ensure the shell has finished its initial window configuration.
-                tokio::time::sleep(tokio::time::Duration::from_millis(RE_GRAB_TIME)).await;
-                println!("Plasma: Re-grabbing managed windows now...");
-                reset_state().await;
-                let cfg = config_for_sni_watch.read().unwrap().clone();
-                let mut apps_for_grabbing = Vec::new();
-                for (_name, app_cfg) in &cfg.app {
-                  apps_for_grabbing.push((app_cfg, &cfg));
-                }
-                let _ = grab_apps(&apps_for_grabbing, &conn_for_sni_watch).await;
-                println!("Plasma: Recovery complete.");
-              }
-            }
-          }
-          Ok(())
-        }
-        .await;
-
-        if let Err(e) = run_result {
-          if retry_count < janq::MAX_RETRY_COUNT {
-            eprintln!(
-              "Tray: StatusNotifierWatcher monitor failed: {}. Retrying in 5s...",
-              e
-            );
-            retry_count += 1;
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-          } else {
-            let msg = format!(
-              "System Tray Monitor failed persistently: {}\n\njanq will now exit. Please try to manually restart janq.",
-              e
-            );
-            crate::error::show_error(&msg);
-            std::process::exit(1);
-          }
-        } else {
-          // Normal exit (if stream ends unexpectedly but without error)
-          break;
-        }
-      }
-    });
-  }
-
-  // Monitor KWin for restarts (sleep/wake, manual kwin_wayland --replace, etc.)
-  // When KWin restarts, all window state (opacity, blur, properties) is destroyed.
-  // We detect reappearance via NameOwnerChanged and re-grab all managed windows.
-  {
-    let conn_for_kwin_watch = conn.clone();
-    let config_for_kwin_watch = config.clone();
-    tokio::spawn(async move {
-      use zbus::export::ordered_stream::OrderedStreamExt as _;
-      use zbus::fdo::DBusProxy;
-
-      let mut retry_count = 0;
-      loop {
-        let run_result: zbus::Result<()> = async {
-          let dbus_proxy = DBusProxy::new(&conn_for_kwin_watch).await?;
-
-          let mut stream = dbus_proxy
-            .receive_name_owner_changed_with_args(&[(0, "org.kde.KWin")])
-            .await?;
-
-          while let Some(signal) = stream.next().await {
-            if let Ok(args) = signal.args() {
-              let new_owner_present = args
-                .new_owner()
-                .as_ref()
-                .map(|o| !o.as_str().is_empty())
-                .unwrap_or(false);
-
-              if new_owner_present {
-                println!("KWin: Compositor restarted, re-grabbing all managed windows...");
-                // Let KWin fully initialize its scripting engine
-                tokio::time::sleep(tokio::time::Duration::from_millis(RE_GRAB_TIME)).await;
-
-                reset_state().await;
-
-                let cfg = config_for_kwin_watch.read().unwrap().clone();
-                let mut apps_for_grabbing = Vec::new();
-                for (_name, app_cfg) in &cfg.app {
-                  apps_for_grabbing.push((app_cfg, &cfg));
-                }
-                let _ = grab_apps(&apps_for_grabbing, &conn_for_kwin_watch).await;
-                println!("KWin: Re-grab complete.");
-              }
-            }
-          }
-          Ok(())
-        }
-        .await;
-
-        if let Err(e) = run_result {
-          if retry_count < janq::MAX_RETRY_COUNT {
-            eprintln!("KWin: Compositor monitor failed: {}. Retrying in 5s...", e);
-            retry_count += 1;
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-          } else {
-            eprintln!(
-              "KWin: Compositor monitor failed persistently: {}. Giving up.",
-              e
-            );
-            break;
-          }
-        } else {
-          break;
-        }
-      }
-    });
-  }
+  // Monitor D-Bus services for restarts and re-grab managed windows.
+  spawn_dbus_restart_monitor(
+    &conn,
+    &config,
+    "org.kde.plasmashell",
+    "Plasma",
+    true,
+    Some((sni_name.clone(), conn.clone())),
+  );
+  spawn_dbus_restart_monitor(&conn, &config, "org.kde.KWin", "KWin", false, None);
 
   // Monitor logind for sleep/wake cycles.
   // After resume, KWin may have reset window state — re-grab all managed windows.
