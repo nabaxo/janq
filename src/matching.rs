@@ -340,13 +340,16 @@ fn score_subsequence(needle: &str, haystack: &str) -> i32 {
           score += BONUS_BOUNDARY_START;
         } else {
           let prev_char = haystack.as_bytes().get(abs_idx - 1).copied().unwrap_or(0);
-          if prev_char == b'.' || prev_char == b'-' || prev_char == b'_' || prev_char == b' ' {
+          let is_separator =
+            prev_char == b'.' || prev_char == b'-' || prev_char == b'_' || prev_char == b' ';
+          if is_separator {
             score += BONUS_BOUNDARY_SEPARATOR;
           }
         }
 
         // Bonus: Consecutive
-        if last_match_idx != -1 && abs_idx == (last_match_idx as usize) + 1 {
+        let is_consecutive = last_match_idx != -1 && abs_idx == (last_match_idx as usize) + 1;
+        if is_consecutive {
           consecutive_count += 1;
           score += BONUS_CONSECUTIVE * consecutive_count;
         } else {
