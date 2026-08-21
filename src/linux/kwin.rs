@@ -42,8 +42,8 @@ use zbus::{names::BusName, names::InterfaceName, zvariant::ObjectPath, Connectio
 use crate::linux::cache::{clear_cache, get_cached_window, remove_from_cache, update_cache};
 use crate::linux::desktop::find_desktop_file_id;
 use crate::linux::terminal::{
-  check_window_exists, check_window_exists_with_candidates, ensure_terminal_running,
-  fetch_system_windows, get_pid_for_app, is_window_valid,
+  check_window_exists, ensure_terminal_running, fetch_system_windows, get_pid_for_app,
+  is_window_valid,
 };
 use janq::config::{AppConfig, Config, Framerate, PositionOffset, SlideDirection};
 use janq::error::Result;
@@ -470,7 +470,7 @@ async fn get_window_id_and_pid(
   }
 
   // 2. Fallback to Search
-  if let Some(id) = check_window_exists(app_name, class, conn).await {
+  if let Some(id) = check_window_exists(app_name, class, conn, None).await {
     let pid = get_pid_for_app(app_name).unwrap_or(0);
     return Some((id, pid));
   }
@@ -541,6 +541,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class, conn)
       .await
       .unwrap_or(("".into(), 0));
+
 
     let effective_hz = match config.animation.framerate {
       Framerate::Auto => state.max_refresh_rate,
@@ -683,7 +684,7 @@ pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Res
       .map(|(name, _)| name.as_str())
       .unwrap_or("");
 
-    let (target_id, target_pid) = if let Some(id) = check_window_exists_with_candidates(
+    let (target_id, target_pid) = if let Some(id) = check_window_exists(
       app_name,
       &app_cfg.window_class,
       conn,

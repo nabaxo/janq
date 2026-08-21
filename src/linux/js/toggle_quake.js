@@ -26,8 +26,7 @@
     // 2. Identify Siblings (only if they aren't the target and are visible/alive)
     if (c !== target && c.opacity > 0.01) {
       let managedData = null;
-      if (cPid > 0) managedData = incomingSiblings.find(s => s.pid === cPid);
-      if (!managedData && cId !== "") managedData = incomingSiblings.find(s => normalizeId(s.id) === cId);
+      if (cId !== "") managedData = incomingSiblings.find(s => normalizeId(s.id) === cId);
 
       if (managedData) {
         // Use pre-calculated data from Rust

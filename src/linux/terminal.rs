@@ -162,7 +162,7 @@ pub async fn ensure_terminal_running_with_candidates(
   let start_command = &app_cfg.start_command;
 
   // 1. Check if window already exists
-  if check_window_exists_with_candidates_and_managed(app_name, window_class, conn, candidates)
+  if check_window_exists(app_name, window_class, conn, candidates)
     .await
     .is_some()
   {
@@ -182,7 +182,7 @@ pub async fn ensure_terminal_running_with_candidates(
 
     // Another task is already spawning this app. Wait, then check if it finished.
     sleep(Duration::from_millis(200)).await;
-    if check_window_exists(app_name, window_class, conn)
+    if check_window_exists(app_name, window_class, conn, None)
       .await
       .is_some()
     {
@@ -210,9 +210,7 @@ pub async fn ensure_terminal_running_with_candidates(
     sleep(Duration::from_millis(400)).await;
 
     // If release uncovered an existing window, reuse it immediately
-    if let Some(id) =
-      check_window_exists_with_candidates_and_managed(app_name, window_class, conn, None).await
-    {
+    if let Some(id) = check_window_exists(app_name, window_class, conn, None).await {
       println!(
         "janq: Recovering window {} for '{}' after release.",
         id, window_class
@@ -251,9 +249,7 @@ pub async fn ensure_terminal_running_with_candidates(
 
   // Wait for window to appear (more reliable than just process)
   for i in 0..20 {
-    if let Some(_id) =
-      check_window_exists_with_candidates_and_managed(app_name, window_class, conn, None).await
-    {
+    if let Some(_id) = check_window_exists(app_name, window_class, conn, None).await {
       // Give it a moment to finalize
       tokio::time::sleep(Duration::from_millis(500)).await;
       // Call ensure_grabbed (async)
@@ -293,38 +289,24 @@ pub async fn check_window_exists(
   app_name: &str,
   target_class: &str,
   conn: &Connection,
-) -> Option<Box<str>> {
-  check_window_exists_with_candidates(app_name, target_class, conn, None).await
-}
-
-pub async fn check_window_exists_with_candidates(
-  app_name: &str,
-  target_class: &str,
-  conn: &Connection,
   candidates: Option<&[FoundWindow]>,
 ) -> Option<Box<str>> {
-  check_window_exists_with_candidates_and_managed(app_name, target_class, conn, candidates).await
-}
-
-pub async fn check_window_exists_with_candidates_and_managed(
-  app_name: &str,
-  target_class: &str,
-  conn: &Connection,
-  candidates: Option<&[FoundWindow]>,
-) -> Option<Box<str>> {
-  // 1. If candidates are provided (batch search), use them immediately
-  if let Some(list) = candidates {
-    return fuzzy_match_window(target_class, list, Some(app_name)).map(|w| w.id.clone());
-  }
-
-  // 2. Hot path: Check cache and verify liveness
-  {
-    if let Some(cached) = get_cached_window(app_name) {
-      if !cached.id.is_empty() && process::is_process_running(cached.pid, None) {
-        // Process is alive, trust the cached window ID
+  // 1. Hot path: Check cache and verify liveness
+  if let Some(cached) = get_cached_window(app_name) {
+    if !cached.id.is_empty() && process::is_process_running(cached.pid, None) {
+      if let Some(list) = candidates {
+        if list.iter().any(|w| w.id == cached.id) {
+          return Some(cached.id.clone());
+        }
+      } else {
         return Some(cached.id.clone());
       }
     }
+  }
+
+  // 2. If candidates are provided (batch search), fuzzy match as fallback
+  if let Some(list) = candidates {
+    return fuzzy_match_window(target_class, list, Some(app_name)).map(|w| w.id.clone());
   }
 
   // Dead cache entry will be cleaned up in the fallback path below
