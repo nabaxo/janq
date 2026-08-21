@@ -164,6 +164,30 @@ fn calculate_visual_width(s: &str) -> usize {
   width.max(1)
 }
 
+/// Colors a delimited span: pushes the ANSI color code and the opening delimiter,
+/// consumes characters until the closing delimiter is found (inclusive), then pushes
+/// the ANSI reset code.
+fn colorize_delimited(
+  chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+  result: &mut String,
+  open: char,
+  close: char,
+  color: &str,
+) {
+  result.push_str("\x1b[1;");
+  result.push_str(color);
+  result.push('m');
+  result.push(open);
+  while let Some(&inner) = chars.peek() {
+    chars.next();
+    result.push(inner);
+    if inner == close {
+      break;
+    }
+  }
+  result.push_str("\x1b[0m");
+}
+
 /// Colorizes quoted values and key names in error messages.
 fn colorize_message(message: &str) -> String {
   let mut result = String::with_capacity(message.len() + 50);
@@ -171,38 +195,11 @@ fn colorize_message(message: &str) -> String {
 
   while let Some(c) = chars.next() {
     if c == '\'' {
-      // Single-quoted value - cyan
-      result.push_str("\x1b[1;36m'");
-      while let Some(&inner) = chars.peek() {
-        chars.next();
-        result.push(inner);
-        if inner == '\'' {
-          break;
-        }
-      }
-      result.push_str("\x1b[0m");
+      colorize_delimited(&mut chars, &mut result, '\'', '\'', "36");
     } else if c == '`' {
-      // Backtick-quoted value - cyan
-      result.push_str("\x1b[1;36m`");
-      while let Some(&inner) = chars.peek() {
-        chars.next();
-        result.push(inner);
-        if inner == '`' {
-          break;
-        }
-      }
-      result.push_str("\x1b[0m");
+      colorize_delimited(&mut chars, &mut result, '`', '`', "36");
     } else if c == '[' {
-      // Bracketed app name - yellow
-      result.push_str("\x1b[1;33m[");
-      while let Some(&inner) = chars.peek() {
-        chars.next();
-        result.push(inner);
-        if inner == ']' {
-          break;
-        }
-      }
-      result.push_str("\x1b[0m");
+      colorize_delimited(&mut chars, &mut result, '[', ']', "33");
     } else {
       result.push(c);
     }
