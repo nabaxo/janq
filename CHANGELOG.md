@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
+## [1.0.10] - 2026-09-06
+
+### Fixed
+- **(Linux) Hidden window visible after sleep/wake**: GPU reinit on resume causes KWin outputs to briefly go offline; KWin's `kscreen` plugin relocates offscreen windows from secondary monitors to visible positions on the primary monitor. The existing 2s re-grab raced with GPU reinit completion (~2-3s). Added a second re-grab pass 5 seconds later to catch windows repositioned after the first pass.
+
 ## [1.0.9] - 2026-08-21
 
 ### Added
