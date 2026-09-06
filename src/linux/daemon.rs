@@ -574,6 +574,18 @@ pub async fn run_daemon(
             }
             let _ = grab_apps(&apps_for_grabbing, &conn_for_sleep).await;
             println!("Sleep: Re-grab complete.");
+
+            // Second re-grab: apps that recreate their GPU surface after the
+            // initial compositor recovery (e.g. wezterm) can get repositioned
+            // on-screen by KWin's placement logic after the first re-grab.
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            let cfg2 = config_for_sleep.read().unwrap().clone();
+            let mut apps2 = Vec::new();
+            for (_name, app_cfg) in &cfg2.app {
+              apps2.push((app_cfg, &cfg2));
+            }
+            let _ = grab_apps(&apps2, &conn_for_sleep).await;
+            println!("Sleep: Verify re-grab complete.");
           }
         }
       }
