@@ -73,6 +73,10 @@ check:
 install:
 	cargo install --path .
 
+build-deploy: build
+	mkdir -p $(HOME)/.local/bin
+	cp $(DIST_DIR)/janq $(HOME)/.local/bin/janq
+
 size-compare:
 	@echo "--- Binary Size Comparison ---"
 	@ls -lh $(DIST_DIR)/janq $(DIST_DIR)/janq-s || true
