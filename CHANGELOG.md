@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
+## [1.0.11] - 2026-09-22
+
+### Fixed
+- **Splash screen apps not managed correctly**: Apps with splash screens (Discord, Slack, JetBrains IDEs) would have their splash window grabbed and cached instead of the main window. After the splash closed, the stale cache entry caused sibling-hide to silently fail. Added a delayed re-discovery 5s post-spawn on both platforms and a cross-check of cached sibling IDs against live KWin windows during toggle on Linux.
+
 ## [1.0.10] - 2026-09-06
 
 ### Fixed

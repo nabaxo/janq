@@ -508,23 +508,29 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
 
   let should_show = !is_currently_visible;
 
-  // Calculate explicit siblings to hide based on cache and managed apps
+  // Calculate explicit siblings to hide based on cache and managed apps.
+  // Cross-check cached IDs against live KWin windows to skip stale entries
+  // (e.g. splash screen windows that no longer exist).
+  let live_windows = fetch_system_windows(conn).await;
   let mut siblings_json_parts = Vec::new();
   for (name, other_app) in &config.app {
     if name == app_name || other_app.window_class == app_cfg.window_class {
       continue;
     }
 
-    // Check cache for this sibling's window ID
     if let Some(cached) = get_cached_window(name) {
-      if std::path::Path::new(&format!("/proc/{}", cached.pid)).exists() {
-        let anim_parts = get_animation_parts(other_app, config);
+      if cached.id.is_empty()
+        || !live_windows.iter().any(|w| w.id == cached.id)
+        || !std::path::Path::new(&format!("/proc/{}", cached.pid)).exists()
+      {
+        continue;
+      }
+      let anim_parts = get_animation_parts(other_app, config);
 
-        siblings_json_parts.push(format!(
+      siblings_json_parts.push(format!(
           "{{ id: \"{}\", pid: {}, dir: \"{}\", val: {}, pct: {}, neg: {}, ctr: {}, depthVal: {}, depthPct: {}, depthNeg: {}, depthCtr: {}, easing: \"{}\", animOp: {}, noBrd: {} }}",
           cached.id, cached.pid, anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center, anim_parts.depth_val, anim_parts.depth_is_pct, anim_parts.depth_is_neg, anim_parts.depth_is_center, anim_parts.hide_easing, anim_parts.animate_opacity, anim_parts.no_borders
         ));
-      }
     }
   }
   let siblings_json = format!("[{}]", siblings_json_parts.join(", "));

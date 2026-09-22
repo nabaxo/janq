@@ -143,6 +143,25 @@ pub fn ensure_terminal_running(
       // AUTOMATIC GRAB: Park newly discovered window immediately
       park_window(sh, config, app_cfg);
 
+      // Apps with splash screens (Discord, Slack, JetBrains) destroy their
+      // initial window and create a new one. Re-discover after the splash
+      // has likely closed to avoid caching a dead HWND.
+      let app_name_owned: std::sync::Arc<str> = std::sync::Arc::from(app_name);
+      let window_class = app_cfg.window_class.clone();
+      let config_clone = config.clone();
+      let app_cfg_clone = app_cfg.clone();
+      std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(5));
+        if let Some(new_cw) = find_window_by_process(&window_class, None, Some(&app_name_owned)) {
+          {
+            let mut cache = get_app_cache().write().unwrap();
+            cache.insert(app_name_owned, new_cw);
+          }
+          update_managed_hwnds_cache();
+          park_window(new_cw, &config_clone, &app_cfg_clone);
+        }
+      });
+
       break;
     }
 

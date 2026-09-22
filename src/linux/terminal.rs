@@ -254,6 +254,20 @@ pub async fn ensure_terminal_running_with_candidates(
       tokio::time::sleep(Duration::from_millis(500)).await;
       // Call ensure_grabbed (async)
       let _ = ensure_grabbed(app_cfg, config, conn).await;
+
+      // Apps with splash screens (Discord, Slack, JetBrains) destroy their
+      // initial window and create a new one. Re-discover after the splash
+      // has likely closed to avoid caching a dead window ID.
+      let app_name_owned = app_name.to_string();
+      let app_cfg_clone = app_cfg.clone();
+      let config_clone = config.clone();
+      let conn_clone = conn.clone();
+      tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        remove_from_cache(&app_name_owned);
+        let _ = ensure_grabbed(&app_cfg_clone, &config_clone, &conn_clone).await;
+      });
+
       return true;
     }
     if i % 5 == 0 && i > 0 {
