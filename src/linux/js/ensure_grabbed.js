@@ -34,8 +34,20 @@
 
       if (!app.isVisible) {
         console.log(`janq_grab: Parking ${app.windowClass} offscreen (${app.slideFrom || "top"}).`);
+        // Park past the edge of the whole virtual desktop, not the resolved screen:
+        // "above screen X" can land on another monitor stacked above it.
+        // toggle_quake.js repositions to the per-screen hidden spot before showing.
+        const vs = workspace.virtualScreenGeometry;
+        let parkX = slidePos.hiddenX;
+        let parkY = slidePos.hiddenY;
+        switch (app.slideFrom || "top") {
+          case "top": parkY = vs.y - dims.height - 10; break;
+          case "bottom": parkY = vs.y + vs.height + 10; break;
+          case "left": parkX = vs.x - dims.width - 10; break;
+          case "right": parkX = vs.x + vs.width + 10; break;
+        }
         target.opacity = 0.0;
-        target.frameGeometry = { x: slidePos.hiddenX, y: slidePos.hiddenY, width: dims.width, height: dims.height };
+        target.frameGeometry = { x: parkX, y: parkY, width: dims.width, height: dims.height };
       } else {
         console.log(`janq_grab: Restoring ${app.windowClass} to shown position.`);
         target.opacity = 1.0;

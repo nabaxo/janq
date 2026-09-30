@@ -833,12 +833,18 @@ pub async fn recover_all(config: &Config, conn: &Connection) {
   reset_state().await;
   clear_cache();
 
-  let mut apps_for_grabbing = Vec::new();
-  for app_cfg in config.app.values() {
-    apps_for_grabbing.push((app_cfg, config));
-  }
-  let _ = grab_apps(&apps_for_grabbing, conn).await;
+  let _ = grab_all(config, conn).await;
   println!("janq: Recovery complete.");
+}
+
+/// Grabs every configured app: parks hidden ones offscreen, restores the visible one.
+pub async fn grab_all(config: &Config, conn: &Connection) -> Result<()> {
+  let apps: Vec<_> = config
+    .app
+    .values()
+    .map(|app_cfg| (app_cfg, config))
+    .collect();
+  grab_apps(&apps, conn).await
 }
 
 pub async fn reset_visibility(config: &Config) {

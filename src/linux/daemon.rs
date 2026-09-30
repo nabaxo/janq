@@ -50,7 +50,7 @@ use crate::linux::desktop::{generate_desktop_file, generate_desktop_file_headles
 use crate::linux::hotkey::sync_kde_shortcuts;
 
 use crate::linux::kwin::{
-  clear_removed_apps_from_cache, detect_refresh_rate, grab_apps, init as init_kwin,
+  clear_removed_apps_from_cache, detect_refresh_rate, grab_all, init as init_kwin,
   purge_stale_scripts, recover_all, report_active_window as kwin_report_active, reset_state,
   reset_visibility, restore_app, restore_quake, sync_kwin_rules, toggle_quake,
 };
@@ -134,11 +134,7 @@ fn spawn_dbus_restart_monitor(
               reset_state().await;
 
               let cfg = config.read().unwrap().clone();
-              let mut apps_for_grabbing = Vec::new();
-              for (_name, app_cfg) in &cfg.app {
-                apps_for_grabbing.push((app_cfg, &cfg));
-              }
-              let _ = grab_apps(&apps_for_grabbing, &conn).await;
+              let _ = grab_all(&cfg, &conn).await;
               println!("{}: Re-grab complete.", label);
             }
           }
@@ -529,34 +525,27 @@ pub async fn run_daemon(
         }
       };
 
-      let rule = "type='signal',sender='org.freedesktop.login1',\
-        interface='org.freedesktop.login1.Manager',\
-        member='PrepareForSleep'";
-
-      if let Err(e) = system_conn
-        .call_method(
-          Some(zbus::names::BusName::try_from("org.freedesktop.DBus").unwrap()),
-          "/org/freedesktop/DBus",
-          Some(zbus::names::InterfaceName::try_from("org.freedesktop.DBus").unwrap()),
-          "AddMatch",
-          &(rule),
-        )
-        .await
+      let rule = match zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.freedesktop.login1.Manager")
+        .and_then(|b| b.member("PrepareForSleep"))
       {
-        eprintln!("Sleep: Failed to add match rule: {}", e);
-        return;
-      }
+        Ok(b) => b.build(),
+        Err(e) => {
+          eprintln!("Sleep: Failed to build match rule: {}", e);
+          return;
+        }
+      };
 
-      use zbus::message::Type;
-      let mut stream = zbus::MessageStream::from(&system_conn);
+      let mut stream = match zbus::MessageStream::for_match_rule(rule, &system_conn, None).await {
+        Ok(s) => s,
+        Err(e) => {
+          eprintln!("Sleep: Failed to add match rule: {}", e);
+          return;
+        }
+      };
 
       while let Some(Ok(msg)) = stream.next().await {
-        if msg.message_type() != Type::Signal {
-          continue;
-        }
-        if msg.header().member().map(|m| m.as_str()) != Some("PrepareForSleep") {
-          continue;
-        }
         // PrepareForSleep(bool): true = going to sleep, false = waking up
         if let Ok(going_to_sleep) = msg.body().deserialize::<bool>() {
           if !going_to_sleep {
@@ -568,11 +557,7 @@ pub async fn run_daemon(
             StatusNotifierItem::emit_new_icon(&conn_for_sleep).await;
             let cfg = config_for_sleep.read().unwrap().clone();
             detect_refresh_rate(&cfg).await;
-            let mut apps_for_grabbing = Vec::new();
-            for (_name, app_cfg) in &cfg.app {
-              apps_for_grabbing.push((app_cfg, &cfg));
-            }
-            let _ = grab_apps(&apps_for_grabbing, &conn_for_sleep).await;
+            let _ = grab_all(&cfg, &conn_for_sleep).await;
             println!("Sleep: Re-grab complete.");
 
             // Second re-grab: apps that recreate their GPU surface after the
@@ -580,14 +565,54 @@ pub async fn run_daemon(
             // on-screen by KWin's placement logic after the first re-grab.
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             let cfg2 = config_for_sleep.read().unwrap().clone();
-            let mut apps2 = Vec::new();
-            for (_name, app_cfg) in &cfg2.app {
-              apps2.push((app_cfg, &cfg2));
-            }
-            let _ = grab_apps(&apps2, &conn_for_sleep).await;
+            let _ = grab_all(&cfg2, &conn_for_sleep).await;
             println!("Sleep: Verify re-grab complete.");
           }
         }
+      }
+    });
+  }
+
+  // Monitor display hotplug (e.g. DP monitors disconnecting on idle power-off).
+  // KWin moves windows between outputs when displays vanish and return, which can
+  // pull parked windows partly on-screen — re-grab once the display is back.
+  {
+    let conn_for_display = conn.clone();
+    let config_for_display = config.clone();
+    tokio::spawn(async move {
+      use zbus::export::ordered_stream::OrderedStreamExt as _;
+
+      let rule = match zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.kde.ScreenBrightness")
+        .and_then(|b| b.member("DisplayAdded"))
+      {
+        Ok(b) => b.build(),
+        Err(e) => {
+          eprintln!("Display: Failed to build match rule: {}", e);
+          return;
+        }
+      };
+
+      let mut stream =
+        match zbus::MessageStream::for_match_rule(rule, &conn_for_display, None).await {
+          Ok(s) => s,
+          Err(e) => {
+            eprintln!("Display: Failed to add match rule: {}", e);
+            return;
+          }
+        };
+
+      while let Some(Ok(_msg)) = stream.next().await {
+        println!("Display: Display added, re-grabbing managed windows...");
+        // Fast grab minimizes on-screen flash; delayed grab catches any KWin
+        // re-placement that lands after it.
+        for delay in [100, RE_GRAB_TIME] {
+          tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+          let cfg = config_for_display.read().unwrap().clone();
+          let _ = grab_all(&cfg, &conn_for_display).await;
+        }
+        println!("Display: Re-grab complete.");
       }
     });
   }
@@ -615,11 +640,7 @@ pub async fn run_daemon(
     }
 
     // Grabbing apps (now using the pre-fetched list is too old, grab_apps will do its own scan if needed)
-    let mut apps_for_grabbing = Vec::new();
-    for (_name, app_cfg) in &cfg.app {
-      apps_for_grabbing.push((app_cfg, &cfg));
-    }
-    let _ = grab_apps(&apps_for_grabbing, &conn).await;
+    let _ = grab_all(&cfg, &conn).await;
 
     if cfg.window.auto_show {
       let app_to_show = target_app.as_ref();
@@ -694,16 +715,14 @@ pub async fn run_daemon(
       let _ = sync_kwin_rules(&new_config_in_async);
 
       // 2. Ensure all terminals are running and grabbed
-      let mut apps_for_grabbing = Vec::new();
       for (name, app_cfg) in &new_config_in_async.app {
         if !old_config.app.contains_key(name) {
           println!("Watcher: New app detected: {}. Starting terminal...", name);
         }
         // We ensure terminal is running for ALL apps (in case one crashed)
         let _ = ensure_terminal_running(name, app_cfg, &new_config_in_async, &conn_in_async).await;
-        apps_for_grabbing.push((app_cfg, &new_config_in_async));
       }
-      let _ = grab_apps(&apps_for_grabbing, &conn_in_async).await;
+      let _ = grab_all(&new_config_in_async, &conn_in_async).await;
 
       detect_refresh_rate(&new_config_in_async).await;
 

@@ -65,28 +65,29 @@
   let finalHeight = target.frameGeometry.height;
 
   const isHorizontalSlide = (config.slideFrom === "left" || config.slideFrom === "right");
+  const expectedPos = computeSlidePosition(config.slideFrom, config.offsetValue, config.offsetIsPercent, config.offsetIsNegative, config.offsetIsCenter, workArea, fullArea, target.frameGeometry.width, target.frameGeometry.height, config.depthValue, config.depthIsPercent, config.depthIsNegative, config.depthIsCenter);
   let offscreenPos, onScreenThreshold;
   if (isHorizontalSlide) {
-    if (config.slideFrom === "left") {
-      offscreenPos = fullArea.x - target.frameGeometry.width;
-      onScreenThreshold = workArea.x + 50;
-    } else {
-      offscreenPos = fullArea.x + fullArea.width;
-      onScreenThreshold = workArea.x + workArea.width - target.frameGeometry.width - 50;
-    }
+    offscreenPos = expectedPos.hiddenX;
+    onScreenThreshold = config.slideFrom === "left"
+      ? workArea.x + 50
+      : workArea.x + workArea.width - target.frameGeometry.width - 50;
   } else {
-    if (config.slideFrom === "top") {
-      offscreenPos = fullArea.y - target.frameGeometry.height;
-      onScreenThreshold = workArea.y + 50;
-    } else {
-      offscreenPos = fullArea.y + fullArea.height;
-      onScreenThreshold = workArea.y + workArea.height - target.frameGeometry.height - 50;
-    }
+    offscreenPos = expectedPos.hiddenY;
+    onScreenThreshold = config.slideFrom === "top"
+      ? workArea.y + 50
+      : workArea.y + workArea.height - target.frameGeometry.height - 50;
   }
 
-  const onWrongMonitor = isHorizontalSlide
+  // On show, the fixed axis must match this monitor's hidden spot exactly — a window
+  // parked for another monitor can still fall inside this one's range (stacked layouts).
+  const offFixedAxis = config.shouldShow && (isHorizontalSlide
+    ? Math.abs(startY - expectedPos.hiddenY) > 2
+    : Math.abs(startX - expectedPos.hiddenX) > 2);
+
+  const onWrongMonitor = offFixedAxis || (isHorizontalSlide
     ? (startY < workArea.y - 10) || (startY > workArea.y + workArea.height + 10)
-    : (startX < workArea.x - 10) || (startX > workArea.x + workArea.width + 10);
+    : (startX < workArea.x - 10) || (startX > workArea.x + workArea.width + 10));
 
   const needsReposition = onWrongMonitor || (isHorizontalSlide
     ? (config.slideFrom === "left" ? startX < offscreenPos - 50 || startX > onScreenThreshold : startX > offscreenPos + 50 || startX < onScreenThreshold)

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
+## [1.0.12] - 2026-09-30
+
+### Fixed
+- **(Linux) Hidden window partly visible after monitor idle power-off**: Monitors that disconnect when powering off (common with DisplayPort) caused KWin to move parked windows partly on-screen when they reconnected. No sleep occurs, so the sleep/wake re-grab never ran. janq now re-grabs managed windows when a display is re-added (`org.kde.ScreenBrightness.DisplayAdded`), once after 100ms and again after 2s.
+- **(Linux) Parked window visible on stacked monitor layouts**: Hidden windows were parked above the monitor under the cursor, which lands on-screen when another monitor sits above it. Re-grabs now park past the edge of the whole virtual desktop.
+- **(Linux) Diagonal slide when showing on a different monitor**: A window parked for one monitor could pass the "wrong monitor" check of another when their ranges overlapped, sliding diagonally. Showing now repositions unless the window sits exactly at the target monitor's hidden spot.
+
 ## [1.0.11] - 2026-09-22
 
 ### Fixed
