@@ -146,8 +146,7 @@ impl DbusmenuService {
         (parent_id, HashMap::new(), vec![]);
       return Ok((rev, empty));
     }
-    let config = self.config.read().unwrap().clone();
-    let layout = build_layout(&config);
+    let layout = build_layout(&self.config.read().unwrap());
     Ok((rev, layout))
   }
 
@@ -203,7 +202,7 @@ impl DbusmenuService {
     ids: Vec<i32>,
     _property_names: Vec<String>,
   ) -> zbus::fdo::Result<Vec<(i32, HashMap<String, OwnedValue>)>> {
-    let config = self.config.read().unwrap().clone();
+    let config = self.config.read().unwrap();
     let app_count = config.app.len() as i32;
     let mut result = Vec::new();
 
