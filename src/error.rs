@@ -286,8 +286,11 @@ pub fn show_error(message: &str) {
 fn show_error_linux(styled: &str) {
   use std::io::Write;
 
-  // Write message to temp file to preserve ANSI codes perfectly
-  let temp_path = std::env::temp_dir().join("janq_error.txt");
+  // Write message to a file to preserve ANSI codes perfectly. Prefer the
+  // private runtime dir over the shared temp dir.
+  let temp_path = crate::paths::runtime_dir()
+    .unwrap_or_else(std::env::temp_dir)
+    .join("janq_error.txt");
   let file_written = (|| -> std::io::Result<()> {
     let mut file = std::fs::File::create(&temp_path)?;
     writeln!(file, "{}\n\nPress any key to exit...", styled)?;
