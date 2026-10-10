@@ -266,9 +266,10 @@ async fn get_max_refresh_rate() -> f64 {
 }
 
 pub async fn detect_refresh_rate(config: &Config) {
-  let mut state = STATE.lock().await;
   if matches!(config.animation.framerate, Framerate::Auto) {
-    state.max_refresh_rate = get_max_refresh_rate().await;
+    // Run kscreen-doctor before locking so toggles aren't blocked meanwhile.
+    let hz = get_max_refresh_rate().await;
+    STATE.lock().await.max_refresh_rate = hz;
   } else {
     println!(
       "janq: Display refresh rate is read from config: {}Hz",
