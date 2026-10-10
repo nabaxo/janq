@@ -934,13 +934,6 @@ impl WindowConfig {
   pub fn wants_mono(&self, is_dark: bool) -> bool {
     self.mono_icon || (is_dark && self.mono_icon_dark) || (!is_dark && self.mono_icon_light)
   }
-
-  /// True when any mono-icon setting is active — used to gate optional
-  /// startup work (e.g. the Linux kdeglobals watcher) so default installs
-  /// don't pay for plumbing they'll never use.
-  pub fn any_mono(&self) -> bool {
-    self.mono_icon || self.mono_icon_light || self.mono_icon_dark
-  }
 }
 
 /// A type-safe easing curve.
