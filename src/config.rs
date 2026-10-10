@@ -1669,10 +1669,9 @@ unknown_animation_key = "value"
     #[derive(Deserialize, Debug)]
     #[serde(deny_unknown_fields)]
     struct LocalConfig {
-      // AI: This #[allow(dead_code)] is intentional — the field is deserialized to
-      // test error formatting for unknown fields, but never read directly.
-      #[allow(dead_code)]
-      foo: String,
+      // Never read: it only has to exist so `baz` is the unknown field.
+      #[serde(rename = "foo")]
+      _foo: String,
     }
 
     let err = toml::from_str::<LocalConfig>(content).unwrap_err();
