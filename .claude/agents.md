@@ -32,7 +32,7 @@ janq operates on a **Daemon-Client model**:
 ### Linux (KDE Plasma 6) - [src/linux/](src/linux/)
 - **IPC:** D-Bus (`zbus`) for client-daemon communication.
 - **Window Management:** KWin's D-Bus scripting interface.
-- **Daemon:** [src/linux/daemon.rs](src/linux/daemon.rs) — D-Bus daemon exposing `org.freedesktop.Application` for hotkey triggers and `org.janq.Daemon` for CLI commands.
+- **Daemon:** [src/linux/daemon.rs](src/linux/daemon.rs) — D-Bus daemon exposing `org.freedesktop.Application` for hotkey triggers and `dev.nabaxo.janq` for CLI commands and KWin script callbacks; also the tray (StatusNotifierItem), restart/sleep/display-hotplug monitors, and the config reload handler. Restores windows on SIGINT/SIGTERM/SIGHUP.
 - **KWin:** [src/linux/kwin.rs](src/linux/kwin.rs) — Core KWin script injection and window manipulation; coordinates all script loading/execution.
 - **Scripts:** [src/linux/js/](src/linux/js/) — JavaScript snippets dynamically injected into KWin for animations and window queries. Includes `common.js` (shared window matching utilities), `toggle_quake.js`, `ensure_grabbed.js`, `fetch_windows.js`, `get_active_window.js`, `restore.js`.
 - **Hotkeys:** [src/linux/hotkey.rs](src/linux/hotkey.rs) — Registers shortcuts with KDE's KGlobalAccel via D-Bus, converting hotkey strings to Qt keycodes.
@@ -83,7 +83,7 @@ Since apps like "wezterm" might have different internal class names or multiple 
     - If invalid, shows error dialog and preserves previous working state.
 
 ## Configuration Structure (`janq.toml`)
-Config searched in order: `./janq.toml` → `~/.config/janq/janq.toml` → `~/janq.toml`. (`.janq.toml` variants also checked at each location for legacy support.)
+Config searched in order: `janq.toml` next to the binary → `~/.config/janq/janq.toml` → `~/janq.toml`. (`.janq.toml` variants also checked at each location for legacy support.)
 
 ```toml
 [app.terminal]           # App name (key in ordered map)
