@@ -383,8 +383,8 @@ pub fn is_valid_base_key(s: &str) -> bool {
 ///
 /// # Returns
 /// The four control points `(x1, y1, x2, y2)` for the cubic bezier.
-/// The x values should be in [0, 1], but y values can exceed this range
-/// for overshoot effects (like "back" easing).
+/// The x values must be in [0, 1] (as in CSS), but y values can exceed this
+/// range for overshoot effects (like "back" easing).
 ///
 /// Returns `None` if the format is invalid or values cannot be parsed.
 ///
@@ -419,6 +419,12 @@ pub fn parse_bezier(type_: &str) -> Option<(f64, f64, f64, f64)> {
   let y2 = parts.next()?.trim().parse::<f64>().ok()?;
 
   if parts.next().is_some() {
+    return None;
+  }
+
+  // Outside [0, 1] the curve isn't a function of time, and the Newton solvers
+  // (Rust and KWin JS) return garbage.
+  if !(0.0..=1.0).contains(&x1) || !(0.0..=1.0).contains(&x2) {
     return None;
   }
 
@@ -507,5 +513,13 @@ mod tests {
     assert_eq!(parse_bezier("cubic-bezier(1, 2, 3)"), None);
     assert_eq!(parse_bezier("(1, 2, 3, 4, 5)"), None);
     assert_eq!(parse_bezier("cubic-bezier(a, b, c, d)"), None);
+
+    // x must stay in [0, 1]; y may overshoot.
+    assert_eq!(parse_bezier("cubic-bezier(1.5, 0, 0.5, 1)"), None);
+    assert_eq!(parse_bezier("(-0.1, 0, 0.5, 1)"), None);
+    assert_eq!(
+      parse_bezier("(0.5, -2, 0.5, 3)"),
+      Some((0.5, -2.0, 0.5, 3.0))
+    );
   }
 }
