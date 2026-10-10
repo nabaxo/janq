@@ -169,23 +169,11 @@ pub async fn ensure_terminal_running_with_candidates(
     return false;
   }
 
-  // 2. Idempotency Lock — atomic check-and-set under a single lock acquisition
-  loop {
-    let acquired = {
-      let mut spawning = get_spawning_apps().lock().unwrap();
-      spawning.insert(app_name.to_string()) // true = we inserted; false = already present
-    };
-
-    if acquired {
-      break; // We own the spawn slot
-    }
-
-    // Another task is already spawning this app. Wait, then check if it finished.
-    sleep(Duration::from_millis(200)).await;
-    if check_window_exists(app_name, window_class, conn, None)
-      .await
-      .is_some()
-    {
+  // 2. Idempotency Lock — atomic check-and-set under a single lock acquisition.
+  // If another task is already spawning this app, leave it to that task.
+  {
+    let mut spawning = get_spawning_apps().lock().unwrap();
+    if !spawning.insert(app_name.to_string()) {
       return false;
     }
   }
