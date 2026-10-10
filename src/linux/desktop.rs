@@ -26,6 +26,7 @@ pub fn enable_autostart(config: &Config) -> janq::error::Result<()> {
   let desktop = get_desktop_path();
   if !desktop.exists() {
     println!("Desktop file missing at {:?}, generating it...", desktop);
+    let _ = install_icon();
     generate_desktop_file_headless(config)?;
   }
 
@@ -63,6 +64,7 @@ pub fn generate_desktop_file(config: &Config) -> janq::error::Result<()> {
 }
 
 pub fn generate_desktop_file_force(config: &Config) -> janq::error::Result<()> {
+  let _ = install_icon();
   let _ = generate_desktop_file_impl(config, true, true)?;
   Ok(())
 }
@@ -82,8 +84,8 @@ fn generate_desktop_file_impl(
   let exe_path_raw = current_exe.to_string_lossy();
   let exe_path = format!("\"{}\"", exe_path_raw);
 
-  // 1. Install Icon
-  let icons_changed = install_icon().unwrap_or(false);
+  // Icons are installed by the callers that need them: the daemon does it at
+  // startup (before registering the tray), and icons can't change on reload.
 
   // Determine the Exec command for the main entry
   let exec_cmd = format!("{} --daemon", exe_path);
@@ -182,7 +184,7 @@ fn generate_desktop_file_impl(
     fs::write(&service_path, service_content)?;
   }
 
-  let modified = changed || service_changed || icons_changed || force;
+  let modified = changed || service_changed || force;
 
   // 4. Update KDE Sycoca and D-Bus if anything changed
   if modified && run_kbuild {
