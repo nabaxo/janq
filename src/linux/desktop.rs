@@ -1,9 +1,11 @@
+use rustc_hash::FxHashMap;
 use std::{
   env::current_exe,
   fs,
   os::unix::fs::symlink,
   path::{Path, PathBuf},
   process::Command,
+  sync::{Mutex, OnceLock},
 };
 
 use janq::paths::{config_dir, data_local_dir};
@@ -358,12 +360,29 @@ pub fn purge_system_integration() -> janq::error::Result<()> {
   Ok(())
 }
 
+/// Per-class results of `find_desktop_file_id`, kept for the process lifetime:
+/// each scan reads every .desktop file. Restart janq to pick up new apps.
+static DESKTOP_ID_CACHE: OnceLock<Mutex<FxHashMap<String, Option<String>>>> = OnceLock::new();
+
 /// Attempts to find the most likely .desktop file name for a given window class.
 ///
 /// Searches standard XDG locations (~/.local/share/applications and /usr/share/applications)
 /// for a file matching the class name exactly, starting with the class name, or
 /// containing a matching StartupWMClass field.
 pub fn find_desktop_file_id(window_class: &str) -> Option<String> {
+  let cache = DESKTOP_ID_CACHE.get_or_init(Default::default);
+  if let Some(hit) = cache.lock().unwrap().get(window_class) {
+    return hit.clone();
+  }
+  let found = scan_desktop_file_id(window_class);
+  cache
+    .lock()
+    .unwrap()
+    .insert(window_class.to_string(), found.clone());
+  found
+}
+
+fn scan_desktop_file_id(window_class: &str) -> Option<String> {
   let class_lower = window_class.to_lowercase();
   let mut search_dirs = vec![
     data_local_dir()
