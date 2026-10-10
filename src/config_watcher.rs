@@ -85,11 +85,9 @@ where
     let mut pending = false;
 
     loop {
-      let timeout = if pending {
-        settle_delay.saturating_sub(last_event.elapsed())
-      } else {
-        Duration::from_secs(60)
-      };
+      // The debounce timer only runs while an event is pending; when idle the
+      // loop just waits on the channel (no periodic wakeups).
+      let timeout = settle_delay.saturating_sub(last_event.elapsed());
 
       tokio::select! {
         res = rx.recv() => {
@@ -110,11 +108,9 @@ where
             }
           }
         }
-        _ = tokio::time::sleep(timeout) => {
-          if pending {
-            pending = false;
-            on_change().await;
-          }
+        _ = tokio::time::sleep(timeout), if pending => {
+          pending = false;
+          on_change().await;
         }
       }
     }
@@ -170,11 +166,9 @@ where
     let mut pending = false;
 
     loop {
-      let timeout = if pending {
-        settle_delay.saturating_sub(last_event.elapsed())
-      } else {
-        Duration::from_secs(60)
-      };
+      // The debounce timer only runs while an event is pending; when idle the
+      // loop just waits on the channel (no periodic wakeups).
+      let timeout = settle_delay.saturating_sub(last_event.elapsed());
 
       tokio::select! {
         res = rx.recv() => {
@@ -192,11 +186,9 @@ where
             }
           }
         }
-        _ = tokio::time::sleep(timeout) => {
-          if pending {
-            pending = false;
-            on_change().await;
-          }
+        _ = tokio::time::sleep(timeout), if pending => {
+          pending = false;
+          on_change().await;
         }
       }
     }
