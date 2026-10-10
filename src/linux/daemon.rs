@@ -396,6 +396,14 @@ pub async fn run_daemon(
   target_app: Option<String>,
 ) -> error::Result<()> {
   println!("Starting janq daemon (PID {})...", std::process::id());
+
+  // Register signal handlers first so a signal during startup is held until
+  // the final select! (which restores windows) instead of killing the process.
+  // SIGHUP: closing the terminal of a foreground daemon.
+  let mut sigint = signal(SignalKind::interrupt())?;
+  let mut sigterm = signal(SignalKind::terminate())?;
+  let mut sighup = signal(SignalKind::hangup())?;
+
   init_kwin(&initial_config).await;
   let config = Arc::new(RwLock::new(initial_config));
   let conn = zbus::connection::Builder::session()?
@@ -772,12 +780,10 @@ pub async fn run_daemon(
   let config_for_signals = config.clone();
   let conn_for_signals = conn.clone();
 
-  let mut sigint = signal(SignalKind::interrupt())?;
-  let mut sigterm = signal(SignalKind::terminate())?;
-
   tokio::select! {
       _ = sigint.recv() => print_shutdown_message("Received SIGINT"),
       _ = sigterm.recv() => print_shutdown_message("Received SIGTERM"),
+      _ = sighup.recv() => print_shutdown_message("Received SIGHUP"),
   }
 
   let cfg = config_for_signals.read().unwrap().clone();
