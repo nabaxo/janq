@@ -139,7 +139,8 @@ fn to_win_code(key: janq::validation::BaseKey) -> Code {
 
 /// Normalizes a shortcut for the Windows tray accelerator parser.
 pub fn normalize_for_win(shortcut: &str) -> String {
-  let parts: Vec<&str> = shortcut.split('+').collect();
+  // Same separators as parse_hotkey ('+' or '-').
+  let parts = janq::validation::split_hotkey(shortcut);
   let mut normalized = Vec::with_capacity(parts.len());
 
   for part in parts {
