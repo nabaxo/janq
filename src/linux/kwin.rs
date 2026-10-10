@@ -493,6 +493,19 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     None => return Ok(()),
   };
 
+  let live_windows = fetch_system_windows(conn).await;
+
+  // A live PID doesn't prove the window exists: apps that close to the tray
+  // keep running. Drop a cached ID KWin no longer lists so it gets re-discovered.
+  // An empty list means the fetch failed, so keep the cache in that case.
+  if !live_windows.is_empty() {
+    if let Some(cached) = get_cached_window(app_name) {
+      if !cached.id.is_empty() && !live_windows.iter().any(|w| w.id == cached.id) {
+        remove_from_cache(app_name);
+      }
+    }
+  }
+
   let mut is_currently_visible = state.visible_app.as_deref() == Some(app_name);
 
   // If we think it's visible, verify the window still exists
@@ -511,7 +524,6 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
   // Calculate explicit siblings to hide based on cache and managed apps.
   // Cross-check cached IDs against live KWin windows to skip stale entries
   // (e.g. splash screen windows that no longer exist).
-  let live_windows = fetch_system_windows(conn).await;
   let mut siblings_json_parts = Vec::new();
   for (name, other_app) in &config.app {
     if name == app_name || other_app.window_class == app_cfg.window_class {
@@ -551,6 +563,12 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class, conn)
       .await
       .unwrap_or(("".into(), 0));
+
+    // The script can't show anything without a target; don't mark it visible.
+    if target_id.is_empty() {
+      println!("janq: No window found for '{}', nothing to show.", app_name);
+      return Ok(());
+    }
 
     let effective_hz = match config.animation.framerate {
       Framerate::Auto => state.max_refresh_rate,
