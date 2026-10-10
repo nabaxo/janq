@@ -542,7 +542,11 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
     .collect();
 
   if should_show {
+    // ensure_terminal_running can spawn and re-grab via grab_apps, which locks
+    // STATE. tokio's Mutex is not reentrant, so release it meanwhile.
+    drop(state);
     let _ = ensure_terminal_running(app_name, app_cfg, config, conn).await;
+    state = STATE.lock().await;
     update_focus_state(&mut state, &janq_classes, conn).await;
     let (target_id, target_pid) = get_window_id_and_pid(app_name, &app_cfg.window_class, conn)
       .await
