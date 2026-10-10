@@ -12,8 +12,7 @@
 //!
 //! ## Re-exports
 //!
-//! For backward compatibility, `FoundWindow` and `fuzzy_match_window` are
-//! re-exported from the [`crate::matching`] module.
+//! `FoundWindow` is re-exported from the [`crate::matching`] module.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{env::current_exe, fmt, fs, path::PathBuf};
@@ -29,7 +28,7 @@ use serde::{
 };
 
 // Re-export matching types so other modules can import from config
-pub use crate::matching::{fuzzy_match_window, FoundWindow};
+pub use crate::matching::FoundWindow;
 
 // Re-export ConfigError for callers
 pub use crate::error::ConfigError;
