@@ -146,13 +146,15 @@ async fn run_kwin_script(
     )
     .await;
 
-  // 2. Write content to shared memory (/dev/shm) to avoid SSD churn
+  // 2. Write content to RAM to avoid SSD churn. Prefer $XDG_RUNTIME_DIR: unlike
+  // /dev/shm, other users can't pre-create or swap the file KWin loads.
   let shm_dir = std::path::PathBuf::from("/dev/shm");
-  let tmp_path = if shm_dir.exists() {
-    shm_dir.join(format!("{}.js", script_name))
-  } else {
-    temp_dir().join(format!("{}.js", script_name))
+  let script_dir = match janq::paths::runtime_dir() {
+    Some(dir) => dir,
+    None if shm_dir.exists() => shm_dir,
+    None => temp_dir(),
   };
+  let tmp_path = script_dir.join(format!("{}.js", script_name));
 
   fs::write(&tmp_path, script_content)
     .map_err(|e| zbus::Error::Failure(format!("Failed to write script: {}", e)))?;

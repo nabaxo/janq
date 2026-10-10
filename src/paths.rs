@@ -41,6 +41,15 @@ pub fn data_local_dir() -> Option<PathBuf> {
   }
 }
 
+/// Returns the per-user runtime directory (`$XDG_RUNTIME_DIR`): private (0700)
+/// and RAM-backed, unlike the world-writable `/dev/shm` and `/tmp`.
+#[cfg(target_os = "linux")]
+pub fn runtime_dir() -> Option<PathBuf> {
+  env::var_os("XDG_RUNTIME_DIR")
+    .filter(|dir| !dir.is_empty())
+    .map(PathBuf::from)
+}
+
 /// Returns the cache directory of the current user.
 pub fn cache_dir() -> Option<PathBuf> {
   #[cfg(target_os = "windows")]
