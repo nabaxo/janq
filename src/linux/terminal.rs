@@ -355,11 +355,11 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
   }
 
   // 2. Trigger KWin script (Use provided connection)
+  // Fetch failures are logged, not shown: they're typically transient (KWin
+  // restarting, resume from sleep), and show_error would open a terminal window
+  // for each one when janq runs without a TTY.
   if let Err(e) = trigger_fetch_windows(conn, request_id).await {
-    show_error(&format!(
-      "janq: Failed to trigger window fetch script: {}",
-      e
-    ));
+    eprintln!("janq: Failed to trigger window fetch script: {}", e);
     let mut waiters = get_metadata_waiters().lock().unwrap();
     waiters.remove(&request_id);
     return windows;
@@ -368,10 +368,10 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
   let batch = match tokio::time::timeout(Duration::from_millis(2000), rx).await {
     Ok(Ok(b)) => b,
     _ => {
-      show_error(&format!(
+      eprintln!(
         "janq: Timeout waiting for window metadata ID {} from KWin.",
         request_id
-      ));
+      );
       let mut waiters = get_metadata_waiters().lock().unwrap();
       waiters.remove(&request_id);
       return windows;
