@@ -239,6 +239,7 @@ pub fn strip_ansi(s: &str) -> String {
 }
 
 pub fn show_warning(message: &str) {
+  #[cfg(target_os = "windows")]
   use std::io::IsTerminal;
 
   let styled = if message.contains("\x1b[1;33mwarning\x1b[0m") {
@@ -248,12 +249,8 @@ pub fn show_warning(message: &str) {
   };
   eprintln!("{}", styled);
 
-  // Only spawn a GUI warning window if we're not already in an interactive terminal
-  #[cfg(target_os = "linux")]
-  if !std::io::stderr().is_terminal() {
-    show_warning_linux(&styled);
-  }
-
+  // Only spawn a GUI warning window if we're not already in an interactive terminal.
+  // Linux deliberately shows none: warnings stay on stderr to avoid spamming the desktop.
   #[cfg(target_os = "windows")]
   if !std::io::stderr().is_terminal() {
     show_warning_windows(&styled);
@@ -352,12 +349,6 @@ fn show_error_windows(styled: &str) {
       MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST,
     );
   }
-}
-
-#[cfg(target_os = "linux")]
-fn show_warning_linux(_styled: &str) {
-  // Warnings are suppressed when not in a terminal to avoid spamming the desktop.
-  // Native janq warnings are already printed to stderr.
 }
 
 #[cfg(target_os = "windows")]
