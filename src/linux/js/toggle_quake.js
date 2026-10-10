@@ -11,17 +11,17 @@
   const safeTargetPid = config.targetPid || 0;
 
   let target = null;
+  let pidMatch = null;
   const siblingsToHide = [];
 
   for (const c of clients) {
     const cId = normalizeId(c.internalId);
     const cPid = c.pid || 0;
 
-    // 1. Identify Target
-    if (!target) {
-      if (cleanTargetId !== "" && cId === cleanTargetId) target = c;
-      else if (safeTargetPid > 0 && cPid === safeTargetPid) target = c;
-    }
+    // 1. Identify Target: an exact ID match beats a PID match, which can be
+    // another window of the same process.
+    if (cleanTargetId !== "" && cId === cleanTargetId) target = c;
+    else if (!pidMatch && safeTargetPid > 0 && cPid === safeTargetPid) pidMatch = c;
 
     // 2. Identify Siblings (only if they aren't the target and are visible/alive)
     if (c !== target && c.opacity > 0.01) {
@@ -44,7 +44,11 @@
     }
   }
 
+  if (!target) target = pidMatch;
   if (!target) return;
+  // A PID-matched target may have been collected as a sibling before it won.
+  const targetAsSibling = siblingsToHide.indexOf(target);
+  if (targetAsSibling !== -1) siblingsToHide.splice(targetAsSibling, 1);
 
   // Wipe any stale force-blur from a prior interrupted toggle. The show/hide
   // animation re-enables blur for its own duration where appropriate, so this
