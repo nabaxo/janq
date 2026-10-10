@@ -83,22 +83,33 @@ pub fn ensure_terminal_running(
     return false;
   }
 
-  // On Windows, start_command might need cmd /C or just running executable
-  let parts: Vec<&str> = app_cfg.start_command.split_whitespace().collect();
-  if parts.is_empty() {
+  // The program is the first token; a leading "quoted path" may contain spaces.
+  // The rest is passed verbatim so the app parses its own command line.
+  let command_line = app_cfg.start_command.trim();
+  let (program, rest) = match command_line.strip_prefix('"') {
+    Some(quoted) => quoted
+      .split_once('"')
+      .map(|(program, rest)| (program, rest.trim_start()))
+      .unwrap_or((quoted, "")),
+    None => command_line
+      .split_once(char::is_whitespace)
+      .map(|(program, rest)| (program, rest.trim_start()))
+      .unwrap_or((command_line, "")),
+  };
+  if program.is_empty() {
     return false;
   }
-
-  let cmd = parts[0];
-  let final_args = &parts[1..];
 
   println!(
     "janq: starting app '{}' (cmd: {})...",
     app_name, app_cfg.start_command
   );
   const DETACHED_PROCESS: u32 = 0x00000008;
-  let spawn_result = Command::new(cmd)
-    .args(final_args)
+  let mut command = Command::new(program);
+  if !rest.is_empty() {
+    command.raw_arg(rest);
+  }
+  let spawn_result = command
     .creation_flags(DETACHED_PROCESS)
     .stdin(Stdio::null())
     .stdout(Stdio::null())
