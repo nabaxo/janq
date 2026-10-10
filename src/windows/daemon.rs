@@ -412,13 +412,14 @@ pub async fn run_daemon(
   let (initial_menu, mut app_menu_items, mut quit_item_id) =
     build_tray_menu(&config.read().unwrap());
 
-  let icon_id = if config.read().unwrap().window.wants_mono(is_dark_mode()) {
+  // Every wake re-checks the theme; only touch the tray icon when its resource changes.
+  let mut current_icon_id = if config.read().unwrap().window.wants_mono(is_dark_mode()) {
     mono_icon_resource_id()
   } else {
     1
   };
-  let icon =
-    tray_icon::Icon::from_resource(icon_id, None).expect("Failed to load icon from resource");
+  let icon = tray_icon::Icon::from_resource(current_icon_id, None)
+    .expect("Failed to load icon from resource");
   let tray_icon = Some(
     TrayIconBuilder::new()
       .with_menu(Box::new(initial_menu))
@@ -549,8 +550,11 @@ pub async fn run_daemon(
               } else {
                 1
               };
-              if let Ok(ico) = tray_icon::Icon::from_resource(id, None) {
-                let _ = ti.set_icon(Some(ico));
+              if id != current_icon_id {
+                if let Ok(ico) = tray_icon::Icon::from_resource(id, None) {
+                  let _ = ti.set_icon(Some(ico));
+                  current_icon_id = id;
+                }
               }
             }
           }
@@ -563,8 +567,11 @@ pub async fn run_daemon(
               } else {
                 1
               };
-              if let Ok(ico) = tray_icon::Icon::from_resource(id, None) {
-                let _ = ti.set_icon(Some(ico));
+              if id != current_icon_id {
+                if let Ok(ico) = tray_icon::Icon::from_resource(id, None) {
+                  let _ = ti.set_icon(Some(ico));
+                  current_icon_id = id;
+                }
               }
             }
           }
