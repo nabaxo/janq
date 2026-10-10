@@ -655,11 +655,7 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
     }
   }
 
-  // Abort current animation
-  {
-    get_animation_cancel().store(true, std::sync::atomic::Ordering::SeqCst);
-  }
-
+  // The new animation task bumps ANIMATION_GENERATION, which stops the old one.
   let mut restore_focus = false;
   {
     let mut v = visible_app_lock().write().unwrap();
@@ -683,9 +679,6 @@ pub fn toggle_window(app_name: &str, config: &Config) -> bool {
 
   let config_shared = config.clone();
   let app_name_clone: std::sync::Arc<str> = std::sync::Arc::from(app_name);
-
-  // Ensure the animation cancel flag is reset before starting a new task.
-  get_animation_cancel().store(false, std::sync::atomic::Ordering::SeqCst);
 
   std::thread::spawn(move || {
     run_animation_task_sync(
