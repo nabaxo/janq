@@ -6,9 +6,11 @@
 //! - Configuration structs and deserialization
 //!
 //! Config search priority:
-//! 1. Executable directory (`./janq.toml`)
+//! 1. Executable directory (`janq.toml` next to the binary)
 //! 2. XDG config directory (`~/.config/janq/janq.toml`)
-//! 3. Home directory (`~/.janq.toml`)
+//! 3. Home directory (`~/janq.toml`)
+//!
+//! Each location also accepts a hidden `.janq.toml`.
 //!
 //! ## Re-exports
 //!
@@ -424,8 +426,6 @@ fn parse_unit_value(s: &str) -> Result<(f64, bool), String> {
     Err(format!("'{}' must end with '%' or 'px'.", s))
   }
 }
-
-/// A dimension value that can be specified as percent, pixels, or unset.
 
 /// Root configuration structure loaded from janq.toml.
 ///

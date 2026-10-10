@@ -25,11 +25,14 @@ pub struct DbusmenuService {
   pub revision: AtomicU32,
 }
 
-// Menu ID scheme:
+// Menu ID scheme (all but the app entries are stable across reloads):
 //   0       = root
 //   1..N    = app entries (config order)
-//   10000   = separator (stable across reloads)
-//   10001   = "Quit" (stable across reloads)
+//   10000   = separator before Recover/Quit
+//   10001   = "Quit"
+//   10002   = "Recover"
+//   10003   = version title (disabled)
+//   10004   = separator after the title
 
 /// Build properties map for a single menu item.
 fn item_props(

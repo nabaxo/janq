@@ -382,7 +382,7 @@ pub async fn register_via_dbus(
       // Build the key sequence (up to 4 keys)
       let mut key_seq = vec![0; 4];
       for (i, hk_str) in hotkeys.iter().enumerate() {
-        // Validation already performed as pre-step at the top of the function
+        // Config::validate already capped hotkeys at 4 and checked the key names
         key_seq[i] = shortcut_to_keycode(hk_str).unwrap_or(0);
       }
 

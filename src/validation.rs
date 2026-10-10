@@ -13,7 +13,7 @@
 //! ## Easing Curves
 //!
 //! Supports named curves and custom cubic bezier:
-//! - Named: `ease`, `linear`, `sine-in-out`, `back-out`, `expo`, etc.
+//! - Named: `ease`, `linear`, `sine`, `back-out`, `expo`, etc.
 //! - Custom: `cubic-bezier(x1, y1, x2, y2)` or `(x1, y1, x2, y2)`
 
 // =============================================================================

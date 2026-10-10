@@ -699,12 +699,6 @@ use super::animation::run_animation_task_sync;
 
 // Parking and restoration logic moved to parking.rs
 
-/// Applies or removes window borders and ensures the client area is
-/// correctly resized via `SWP_FRAMECHANGED`.
-///
-/// After stripping borders, explicitly sends `WM_SIZE` to notify the
-/// window of its new client dimensions. `SetWindowPos` with
-/// `SWP_FRAMECHANGED` alone only guarantees `WM_NCCALCSIZE`; it
 /// Returns the invisible DWM frame insets (left, top, right, bottom).
 ///
 /// Compares `GetWindowRect` (full rect including invisible border) with
@@ -732,6 +726,12 @@ pub unsafe fn get_frame_insets(hwnd: HWND) -> (i32, i32, i32, i32) {
   (left, top, right, bottom)
 }
 
+/// Applies or removes window borders and ensures the client area is
+/// correctly resized via `SWP_FRAMECHANGED`.
+///
+/// After stripping borders, explicitly sends `WM_SIZE` to notify the
+/// window of its new client dimensions. `SetWindowPos` with
+/// `SWP_FRAMECHANGED` alone only guarantees `WM_NCCALCSIZE`; it
 /// suppresses `WM_SIZE` when the outer rect is unchanged, leaving
 /// apps that size their rendering surface from `WM_SIZE` with a
 /// stale (smaller) paint area.

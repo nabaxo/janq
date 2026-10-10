@@ -21,14 +21,14 @@
 //!
 //! ## Config Hot-Reloading
 //!
-//! A separate thread watches the config file using `notify` crate:
-//! - Debounces rapid changes (500ms window)
+//! A raw inotify watcher (`janq::inotify`) reports config file changes:
+//! - Debounces rapid changes (100ms window)
 //! - On valid reload: updates apps, re-grabs windows, syncs shortcuts
-//! - On invalid config: restores all windows and exits (fail-fast)
+//! - On invalid config: shows an error and keeps the last good config
 //!
 //! ## Signal Handling
 //!
-//! Gracefully handles SIGINT/SIGTERM by restoring all managed windows
+//! Gracefully handles SIGINT/SIGTERM/SIGHUP by restoring all managed windows
 //! to their normal state before exit.
 
 use std::{
@@ -338,10 +338,10 @@ impl StatusNotifierItem {
 impl StatusNotifierItem {
   /// Emit NewIcon on the SNI object so Plasma refreshes the tray icon.
   ///
-  /// We also explicitly emit PropertiesChanged for both IconName and IconPixmap
-  /// because the `mono_icon = true` path keeps IconName empty on both sides of
-  /// a theme change — without a pixmap_changed nudge, Plasma has no reason to
-  /// re-read the property and the recolor stays stale.
+  /// We also explicitly emit PropertiesChanged for both IconName and IconPixmap:
+  /// without that nudge Plasma may not re-read the icon after a theme change,
+  /// and the recolor stays stale. (IconPixmap itself is always empty; the icon
+  /// is served via IconName.)
   pub async fn emit_new_icon(conn: &Connection) {
     let iface_ref = conn
       .object_server()
