@@ -569,6 +569,20 @@ impl Config {
           ),
         ).into());
       }
+      // Both are inserted into generated KWin scripts and .desktop entries,
+      // where these characters would silently break the result.
+      let breaks_scripts = |c: char| c == '"' || c == '\\' || c == ';' || c.is_control();
+      if app_name.contains(breaks_scripts) || app_cfg.window_class.contains(breaks_scripts) {
+        return Err(format_error_with_span(
+          content,
+          path,
+          app_span.clone(),
+          &format!(
+            "App '{}': app names and window_class can't contain quotes, backslashes, ';' or control characters.",
+            app_name
+          ),
+        ).into());
+      }
       if app_cfg.start_command.is_empty() {
         return Err(
           format_error_with_span(
@@ -1609,6 +1623,24 @@ duration = 500
     let config: TestConfig = toml::from_str("[animation]\nduration = 200\n").unwrap();
     assert_eq!(config.animation.show_opacity_point, 0.2);
     assert_eq!(config.animation.hide_opacity_point, 0.8);
+  }
+
+  #[test]
+  fn test_rejects_script_breaking_names() {
+    let path = std::path::Path::new("test.toml");
+
+    let toml_str = "[app.\"my;term\"]\nwindow_class = \"wezterm\"\nstart_command = \"wezterm\"\n";
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.validate(toml_str, path).is_err());
+
+    let toml_str = "[app.term]\nwindow_class = \"wez\\\"term\"\nstart_command = \"wezterm\"\n";
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.app["term"].window_class, "wez\"term");
+    assert!(config.validate(toml_str, path).is_err());
+
+    let toml_str = "[app.term]\nwindow_class = \"wezterm\"\nstart_command = \"wezterm\"\n";
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.validate(toml_str, path).is_ok());
   }
 
   #[test]
