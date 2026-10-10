@@ -141,28 +141,19 @@ fn get_proc_name_by_pid(pid: u32) -> Option<Box<str>> {
 
 /// Ensures the application's terminal/window is running.
 ///
-/// Returns `true` if a new process was spawned, `false` if already running.
+/// Returns `true` if a new process was spawned, `false` if already running
+/// (or another task is spawning it).
 pub async fn ensure_terminal_running(
   app_name: &str,
   app_cfg: &AppConfig,
   config: &Config,
   conn: &Connection,
 ) -> bool {
-  ensure_terminal_running_with_candidates(app_name, app_cfg, config, conn, None).await
-}
-
-pub async fn ensure_terminal_running_with_candidates(
-  app_name: &str,
-  app_cfg: &AppConfig,
-  config: &Config,
-  conn: &Connection,
-  candidates: Option<&[FoundWindow]>,
-) -> bool {
   let window_class = &app_cfg.window_class;
   let start_command = &app_cfg.start_command;
 
   // 1. Check if window already exists
-  if check_window_exists(app_name, window_class, conn, candidates)
+  if check_window_exists(app_name, window_class, conn, None)
     .await
     .is_some()
   {
