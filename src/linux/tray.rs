@@ -15,7 +15,7 @@ use zbus::{interface, Connection};
 
 use crate::linux::hotkey::normalize_shortcut_for_kde;
 use crate::linux::kwin::{recover_all, restore_quake, toggle_quake};
-use janq::config::Config;
+use janq::config::{AppConfig, Config};
 use janq::shutdown::{print_shutdown_message, print_termination_complete};
 
 /// Dbusmenu service providing a right-click context menu for the tray icon.
@@ -55,19 +55,44 @@ fn item_props(
   m
 }
 
+/// Properties of the disabled version title at the top of the menu.
+fn title_props() -> HashMap<String, OwnedValue> {
+  let mut props = item_props(
+    &format!("janq - v{}", env!("CARGO_PKG_VERSION")),
+    None,
+    None,
+  );
+  props.insert("enabled".into(), Value::from(false).try_into().unwrap());
+  props
+}
+
+/// Properties of an app entry: its name, padded, with the first hotkey as shortcut.
+fn app_item_props(name: &str, app_cfg: &AppConfig) -> HashMap<String, OwnedValue> {
+  // Build shortcut display (NBSP padding trick matching old ksni behavior)
+  let hotkeys = app_cfg.hotkey.as_vec();
+  let (shortcut_parts, normalized) = if !hotkeys.is_empty() {
+    let n = normalize_shortcut_for_kde(&hotkeys[0]);
+    let parts: Vec<String> = n.split('+').map(|s| s.trim().to_string()).collect();
+    (Some(parts), n)
+  } else {
+    (None, String::new())
+  };
+
+  let name_len = name.chars().count();
+  let shortcut_len = normalized.chars().count();
+  let padding = 20usize.saturating_sub(name_len + shortcut_len).max(5);
+  let label = format!("{}{}", name, "\u{00A0}".repeat(padding));
+
+  item_props(&label, None, shortcut_parts)
+}
+
 /// Build the full menu layout tuple from current config.
 fn build_layout(config: &Config) -> (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) {
   let mut children: Vec<OwnedValue> = Vec::new();
 
   // Version title (disabled)
   {
-    let mut props = item_props(
-      &format!("janq - v{}", env!("CARGO_PKG_VERSION")),
-      None,
-      None,
-    );
-    props.insert("enabled".into(), Value::from(false).try_into().unwrap());
-    let child: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) = (10003, props, vec![]);
+    let child: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) = (10003, title_props(), vec![]);
     children.push(Value::from(child).try_into().unwrap());
   }
 
@@ -80,23 +105,7 @@ fn build_layout(config: &Config) -> (i32, HashMap<String, OwnedValue>, Vec<Owned
 
   for (i, (name, app_cfg)) in config.app.iter().enumerate() {
     let id = (i + 1) as i32;
-
-    // Build shortcut display (NBSP padding trick matching old ksni behavior)
-    let hotkeys = app_cfg.hotkey.as_vec();
-    let (shortcut_parts, normalized) = if !hotkeys.is_empty() {
-      let n = normalize_shortcut_for_kde(&hotkeys[0]);
-      let parts: Vec<String> = n.split('+').map(|s| s.trim().to_string()).collect();
-      (Some(parts), n)
-    } else {
-      (None, String::new())
-    };
-
-    let name_len = name.chars().count();
-    let shortcut_len = normalized.chars().count();
-    let padding = 20usize.saturating_sub(name_len + shortcut_len).max(5);
-    let label = format!("{}{}", name, "\u{00A0}".repeat(padding));
-
-    let props = item_props(&label, None, shortcut_parts);
+    let props = app_item_props(name, app_cfg);
     let child: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) = (id, props, vec![]);
     children.push(Value::from(child).try_into().unwrap());
   }
@@ -212,26 +221,16 @@ impl DbusmenuService {
       } else if id >= 1 && id <= app_count {
         let idx = (id - 1) as usize;
         if let Some((name, app_cfg)) = config.app.iter().nth(idx) {
-          let hotkeys = app_cfg.hotkey.as_vec();
-          let (shortcut_parts, normalized) = if !hotkeys.is_empty() {
-            let n = normalize_shortcut_for_kde(&hotkeys[0]);
-            let parts: Vec<String> = n.split('+').map(|s| s.trim().to_string()).collect();
-            (Some(parts), n)
-          } else {
-            (None, String::new())
-          };
-          let name_len = name.chars().count();
-          let shortcut_len = normalized.chars().count();
-          let padding = 20usize.saturating_sub(name_len + shortcut_len).max(5);
-          let label = format!("{}{}", name, "\u{00A0}".repeat(padding));
-          result.push((id, item_props(&label, None, shortcut_parts)));
+          result.push((id, app_item_props(name, app_cfg)));
         }
-      } else if id == 10000 {
+      } else if id == 10000 || id == 10004 {
         result.push((id, item_props("", Some("separator"), None)));
       } else if id == 10001 {
         result.push((id, item_props("Quit", None, None)));
       } else if id == 10002 {
         result.push((id, item_props("Recover", None, None)));
+      } else if id == 10003 {
+        result.push((id, title_props()));
       }
     }
     Ok(result)
