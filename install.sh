@@ -12,7 +12,17 @@ API_URL="${INSTANCE_URL}/api/v1/repos/${REPO_PATH}/releases/latest"
 
 echo "Checking for latest release..."
 
-JSON_DATA=$(curl -s "${API_URL}")
+# fetch URL [OUTPUT]: print URL to stdout, or save it to OUTPUT
+if command -v curl >/dev/null 2>&1; then
+    fetch() { if [ -n "$2" ]; then curl -fsSL "$1" -o "$2"; else curl -s "$1"; fi; }
+elif command -v wget >/dev/null 2>&1; then
+    fetch() { if [ -n "$2" ]; then wget -q "$1" -O "$2"; else wget -qO- "$1"; fi; }
+else
+    echo "Error: curl or wget required"
+    exit 1
+fi
+
+JSON_DATA=$(fetch "${API_URL}" || true)
 DOWNLOAD_URL=""
 
 if [ -n "$JSON_DATA" ]; then
@@ -26,19 +36,15 @@ fi
 
 echo "Found release asset: ${DOWNLOAD_URL}"
 echo "Downloading from: ${DOWNLOAD_URL}"
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${DOWNLOAD_URL}" -o "/tmp/${BINARY_NAME}"
-elif command -v wget >/dev/null 2>&1; then
-    wget -q "${DOWNLOAD_URL}" -O "/tmp/${BINARY_NAME}"
-else
-    echo "Error: curl or wget required"
-    exit 1
-fi
+# Private, unpredictable temp file: a fixed /tmp path can be pre-created by another user.
+TMP_FILE=$(mktemp)
+trap 'rm -f "$TMP_FILE"' EXIT
+fetch "${DOWNLOAD_URL}" "${TMP_FILE}"
 
 echo "Installing to ${INSTALL_DIR}..."
 mkdir -p "${INSTALL_DIR}"
-mv "/tmp/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
-chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+mv "${TMP_FILE}" "${INSTALL_DIR}/${BINARY_NAME}"
+chmod 755 "${INSTALL_DIR}/${BINARY_NAME}"
 
 echo "janq installed successfully!"
 
