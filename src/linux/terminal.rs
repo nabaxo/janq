@@ -295,7 +295,7 @@ pub async fn check_window_exists(
 ) -> Option<Box<str>> {
   // 1. Hot path: Check cache and verify liveness
   if let Some(cached) = get_cached_window(app_name) {
-    if !cached.id.is_empty() && process::is_process_running(cached.pid, None) {
+    if !cached.id.is_empty() && process::is_process_running(cached.pid) {
       if let Some(list) = candidates {
         if list.iter().any(|w| w.id == cached.id) {
           return Some(cached.id.clone());
@@ -474,7 +474,7 @@ pub async fn is_window_valid(app_name: &str, id: &str, conn: &Connection) -> boo
 
   // 1. Fast path: Check cache
   if let Some(cached) = get_cached_window(app_name) {
-    if &*cached.id == id && process::is_process_running(cached.pid, None) {
+    if &*cached.id == id && process::is_process_running(cached.pid) {
       return true;
     }
   }
@@ -491,7 +491,7 @@ pub fn get_pid_for_app(app_name: &str) -> Option<u32> {
 pub fn check_process_running(app_name: &str, target_class: &str) -> bool {
   // 1. Fast path: Check cached PID for this specific app
   if let Some(cached) = get_cached_window(app_name) {
-    if process::is_process_running(cached.pid, None) {
+    if process::is_process_running(cached.pid) {
       return true;
     }
   }

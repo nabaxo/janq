@@ -1,10 +1,10 @@
-//! Platform-agnostic process liveness and metadata utilities.
+//! Platform-agnostic process liveness utilities.
 
-/// Verifies if a process is still running and optionally matches a name.
+/// Verifies if a process is still running.
 ///
 /// This provides a unified interface for checking PID liveness without
 /// relying on OS-specific error codes in the core logic.
-pub fn is_process_running(pid: u32, expected_name: Option<&str>) -> bool {
+pub fn is_process_running(pid: u32) -> bool {
   if pid == 0 {
     return false;
   }
@@ -17,30 +17,12 @@ pub fn is_process_running(pid: u32, expected_name: Option<&str>) -> bool {
     };
 
     unsafe {
-      let handle_res = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-      if let Ok(handle) = handle_res {
+      if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
         let mut exit_code: u32 = 0;
         let success = GetExitCodeProcess(handle, &mut exit_code);
-
-        // STILL_ACTIVE is 259
-        if success.is_ok() && exit_code == 259 {
-          if let Some(name) = expected_name {
-            let mut buffer = [0u16; 256];
-            let len =
-              windows::Win32::System::ProcessStatus::GetModuleBaseNameW(handle, None, &mut buffer);
-            let _ = CloseHandle(handle);
-            if len > 0 {
-              return crate::matching::u16_contains_ascii_ignore_case(
-                &buffer[..len as usize],
-                name,
-              );
-            }
-            return false;
-          }
-          let _ = CloseHandle(handle);
-          return true;
-        }
         let _ = CloseHandle(handle);
+        // STILL_ACTIVE is 259
+        return success.is_ok() && exit_code == 259;
       }
     }
     false
@@ -48,44 +30,19 @@ pub fn is_process_running(pid: u32, expected_name: Option<&str>) -> bool {
 
   #[cfg(target_os = "linux")]
   {
-    use std::io::Read;
-
     let mut path_buf = [0u8; 32];
-    let path = if let Ok(n) = format_proc_path(&mut path_buf, pid, "") {
-      n
-    } else {
-      return false;
-    };
-
-    if !std::path::Path::new(path).exists() {
-      return false;
+    match format_proc_path(&mut path_buf, pid) {
+      Ok(path) => std::path::Path::new(path).exists(),
+      Err(()) => false,
     }
-
-    if let Some(name) = expected_name {
-      let mut cmd_buf = [0u8; 32];
-      if let Ok(cmd_path) = format_proc_path(&mut cmd_buf, pid, "/cmdline") {
-        if let Ok(mut f) = std::fs::File::open(cmd_path) {
-          let mut buffer = [0u8; 512];
-          if let Ok(n) = f.read(&mut buffer) {
-            if let Some(part) = buffer[..n].split(|&b| b == 0).next() {
-              if let Some(comm) = part.split(|&b| b == b'/').next_back() {
-                return comm.eq_ignore_ascii_case(name.as_bytes());
-              }
-            }
-          }
-        }
-      }
-      return false;
-    }
-    true
   }
 }
 
 #[cfg(target_os = "linux")]
-fn format_proc_path<'a>(buf: &'a mut [u8], pid: u32, suffix: &str) -> Result<&'a str, ()> {
+fn format_proc_path(buf: &mut [u8], pid: u32) -> Result<&str, ()> {
   use std::io::Write;
   let mut cursor = std::io::Cursor::new(buf);
-  if write!(cursor, "/proc/{}{}", pid, suffix).is_ok() {
+  if write!(cursor, "/proc/{}", pid).is_ok() {
     let len = cursor.position() as usize;
     std::str::from_utf8(&cursor.into_inner()[..len]).map_err(|_| ())
   } else {

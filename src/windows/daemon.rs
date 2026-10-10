@@ -700,7 +700,7 @@ pub async fn run_daemon(
                   if is_alive {
                     let mut pid = 0;
                     GetWindowThreadProcessId(hwnd.hwnd, Some(&mut pid));
-                    !process::is_process_running(pid, None)
+                    !process::is_process_running(pid)
                   } else {
                     true
                   }

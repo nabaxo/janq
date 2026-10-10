@@ -314,7 +314,7 @@ pub fn update_managed_hwnds_cache() {
         let mut pid = 0;
         GetWindowThreadProcessId(cw.hwnd, Some(&mut pid));
         if pid != 0 {
-          if janq::process::is_process_running(pid, None) {
+          if janq::process::is_process_running(pid) {
             if !pids.contains(&pid) {
               pids.push(pid);
             }
