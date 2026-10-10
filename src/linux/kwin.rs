@@ -904,7 +904,9 @@ static RULE_SYNC_MUTEX: StdMutex<()> = StdMutex::new(());
 
 fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
   let _lock = RULE_SYNC_MUTEX.lock().unwrap();
-  let mut applied_any = false;
+  // Only spawn kwriteconfig6 / reconfigure KWin when something actually changes.
+  let mut wrote_any = false;
+  let mut list_changed = false;
 
   // Group windows by their target desktop file to minimize the number of rules
   let mut group_map: FxHashMap<String, Vec<String>> = FxHashMap::default();
@@ -922,8 +924,10 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
     }
   }
 
-  // Identify ALL existing janq rules in the file (even if not in General.rules)
+  // Identify ALL existing janq rules in the file (even if not in General.rules),
+  // and keep every group's values so unchanged rules can be skipped.
   let mut janq_rules = FxHashMap::default();
+  let mut group_values: FxHashMap<String, FxHashMap<String, String>> = FxHashMap::default();
   let kwinrulesrc_path = std::env::var_os("HOME")
     .map(std::path::PathBuf::from)
     .unwrap_or_default()
@@ -935,9 +939,17 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
       let line = line.trim();
       if line.starts_with('[') && line.ends_with(']') {
         current_group = line[1..line.len() - 1].to_string();
-      } else if line.starts_with("Description=janq automated icon fix") {
+        continue;
+      }
+      if line.starts_with("Description=janq automated icon fix") {
         let desc = line.trim_start_matches("Description=").trim().to_string();
         janq_rules.insert(current_group.clone(), desc);
+      }
+      if let Some((key, val)) = line.split_once('=') {
+        group_values
+          .entry(current_group.clone())
+          .or_default()
+          .insert(key.trim().to_string(), val.trim().to_string());
       }
     }
   }
@@ -990,9 +1002,9 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
 
     if !rule_ids.contains(&id) {
       rule_ids.push(id.clone());
+      list_changed = true;
     }
     kept_ids.push(id.clone());
-    applied_any = true;
 
     let regex = format!("(?i){}", classes.join("|"));
     let kv = [
@@ -1006,6 +1018,14 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
       ("desktopfilerule", &"2".to_string()),
     ];
 
+    let unchanged = group_values
+      .get(&id)
+      .is_some_and(|vals| kv.iter().all(|(key, val)| vals.get(*key) == Some(*val)));
+    if unchanged {
+      continue;
+    }
+    wrote_any = true;
+
     for (key, val) in kv {
       let _ = Command::new("kwriteconfig6")
         .args(["--file", "kwinrulesrc", "--group", &id, "--key", key, val])
@@ -1014,7 +1034,6 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
   }
 
   // Remove stale or orphaned janq rules
-  let mut rules_changed = false;
   let mut stale_to_purge = Vec::new();
   for stale_id in janq_rules.keys() {
     if !kept_ids.contains(stale_id) {
@@ -1023,8 +1042,17 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
       }
       rule_ids.retain(|x| x != stale_id);
       stale_to_purge.push(stale_id.clone());
-      rules_changed = true;
+      list_changed = true;
     }
+  }
+
+  // Previously the count was rewritten on every sync; keep self-healing a wrong count.
+  let count_matches = group_values
+    .get("General")
+    .and_then(|general| general.get("count"))
+    .is_some_and(|count| *count == rule_ids.len().to_string());
+  if !kept_ids.is_empty() && !count_matches {
+    list_changed = true;
   }
 
   // If we have stale rules, we perform a manual "sledgehammer" deletion
@@ -1055,7 +1083,7 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
     }
   }
 
-  if applied_any || rules_changed {
+  if list_changed {
     // Sync the master list of rules and the count
     let _ = Command::new("kwriteconfig6")
       .args([
@@ -1079,7 +1107,9 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
         &rule_ids.len().to_string(),
       ])
       .status();
+  }
 
+  if wrote_any || list_changed {
     // Ask KWin to reload its rules immediately
     run_kwin_reconfigure();
     println!("janq: KWin window rules updated.");
