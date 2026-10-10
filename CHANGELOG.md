@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- **(Linux) Toggle engine could hang until restart**: Toggling an app that wasn't running from the CLI (`janq --app`), the tray icon or the tray menu deadlocked the toggle lock while the app spawned. After that, no hotkey, re-grab or Recover worked. The lock is now released while the app starts.
+- **(Linux) Apps that close to the tray couldn't be shown again**: A cached window counted as alive while its process ran, so after closing Discord, Slack or Steam to the tray the hotkey did nothing. Cached window IDs are now checked against KWin's live window list, and a toggle that finds no window no longer marks the app as visible.
+- **(Linux) Wrong window animated when an app has several windows**: The toggle script took the first window with the app's PID before an exact window-ID match, so another window of the same process could slide instead of the managed one.
+- **Short `window_class` could grab unrelated windows**: Typo tolerance accepted 3 edits, so `code` matched Kate's `kate` process while VS Code wasn't running. The allowed edit distance now scales with the class length (one edit per three characters, at least one).
+- **(Windows) `start_command` paths with spaces**: The command was split on every space, so `"C:\Program Files\..."` couldn't work. A quoted program path is now supported, and the remaining arguments are passed through unchanged.
+- **Opacity points ignored their defaults**: An `[animation]` section without `show_opacity_point` / `hide_opacity_point` set both to `0.0` instead of the documented `0.2` / `0.8`.
+- **`--app=` / `--config=` values were lowercased**: Values now keep their case, so `--app=Terminal` and config paths with capitals work.
+- **(Linux) Repeated modifiers registered the wrong shortcut**: `Ctrl+Control+A` registered as Alt+A.
+- **(Linux) Windows not restored when the terminal closed**: A daemon running in a terminal now restores managed windows on SIGHUP. Signals received during startup are handled once startup finishes instead of killing janq midway.
+- **(Linux) Error popups during compositor hiccups**: Transient KWin window-fetch failures (KWin restart, resume) are logged instead of opening an error terminal.
+- **(Linux) `janq --quit` reported success with no daemon running**: It now reports that janq isn't running.
+- **(Linux) Tray title items**: The version title and its separator are now answered by `GetGroupProperties`.
+- **(Windows) Tray hotkey labels**: Labels accept `-` separators (`Ctrl-Alt-F1`) like hotkey parsing does.
+- **Config validation**: The "no config file found" message points to the binary's folder; the current directory isn't searched. Cubic-bezier curves with x values outside [0, 1], and app names or classes containing `"`, `\`, `;` or control characters, are now rejected with an error instead of misbehaving silently.
+
+### Security
+- **(Linux) Private temp files**: KWin scripts and the error dialog file are written to `$XDG_RUNTIME_DIR` (per-user, mode 0700) instead of the world-writable `/dev/shm` and `/tmp`, where another local user could pre-create them. `install.sh` downloads to a `mktemp` file and checks for curl or wget before its first request.
+
+### Changed
+- **(Linux) Less background work**: KWin window rules are written, and KWin reconfigured, only when they change, instead of on every start and config save. Desktop-file lookups are cached, the window-fetch script no longer inlines `common.js`, icons are installed once at startup, refresh-rate detection no longer blocks toggles, and tray menu queries no longer copy the config.
+- **No idle wakeups**: The config watcher no longer wakes every 60s. On Linux, a second press while an app is still spawning returns immediately instead of polling.
+- **(Windows) Tray icon reloads only when it changes**, instead of on every hotkey, tray or IPC event.
+- **Internal cleanup**: Removed unused code (`get_process_name`, `WindowConfig::any_mono`, `score_haystack`, the never-used name check in `is_process_running`, unreachable config-path fallbacks) and fixed `make size-compare`.
 
 ## [1.0.12] - 2026-09-30
 
