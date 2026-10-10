@@ -838,8 +838,8 @@ pub async fn send_quit() -> error::Result<()> {
   let conn = zbus::connection::Builder::session()?.build().await?;
   // The daemon calls exit(0) before it can reply, so the D-Bus call
   // always returns a "NoReply" / peer-disconnected error on success.
-  // Treat any error from the Quit call as success.
-  let _ = conn
+  // Treat any error from the Quit call as success, except "nobody owns the name".
+  let result = conn
     .call_method(
       Some(BusName::try_from("dev.nabaxo.janq.desktop").expect("valid D-Bus bus name")),
       "/dev/nabaxo/janq/daemon",
@@ -848,6 +848,11 @@ pub async fn send_quit() -> error::Result<()> {
       &(),
     )
     .await;
+  if let Err(zbus::Error::MethodError(name, _, _)) = &result {
+    if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" {
+      return Err(janq::format_error_boxed!("janq is not running."));
+    }
+  }
   println!("janq: Quit signal sent to daemon.");
   Ok(())
 }
