@@ -112,7 +112,7 @@ fn print_help() {
 }
 
 macro_rules! define_flags {
-  ($arg:expr, $args:expr, $iter:expr, [
+  ($arg:expr, $raw:expr, $args:expr, $iter:expr, [
     $($(#[$m:meta])* $long:literal $(| $short:literal)* => $logic:expr),* $(,)?
   ]) => {
     match $arg {
@@ -123,10 +123,11 @@ macro_rules! define_flags {
         }
       )*
       _ => {
+        // Flag names match case-insensitively; values keep their case.
         if $arg.starts_with("--app=") {
-          $args.app = Some($arg.trim_start_matches("--app=").to_string());
+          $args.app = Some($raw["--app=".len()..].to_string());
         } else if $arg.starts_with("--config=") {
-          $args.config = Some($arg.trim_start_matches("--config=").to_string());
+          $args.config = Some($raw["--config=".len()..].to_string());
         } else {
           let mut valid: Vec<&str> = Vec::new();
           $(
@@ -150,9 +151,9 @@ fn parse_args() -> Args {
   let mut args = Args::default();
   let mut iter = env::args().skip(1);
 
-  while let Some(arg) = iter.next() {
-    let arg = arg.to_ascii_lowercase();
-    define_flags!(arg.as_str(), args, iter, [
+  while let Some(raw) = iter.next() {
+    let arg = raw.to_ascii_lowercase();
+    define_flags!(arg.as_str(), raw.as_str(), args, iter, [
       "--help" | "-h" => {
         print_help();
         exit(0);
