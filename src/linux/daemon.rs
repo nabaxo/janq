@@ -392,7 +392,7 @@ fn spawn_theme_watcher(conn: &Connection) {
 
 pub async fn run_daemon(
   initial_config: Config,
-  config_path: Option<PathBuf>,
+  config_path: PathBuf,
   target_app: Option<String>,
 ) -> error::Result<()> {
   println!("Starting janq daemon (PID {})...", std::process::id());

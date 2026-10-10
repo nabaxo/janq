@@ -20,7 +20,7 @@ use tokio::sync::mpsc as tokio_mpsc;
 // =============================================================================
 
 /// Spawns a config watcher as an async task with debouncing.
-pub fn spawn_config_watcher<F, Fut>(config_path: Option<PathBuf>, on_change: F)
+pub fn spawn_config_watcher<F, Fut>(config_path: PathBuf, on_change: F)
 where
   F: Fn() -> Fut + Send + 'static,
   Fut: Future<Output = ()> + Send + 'static,
@@ -33,10 +33,10 @@ where
 /// Consolidated helper to reload config and update shared state.
 /// Returns the OLD configuration if reload was successful.
 pub fn reload_shared_config(
-  path: Option<PathBuf>,
+  path: PathBuf,
   shared_config: &std::sync::RwLock<crate::config::Config>,
 ) -> Option<crate::config::Config> {
-  match crate::config::load_config(path) {
+  match crate::config::load_config(Some(path)) {
     Ok((new_cfg, _)) => {
       let mut w = shared_config.write().unwrap();
       let old = w.clone();
@@ -58,14 +58,14 @@ pub fn reload_shared_config(
 // =============================================================================
 
 #[cfg(target_os = "linux")]
-async fn run_watcher_loop_async<F, Fut>(config_path: Option<PathBuf>, on_change: F)
+async fn run_watcher_loop_async<F, Fut>(config_path: PathBuf, on_change: F)
 where
   F: Fn() -> Fut + Send + 'static,
   Fut: Future<Output = ()> + Send + 'static,
 {
   let mut retry_count = 0;
   loop {
-    let mut rx = match crate::inotify::watch_config(config_path.clone()) {
+    let mut rx = match crate::inotify::watch_file_changes(config_path.clone()) {
       Some(rx) => rx,
       None => {
         if retry_count < crate::MAX_RETRY_COUNT {
@@ -128,7 +128,7 @@ use notify::{
 };
 
 #[cfg(windows)]
-async fn run_watcher_loop_async<F, Fut>(config_path: Option<PathBuf>, on_change: F)
+async fn run_watcher_loop_async<F, Fut>(config_path: PathBuf, on_change: F)
 where
   F: Fn() -> Fut + Send + 'static,
   Fut: Future<Output = ()> + Send + 'static,
@@ -174,7 +174,7 @@ where
         res = rx.recv() => {
           match res {
             Some(Ok(event)) => {
-              if is_interesting_event(&event) && is_config_event(&event.paths, config_path.as_ref()) {
+              if is_interesting_event(&event) && is_config_event(&event.paths, &config_path) {
                 last_event = Instant::now();
                 pending = true;
               }
@@ -199,22 +199,18 @@ where
 #[cfg(windows)]
 fn setup_watch_path(
   watcher: &mut RecommendedWatcher,
-  config_path: &Option<PathBuf>,
+  path: &std::path::Path,
 ) -> notify::Result<()> {
-  if let Some(path) = config_path {
-    if let Ok(abs_path) = path.canonicalize() {
-      println!("Watcher: Monitoring config file: {:?}", abs_path);
-      // Watch parent directory to catch file replacements (common with editors)
-      if let Some(parent) = abs_path.parent() {
-        watcher.watch(parent, RecursiveMode::NonRecursive)?;
-      } else {
-        watcher.watch(&abs_path, RecursiveMode::NonRecursive)?;
-      }
+  if let Ok(abs_path) = path.canonicalize() {
+    println!("Watcher: Monitoring config file: {:?}", abs_path);
+    // Watch parent directory to catch file replacements (common with editors)
+    if let Some(parent) = abs_path.parent() {
+      watcher.watch(parent, RecursiveMode::NonRecursive)?;
     } else {
-      watcher.watch(path, RecursiveMode::NonRecursive)?;
+      watcher.watch(&abs_path, RecursiveMode::NonRecursive)?;
     }
-  } else if let Some(home) = crate::paths::home_dir() {
-    watcher.watch(&home, RecursiveMode::NonRecursive)?;
+  } else {
+    watcher.watch(path, RecursiveMode::NonRecursive)?;
   }
   Ok(())
 }
@@ -228,20 +224,11 @@ fn is_interesting_event(event: &Event) -> bool {
 }
 
 #[cfg(windows)]
-fn is_config_event(event_paths: &[PathBuf], config_path: Option<&PathBuf>) -> bool {
-  let target = if let Some(p) = config_path {
-    p.clone()
-  } else {
-    match crate::paths::home_dir().map(|h| h.join(".janq.toml")) {
-      Some(h) => h,
-      None => return false,
-    }
-  };
-
+fn is_config_event(event_paths: &[PathBuf], target: &std::path::Path) -> bool {
   let target_abs = target.canonicalize().ok();
 
   for p in event_paths {
-    if *p == target {
+    if p.as_path() == target {
       return true;
     }
     if let Ok(p_abs) = p.canonicalize() {

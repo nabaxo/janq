@@ -1195,7 +1195,7 @@ fn default_hotkey() -> &'static str {
 // Config Loading
 // =============================================================================
 
-pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathBuf>), ConfigError> {
+pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, PathBuf), ConfigError> {
   if let Some(path) = target_path {
     if path.exists() {
       match fs::read_to_string(&path) {
@@ -1203,7 +1203,7 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
           Ok(c) => {
             println!("Loaded config from (cached): {:?}", path);
             c.validate(&content, &path)?;
-            return Ok((c, Some(path)));
+            return Ok((c, path));
           }
           Err(e) => {
             return Err(format_toml_error(&content, &path, e).into());
@@ -1260,7 +1260,7 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, Option<PathB
           Ok(c) => {
             println!("Loaded config from: {:?}", path);
             c.validate(&content, &path)?;
-            return Ok((c, Some(path)));
+            return Ok((c, path));
           }
           Err(e) => {
             return Err(format_toml_error(&content, &path, e).into());

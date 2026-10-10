@@ -155,14 +155,3 @@ pub fn watch_file_changes(file_path: PathBuf) -> Option<tokio_mpsc::UnboundedRec
 
   Some(rx)
 }
-
-/// Watches the janq config file for changes. Thin wrapper around
-/// [`watch_file_changes`] that resolves the default path when none is provided.
-pub fn watch_config(config_path: Option<PathBuf>) -> Option<tokio_mpsc::UnboundedReceiver<()>> {
-  let config_file = config_path.unwrap_or_else(|| {
-    crate::paths::home_dir()
-      .map(|h| h.join(".janq.toml"))
-      .unwrap_or_default()
-  });
-  watch_file_changes(config_file)
-}

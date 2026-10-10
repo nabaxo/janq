@@ -227,7 +227,7 @@ enum DaemonEvent {
 
 pub async fn run_daemon(
   initial_config: Config,
-  config_path: Option<PathBuf>,
+  config_path: PathBuf,
   target_app: Option<String>,
 ) -> janq::error::Result<()> {
   println!("Starting janq daemon...");
