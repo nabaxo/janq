@@ -449,6 +449,13 @@ pub async fn fetch_system_windows_async(conn: &Connection) -> Vec<FoundWindow> {
     });
   }
 
+  // Forget names of PIDs that no longer own a window, so a reused PID can't
+  // inherit a dead process's name.
+  get_proc_cache()
+    .lock()
+    .unwrap()
+    .retain(|pid, _| windows.iter().any(|w| w.pid == *pid));
+
   // Update scan cache
   {
     let mut cache = SCAN_CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap();
