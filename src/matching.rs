@@ -330,13 +330,6 @@ fn score_haystack_with_typos(lower_target: &str, lower_haystack: &str) -> i32 {
   typo_score.max(0)
 }
 
-/// Scores how well a haystack (window class/process name) matches the target.
-/// This version lowercases the haystack, which may allocate.
-pub fn score_haystack(lower_target: &str, haystack: &str) -> i32 {
-  let lower_haystack = haystack.to_lowercase();
-  score_haystack_lowercased(lower_target, &lower_haystack, usize::MAX)
-}
-
 /// Scores a fuzzy subsequence match with boundary/gap penalties.
 fn score_subsequence(needle: &str, haystack: &str) -> i32 {
   let mut score = 0;
