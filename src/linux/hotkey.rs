@@ -217,7 +217,7 @@ fn shortcut_to_keycode(shortcut: &str) -> janq::error::Result<i32> {
         part
       ));
     }
-    total += key;
+    total |= key;
   }
 
   Ok(total)
@@ -418,6 +418,15 @@ mod tests {
     assert_eq!(normalize_shortcut_for_kde("Ctrl+Alt+F12"), "Ctrl+Alt+F12");
     assert_eq!(normalize_shortcut_for_kde("shift+a"), "Shift+A");
     assert_eq!(normalize_shortcut_for_kde("Super+Section"), "Meta+§");
+  }
+
+  #[test]
+  fn test_duplicate_modifier_keycode() {
+    // Adding Ctrl's bit twice would carry into Alt's bit.
+    assert_eq!(
+      shortcut_to_keycode("Ctrl+Control+A").unwrap(),
+      0x04000000 | 0x41
+    );
   }
 
   #[test]
