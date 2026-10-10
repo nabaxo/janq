@@ -79,7 +79,7 @@ build-deploy: build
 
 size-compare:
 	@echo "--- Binary Size Comparison ---"
-	@ls -lh $(DIST_DIR)/janq $(DIST_DIR)/janq-s || true
+	@ls -lh $(DIST_DIR)/janq-stable $(DIST_DIR)/janq-stable-s || true
 	@ls -lh $(DIST_DIR)/janq.exe $(DIST_DIR)/janq-s.exe || true
 
 clean:
