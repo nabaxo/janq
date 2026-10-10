@@ -765,7 +765,6 @@ pub async fn run_daemon(
 
       if hotkeys_changed || desktop_changed {
         println!("Config: Shortcuts or Desktop entries changed, synchronizing with KDE...");
-        let _ = sync_kwin_rules(&new_config_in_async);
         if let Err(e) =
           sync_kde_shortcuts(&new_config_in_async, Some(&old_config), &conn_in_async).await
         {
