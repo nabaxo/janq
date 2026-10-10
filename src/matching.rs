@@ -164,11 +164,21 @@ pub fn u16_score_haystack_ascii_ignore_case(haystack: &[u16], lower_target: &str
 
     // 4. Edit distance for typos
     let dist = levenshtein_distance(lower_target, haystack_s);
+    if dist > max_window_typo_distance(lower_target) {
+      return 0;
+    }
     let typo_score = 800 - (dist as i32 * 100);
     typo_score.max(0)
   } else {
     0
   }
+}
+
+/// Largest edit distance still treated as a typo when matching windows.
+/// Scales with the target so a short class ("code") can't fuzzy-match an
+/// unrelated short name ("kate").
+fn max_window_typo_distance(lower_target: &str) -> usize {
+  (lower_target.chars().count() / 3).max(1)
 }
 
 /// Calculates the Levenshtein distance between two strings using a stack-based buffer.
@@ -222,6 +232,7 @@ pub fn fuzzy_match_window(
     return None;
   }
 
+  let max_typo = max_window_typo_distance(&lower_target);
   let mut best_score = THRESHOLD_WINDOW_MATCH;
   let mut best_win = None;
 
@@ -243,7 +254,7 @@ pub fn fuzzy_match_window(
         continue;
       }
 
-      let haystack_score = score_haystack_lowercased(&lower_target, haystack);
+      let haystack_score = score_haystack_lowercased(&lower_target, haystack, max_typo);
       score = score.max(haystack_score);
     }
 
@@ -275,7 +286,12 @@ pub fn fuzzy_match_window(
 }
 
 /// Scores how well a lowercased haystack (window class/process name) matches the target.
-fn score_haystack_lowercased(lower_target: &str, lower_haystack: &str) -> i32 {
+/// Typo matches beyond `max_typo_dist` edits score 0.
+fn score_haystack_lowercased(
+  lower_target: &str,
+  lower_haystack: &str,
+  max_typo_dist: usize,
+) -> i32 {
   // 1. Exact match
   if lower_haystack == lower_target {
     return SCORE_EXACT_MATCH;
@@ -294,6 +310,9 @@ fn score_haystack_lowercased(lower_target: &str, lower_haystack: &str) -> i32 {
 
   // 4. Edit distance for typos (lower priority than subsequence)
   let dist = levenshtein_distance(lower_target, lower_haystack);
+  if dist > max_typo_dist {
+    return 0;
+  }
   let typo_score = 800 - (dist as i32 * 100);
   typo_score.max(0)
 }
@@ -301,7 +320,7 @@ fn score_haystack_lowercased(lower_target: &str, lower_haystack: &str) -> i32 {
 /// Scores how well a lowercased haystack (window class/process name) matches the target.
 /// This version is used for config validation suggestions and allows larger distances.
 fn score_haystack_with_typos(lower_target: &str, lower_haystack: &str) -> i32 {
-  let score = score_haystack_lowercased(lower_target, lower_haystack);
+  let score = score_haystack_lowercased(lower_target, lower_haystack, usize::MAX);
   if score > 0 {
     return score;
   }
@@ -315,7 +334,7 @@ fn score_haystack_with_typos(lower_target: &str, lower_haystack: &str) -> i32 {
 /// This version lowercases the haystack, which may allocate.
 pub fn score_haystack(lower_target: &str, haystack: &str) -> i32 {
   let lower_haystack = haystack.to_lowercase();
-  score_haystack_lowercased(lower_target, &lower_haystack)
+  score_haystack_lowercased(lower_target, &lower_haystack, usize::MAX)
 }
 
 /// Scores a fuzzy subsequence match with boundary/gap penalties.
@@ -586,6 +605,15 @@ mod tests {
     let candidates_b = vec![make_window("2", "obsidian", "", true, false)];
     let result_b = fuzzy_match_window("janq", &candidates_b, None);
     assert!(result_b.is_none());
+  }
+
+  #[test]
+  fn test_short_target_typo_does_not_hijack() {
+    // Edit distance 3 from "kate" for both targets: a short class must not
+    // fuzzy-match an unrelated visible window when its own app isn't running.
+    let candidates = vec![make_window("1", "org.kde.kate", "kate", true, false)];
+    assert!(fuzzy_match_window("code", &candidates, None).is_none());
+    assert!(fuzzy_match_window("kitty", &candidates, None).is_none());
   }
 
   #[test]
