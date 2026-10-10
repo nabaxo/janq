@@ -1155,8 +1155,8 @@ impl<'de> Deserialize<'de> for AnimationConfig {
       show_easing: Option<Easing>,
       hide_easing: Option<Easing>,
       animate_opacity: bool,
-      show_opacity_point: f64,
-      hide_opacity_point: f64,
+      show_opacity_point: Option<f64>,
+      hide_opacity_point: Option<f64>,
       framerate: Option<Framerate>,
     }
 
@@ -1169,8 +1169,8 @@ impl<'de> Deserialize<'de> for AnimationConfig {
       show_easing: s.show_easing.or(s.easing).unwrap_or(d.show_easing),
       hide_easing: s.hide_easing.or(s.easing).unwrap_or(d.hide_easing),
       animate_opacity: s.animate_opacity,
-      show_opacity_point: s.show_opacity_point,
-      hide_opacity_point: s.hide_opacity_point,
+      show_opacity_point: s.show_opacity_point.unwrap_or(d.show_opacity_point),
+      hide_opacity_point: s.hide_opacity_point.unwrap_or(d.hide_opacity_point),
       framerate: s.framerate.unwrap_or(d.framerate),
     })
   }
@@ -1604,6 +1604,19 @@ duration = 500
     // With the refined implementation, explicit fields override the fallback regardless of order.
     assert_eq!(config3.animation.show_duration, 300);
     assert_eq!(config3.animation.hide_duration, 500);
+  }
+
+  #[test]
+  fn test_animation_opacity_point_defaults() {
+    #[derive(Deserialize, Debug)]
+    struct TestConfig {
+      animation: AnimationConfig,
+    }
+
+    // An [animation] table without the point keys keeps the documented defaults.
+    let config: TestConfig = toml::from_str("[animation]\nduration = 200\n").unwrap();
+    assert_eq!(config.animation.show_opacity_point, 0.2);
+    assert_eq!(config.animation.hide_opacity_point, 0.8);
   }
 
   #[test]
