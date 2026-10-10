@@ -1,5 +1,4 @@
 (function (requestId) {
-  /*{{COMMON_KWIN_JS}}*/
   const windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
   const results = [];
   for (const w of windows) {
