@@ -1279,7 +1279,7 @@ pub fn load_config(target_path: Option<PathBuf>) -> Result<(Config, PathBuf), Co
   let msg = if cfg!(target_os = "windows") {
     "No config file found. Create %APPDATA%\\janq\\janq.toml with at least one [app] section."
   } else {
-    "No config file found. Create ./janq.toml or ~/.config/janq/janq.toml with at least one [app] section."
+    "No config file found. Create janq.toml next to the janq binary or in ~/.config/janq/ with at least one [app] section."
   };
 
   Err(crate::error::format_error(msg).into())
