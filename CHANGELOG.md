@@ -29,7 +29,7 @@ No changes yet.
 - **(Linux) `janq --quit` reported success with no daemon running**: It now reports that janq isn't running.
 - **(Linux) Tray title items**: The version title and its separator are now answered by `GetGroupProperties`.
 - **(Windows) Tray hotkey labels**: Labels accept `-` separators (`Ctrl-Alt-F1`) like hotkey parsing does.
-- **Config validation**: The "no config file found" message points to the binary's folder; the current directory isn't searched. Cubic-bezier curves with x values outside [0, 1], and app names or classes containing `"`, `\`, `;` or control characters, are now rejected with an error instead of misbehaving silently.
+- **Config validation**: The "no config file found" message points to the binary's folder; the current directory isn't searched. Cubic-bezier curves with x values outside [0, 1], and app names or classes containing `"`, `\`, `;` or control characters, are now rejected with an error instead of misbehaving silently. Errors about a quoted app name (`[app."name"]`) now point at its section header instead of line 1.
 
 ### Security
 - **(Linux) Private temp files**: KWin scripts and the error dialog file are written to `$XDG_RUNTIME_DIR` (per-user, mode 0700) instead of the world-writable `/dev/shm` and `/tmp`, where another local user could pre-create them. `install.sh` downloads to a `mktemp` file and checks for curl or wget before its first request.

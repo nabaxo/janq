@@ -631,15 +631,18 @@ impl Config {
 /// Finds the byte span of an [app.name] section header in the content.
 fn find_app_section_span(content: &str, app_name: &str) -> std::ops::Range<usize> {
   let prefixes = ["app.", "apps.", "general.", ""];
+  // The key may be bare (`[app.term]`) or quoted (`[app."my;term"]`, `[app.'my;term']`).
+  let keys = [
+    app_name.to_string(),
+    format!("\"{}\"", app_name),
+    format!("'{}'", app_name),
+  ];
   for prefix in prefixes {
-    let pattern = if prefix.is_empty() {
-      format!("[{}]", app_name)
-    } else {
-      format!("[{}{}]", prefix, app_name)
-    };
-
-    if let Some(pos) = content.find(&pattern) {
-      return pos..pos + pattern.len();
+    for key in &keys {
+      let pattern = format!("[{}{}]", prefix, key);
+      if let Some(pos) = content.find(&pattern) {
+        return pos..pos + pattern.len();
+      }
     }
   }
 
@@ -1641,6 +1644,23 @@ duration = 500
     let toml_str = "[app.term]\nwindow_class = \"wezterm\"\nstart_command = \"wezterm\"\n";
     let config: Config = toml::from_str(toml_str).unwrap();
     assert!(config.validate(toml_str, path).is_ok());
+  }
+
+  #[test]
+  fn test_quoted_app_error_points_at_header() {
+    // A name with ';' must be a quoted key; the error should point at its header (line 4).
+    let toml_str = "[animation]\nduration = 400\n\n[app.\"wez;janq\"]\nwindow_class = \"wezjanq\"\nstart_command = \"wezterm\"\n";
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let err = config
+      .validate(toml_str, std::path::Path::new("test.toml"))
+      .unwrap_err();
+    // The path is wrapped in ANSI codes, so check the location and source line separately.
+    assert!(err.message.contains(":4:1"), "{}", err.message);
+    assert!(
+      err.message.contains("[app.\"wez;janq\"]"),
+      "{}",
+      err.message
+    );
   }
 
   #[test]
