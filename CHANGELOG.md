@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No changes yet.
+
+## [1.1.0] - 2026-10-11
+
 ### Fixed
 - **(Linux) Toggle engine could hang until restart**: Toggling an app that wasn't running from the CLI (`janq --app`), the tray icon or the tray menu deadlocked the toggle lock while the app spawned. After that, no hotkey, re-grab or Recover worked. The lock is now released while the app starts.
 - **(Linux) Apps that close to the tray couldn't be shown again**: A cached window counted as alive while its process ran, so after closing Discord, Slack or Steam to the tray the hotkey did nothing. Cached window IDs are now checked against KWin's live window list, and a toggle that finds no window no longer marks the app as visible.
