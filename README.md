@@ -708,7 +708,7 @@ When switching to `mono_icon = true` for the first time, the monochrome icon may
 
 ### Apps That Minimize to Tray
 
-If a managed app is closed to the system tray rather than fully quit, janq will silently do nothing when you next press its hotkey. This is a platform limitation: neither Linux nor Windows exposes a "minimized to tray" signal — the window is simply destroyed or hidden by the app itself, with no OS-level way to distinguish it from a normal close. The process remains alive, so janq won't attempt to respawn it either.
+If a managed app is closed to the system tray rather than fully quit, its hotkey won't bring it back. This is a platform limitation: neither Linux nor Windows exposes a "minimized to tray" signal — the window is simply destroyed or hidden by the app itself, with no OS-level way to distinguish it from a normal close. On Linux, janq sees that the window is gone and re-runs the app's `start_command`, waiting up to 8 seconds for a window, but an app that closed to the tray doesn't reopen its window that way, so there's no visible effect.
 
 **Workaround**: Restore the app from its tray icon manually before using the janq hotkey, or configure the app to not minimize to tray.
 
