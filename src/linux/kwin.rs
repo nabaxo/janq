@@ -487,6 +487,15 @@ pub async fn get_visible_app() -> Option<std::sync::Arc<str>> {
   STATE.lock().await.visible_app.clone()
 }
 
+/// Stops tracking `app_name` as shown. Called when its window is gone, so a
+/// respawned window gets parked by the grab instead of shown and then hidden.
+pub async fn forget_visible(app_name: &str) {
+  let mut state = STATE.lock().await;
+  if state.visible_app.as_deref() == Some(app_name) {
+    state.visible_app = None;
+  }
+}
+
 pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) -> Result<()> {
   let mut state = STATE.lock().await;
 

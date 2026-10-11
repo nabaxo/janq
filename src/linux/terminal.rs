@@ -36,7 +36,7 @@ use tokio::time::sleep;
 use zbus::Connection;
 
 use crate::linux::cache::{get_cache, get_cached_window, remove_from_cache, update_cache};
-use crate::linux::kwin::{ensure_grabbed, restore_app, trigger_fetch_windows};
+use crate::linux::kwin::{ensure_grabbed, forget_visible, restore_app, trigger_fetch_windows};
 use janq::config::{AppConfig, Config, FoundWindow};
 use janq::error::show_error;
 use janq::matching::fuzzy_match_window;
@@ -159,6 +159,11 @@ pub async fn ensure_terminal_running(
   {
     return false;
   }
+
+  // No window, so the app can't be shown. A stale visible_app would make the
+  // grab show the respawned window and the toggle that follows hide it again.
+  // (Callers never hold STATE here: toggle_quake releases it around this call.)
+  forget_visible(app_name).await;
 
   // 2. Idempotency Lock — atomic check-and-set under a single lock acquisition.
   // If another task is already spawning this app, leave it to that task.
