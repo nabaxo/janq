@@ -191,6 +191,15 @@ start_command = 'C:\Program Files\Terminal\wt.exe'
 > [!TIP]
 > **Pro Tip:** For most modern terminals (Windows Terminal, WezTerm, etc.), using the simple executable name (e.g., `start_command = "wt"` or `"wezterm"`) is preferred if they are in your system PATH.
 
+#### Short Window Classes (Windows)
+
+`window_class` must be at least 3 characters. On Windows, janq also matches the process name, so for an app with a shorter window class, use its process name instead. 7-Zip's window class is `FM`:
+
+```toml
+window_class = "7zFM" # matches the process 7zFM.exe
+start_command = 'C:\Program Files\7-Zip\7zFM.exe'
+```
+
 ## Systray Behavior
 
 janq lives in your system tray (notification area) and provides a context menu for quick actions.
@@ -305,7 +314,7 @@ hotkey = "Meta+1"
 
 | Section       | Option               | Default          | Description                                                                          | Per_App |
 | :------------ | :------------------- | :--------------- | :----------------------------------------------------------------------------------- | :-----: |
-| `[app]`       | `window_class`       | **Required**     | Window class/name to match for toggling                                              |    🔒    |
+| `[app]`       | `window_class`       | **Required**     | Window class/name to match for toggling (at least 3 characters)                      |    🔒    |
 |               | `start_command`      | **Required**     | Command to launch the application                                                    |    🔒    |
 |               | `hotkey`             | `"Meta+Grave"`   | Global hotkey(s) to toggle the app                                                   |    🔒    |
 | `[window]`    | `display_mode`       | `"follow-mouse"` | Monitor selection: `follow-mouse`, `active`, or `specific`                           |   ❌    |

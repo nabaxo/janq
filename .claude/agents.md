@@ -22,7 +22,7 @@ janq operates on a **Daemon-Client model**:
 - [src/config_watcher.rs](src/config_watcher.rs): Shared config file watching. Linux: raw inotify syscalls (zero deps) via `inotify.rs`. Windows: `notify` crate.
 - [src/inotify.rs](src/inotify.rs): *(Linux only)* Raw inotify config file watcher, zero external dependencies. Watches config file's parent directory, signals changes via tokio channel.
 - [src/error.rs](src/error.rs): Centralized error handling, UI error dialogs (crucial for a tool that often runs without a terminal).
-- [src/paths.rs](src/paths.rs): Cross-platform helpers for `home_dir`, `config_dir`, `data_local_dir`, `cache_dir` via environment variables.
+- [src/paths.rs](src/paths.rs): Cross-platform helpers for `home_dir`, `config_dir`, `data_local_dir`, `cache_dir` via environment variables, plus Linux-only `runtime_dir` (`$XDG_RUNTIME_DIR`, for KWin scripts and the error dialog file).
 - [src/validation.rs](src/validation.rs): Input validation for hotkey strings, easing curve names, cubic-bezier specifications.
 - [src/spawn_guard.rs](src/spawn_guard.rs): RAII guard + global `FxHashSet` preventing duplicate process spawns during rapid toggles.
 - [src/shutdown.rs](src/shutdown.rs): Shared shutdown messaging for consistent daemon termination output.

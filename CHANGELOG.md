@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
-## [1.1.0] - 2026-10-11
+## [1.1.0] - 2026-10-12
 
 ### Added
 - **Version in the startup log**: The first log line now includes the janq version (`janq v1.1.0 (PID …): Initializing...`).
