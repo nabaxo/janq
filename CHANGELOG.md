@@ -20,7 +20,7 @@ No changes yet.
 - **(Linux) Respawned app hidden right away**: Closing a shown app's window (for example `exit` in the terminal) and pressing its hotkey respawned the app and immediately hid it again. It now stays shown.
 - **(Linux) Wrong window animated when an app has several windows**: The toggle script took the first window with the app's PID before an exact window-ID match, so another window of the same process could slide instead of the managed one.
 - **Short `window_class` could grab unrelated windows**: Typo tolerance accepted 3 edits, so `code` matched Kate's `kate` process while VS Code wasn't running. The allowed edit distance now scales with the class length (one edit per three characters, at least one).
-- **(Windows) `start_command` paths with spaces**: The command was split on every space, so `"C:\Program Files\..."` couldn't work. A quoted program path is now supported, and the remaining arguments are passed through unchanged.
+- **(Windows) `start_command` paths with spaces**: The command was split on every space, so a path like `C:\Program Files\...` couldn't launch, even in the single-quoted form the README shows. Paths with spaces now work with or without double quotes around them, and the remaining arguments are passed through unchanged.
 - **Opacity points ignored their defaults**: An `[animation]` section without `show_opacity_point` / `hide_opacity_point` set both to `0.0` instead of the documented `0.2` / `0.8`.
 - **`--app=` / `--config=` values were lowercased**: Values now keep their case, so `--app=Terminal` and config paths with capitals work.
 - **(Linux) Repeated modifiers registered the wrong shortcut**: `Ctrl+Control+A` registered as Alt+A.

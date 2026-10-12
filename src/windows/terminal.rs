@@ -15,6 +15,7 @@
 
 use std::{
   os::windows::process::CommandExt,
+  path::Path,
   process::{Command, Stdio},
   time::Duration,
 };
@@ -83,18 +84,33 @@ pub fn ensure_terminal_running(
     return false;
   }
 
-  // The program is the first token; a leading "quoted path" may contain spaces.
-  // The rest is passed verbatim so the app parses its own command line.
+  // A leading "quoted path" is the program. Unquoted (single-quoted in TOML, as the
+  // README shows), a path may still contain spaces: like CreateProcess, the program is
+  // the shortest run of leading words naming an existing file, else the first word
+  // (PATH lookup). The rest is passed verbatim so the app parses its own command line.
   let command_line = app_cfg.start_command.trim();
+  let split_at = |end: usize| {
+    (
+      command_line[..end].trim_end(),
+      command_line[end..].trim_start(),
+    )
+  };
   let (program, rest) = match command_line.strip_prefix('"') {
     Some(quoted) => quoted
       .split_once('"')
       .map(|(program, rest)| (program, rest.trim_start()))
       .unwrap_or((quoted, "")),
     None => command_line
-      .split_once(char::is_whitespace)
-      .map(|(program, rest)| (program, rest.trim_start()))
-      .unwrap_or((command_line, "")),
+      .match_indices(char::is_whitespace)
+      .map(|(end, _)| end)
+      .chain(std::iter::once(command_line.len()))
+      .map(split_at)
+      .find(|(program, _)| Path::new(program).is_file())
+      .unwrap_or_else(|| {
+        command_line
+          .find(char::is_whitespace)
+          .map_or((command_line, ""), split_at)
+      }),
   };
   if program.is_empty() {
     return false;
