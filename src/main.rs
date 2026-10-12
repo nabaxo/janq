@@ -273,14 +273,14 @@ fn main() -> error::Result<()> {
   #[cfg(target_os = "linux")]
   disable_thp();
 
+  #[cfg(target_os = "windows")]
+  attach_parent_console();
+
   println!(
     "janq v{} (PID {}): Initializing...",
     env!("CARGO_PKG_VERSION"),
     std::process::id()
   );
-
-  #[cfg(target_os = "windows")]
-  attach_parent_console();
 
   let args = parse_args();
 
