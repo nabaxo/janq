@@ -220,12 +220,16 @@ struct KWinState {
   previous_window_id: Option<Box<str>>,
   /// Maximum detected display refresh rate for smooth animation.
   max_refresh_rate: f64,
+  /// KWin 6.8+: focus a window before its show slide and start sliding once the
+  /// app acks, because KWin moves it back to where it was when the configure went out.
+  wait_for_ack: bool,
 }
 
 static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
   visible_app: None,
   previous_window_id: None,
   max_refresh_rate: 60.0,
+  wait_for_ack: false,
 });
 
 async fn get_max_refresh_rate() -> f64 {
@@ -284,8 +288,28 @@ pub async fn reset_state() {
   state.visible_app = None;
 }
 
+/// Returns true for KWin 6.8 and later (parsed from `kwin_wayland --version`, e.g. "kwin 6.8.1").
+async fn kwin_needs_ack_wait() -> bool {
+  let Ok(output) = TokioCommand::new("kwin_wayland")
+    .arg("--version")
+    .output()
+    .await
+  else {
+    return false;
+  };
+  let text = String::from_utf8_lossy(&output.stdout);
+  let version = text.split_whitespace().nth(1).unwrap_or("");
+  let mut parts = version.split('.').filter_map(|p| p.parse::<u32>().ok());
+  let major = parts.next().unwrap_or(0);
+  let minor = parts.next().unwrap_or(0);
+  println!("janq: Detected KWin {}", version);
+  (major, minor) >= (6, 8)
+}
+
 pub async fn init(config: &Config) {
   detect_refresh_rate(config).await;
+  let wait_for_ack = kwin_needs_ack_wait().await;
+  STATE.lock().await.wait_for_ack = wait_for_ack;
 }
 
 // Window cache is now managed in src/linux/cache.rs
@@ -299,6 +323,7 @@ struct ToggleParams<'a> {
   target_id: &'a str,
   target_pid: u32,
   siblings_json: String,
+  wait_for_ack: bool,
 }
 
 // =============================================================================
@@ -598,6 +623,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
         target_id: &target_id,
         target_pid,
         siblings_json: siblings_json.clone(),
+        wait_for_ack: state.wait_for_ack,
       },
       effective_hz,
     )
@@ -631,6 +657,7 @@ pub async fn toggle_quake(app_name: &str, config: &Config, conn: &Connection) ->
         target_id: &target_id,
         target_pid,
         siblings_json,
+        wait_for_ack: false,
       },
       effective_hz,
     )
@@ -690,13 +717,13 @@ async fn run_toggle_script(
   use std::fmt::Write;
   let _ = write!(
     script_content,
-    "(\n  {{ appName: \"{}\", windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, autoHide: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {}, depthValue: {}, depthIsPercent: {}, depthIsNegative: {}, depthIsCenter: {}, hideTitlebar: {} }},\n  {},\n  {}\n);",
+    "(\n  {{ appName: \"{}\", windowClass: \"{}\", displayMode: \"{}\", displayIndex: {}, width: {}, isWidthPercent: {}, height: {}, isHeightPercent: {}, duration: {}, easingType: \"{}\", shouldShow: {}, autoHide: {}, keepAbove: {}, noBorders: {}, skipPager: {}, allDesktops: {}, animateOpacity: {}, showOpacityPoint: {}, hideOpacityPoint: {}, prevWindowId: \"{}\", targetWindowId: \"{}\", targetPid: {}, forcePriority: {}, slideFrom: \"{}\", offsetValue: {}, offsetIsPercent: {}, offsetIsNegative: {}, offsetIsCenter: {}, depthValue: {}, depthIsPercent: {}, depthIsNegative: {}, depthIsCenter: {}, hideTitlebar: {}, waitForAck: {} }},\n  {},\n  {}\n);",
     params.app_name, app_cfg.window_class, config.window.display_mode, config.window.display_index, width, is_width_percent, height, is_height_percent,
     duration, easing, params.visible, params.auto_hide, config.window.keep_above, anim_parts.no_borders, config.window.skip_pager, config.window.all_desktops.unwrap_or(true), anim_parts.animate_opacity, show_opacity_point, hide_opacity_point,
     params.prev_id, params.target_id, params.target_pid, config.window.force_priority.unwrap_or(false),
     anim_parts.dir, anim_parts.val, anim_parts.is_pct, anim_parts.is_neg, anim_parts.is_center,
     anim_parts.depth_val, anim_parts.depth_is_pct, anim_parts.depth_is_neg, anim_parts.depth_is_center, anim_parts.hide_titlebar,
-    params.siblings_json, refresh_rate
+    params.wait_for_ack, params.siblings_json, refresh_rate
   );
 
   run_kwin_script(conn, "janq_toggle_engine", &script_content, None)

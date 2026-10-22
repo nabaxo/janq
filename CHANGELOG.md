@@ -13,6 +13,7 @@ No changes yet.
 
 ### Fixed
 - **(Linux) Hidden window left a ghost on Plasma 6.8**: Hiding an app left a ghost of its window at the top of the screen until a sibling app was shown, and the next show didn't animate. When KWin moves a hidden window back on screen, janq now parks it again.
+- **(Linux) Show animation jumped back mid-slide on Plasma 6.8**: Showing an app that is slow to respond to focus changes (for example Discord) jumped it back toward its start position for a frame partway through the slide. On KWin 6.8 and later, janq now focuses the window before the slide and starts sliding once the app has responded.
 
 ## [1.1.0] - 2026-10-12
 

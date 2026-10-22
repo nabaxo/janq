@@ -207,7 +207,7 @@
         const targetEase = getEasing(targetProgress, config.easingType);
 
         if (firstFrame) {
-          if (config.shouldShow) {
+          if (config.shouldShow && !preFocused) {
             focusKick(target, false);
           }
           if (config.forcePriority) target.fullScreen = true;
@@ -371,6 +371,26 @@
     }
   };
 
+  // Plasma 6.8+ moves a window back to where it was when a configure (focus change)
+  // went out, once the app acks it. Focus while parked; the ack makes KWin pull the
+  // parked window on screen, and that geometry change starts the slide.
+  let preFocused = false;
+  const focusThenAnimate = () => {
+    const isXdg = String(target).indexOf("XdgToplevelWindow") !== -1;
+    if (!config.waitForAck || config.duration <= 0 || !isXdg) {
+      startAnimation();
+      return;
+    }
+    const onAck = () => {
+      target.frameGeometryChanged.disconnect(onAck);
+      target.frameGeometry = { x: startX, y: startY, width: finalWidth, height: finalHeight };
+      startAnimation();
+    };
+    target.frameGeometryChanged.connect(onAck);
+    preFocused = true;
+    focusKick(target, false);
+  };
+
   if (config.shouldShow) {
     setQuakeProperties(target, config.keepAbove, config.noBorders, config.skipPager, true, config.forcePriority, config.allDesktops);
     if (needsReposition) {
@@ -382,10 +402,10 @@
       const delayTimer = new QTimer();
       delayTimer.interval = 200;
       delayTimer.singleShot = true;
-      delayTimer.timeout.connect(startAnimation);
+      delayTimer.timeout.connect(focusThenAnimate);
       delayTimer.start();
     } else {
-      startAnimation();
+      focusThenAnimate();
     }
   } else {
     startAnimation();
