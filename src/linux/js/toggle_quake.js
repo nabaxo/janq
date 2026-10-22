@@ -168,6 +168,21 @@
     workspace.windowActivated.connect(focusWatcher);
   };
 
+  // Plasma 6.8+ pulls a parked window back on screen when it commits after a
+  // configure (e.g. after losing focus). Park it again while it stays hidden.
+  // Moves that leave it outside the desktop (re-grab after hotplug) are left alone.
+  const keepParked = (win, parkX, parkY) => {
+    win.frameGeometryChanged.connect(() => {
+      if (win.opacity > 0.01) return;
+      const g = win.frameGeometry;
+      if (Math.abs(g.x - parkX) <= 2 && Math.abs(g.y - parkY) <= 2) return;
+      const vs = workspace.virtualScreenGeometry;
+      const onDesktop = g.x < vs.x + vs.width && g.x + g.width > vs.x && g.y < vs.y + vs.height && g.y + g.height > vs.y;
+      if (!onDesktop) return;
+      win.frameGeometry = { x: parkX, y: parkY, width: g.width, height: g.height };
+    });
+  };
+
   const startAnimation = () => {
     if (config.duration > 0) {
       const startTime = Date.now();
@@ -302,6 +317,7 @@
                 }
               }
             }
+            keepParked(target, finalX, finalY);
           }
           if (targetBlurActive) setForceBlur(target, false);
           for (const data of siblingDatas) {
@@ -310,6 +326,7 @@
             data.client.skipPager = true;
             if (data.client.skipSwitcher !== undefined) data.client.skipSwitcher = true;
             data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+            keepParked(data.client, data.endX, data.endY);
           }
           // Removed: KWin.reconfigure() was resetting skipSwitcher on all windows
         }
@@ -342,12 +359,14 @@
             }
           }
         }
+        keepParked(target, finalX, finalY);
       }
       for (const data of siblingDatas) {
         data.client.opacity = 0.0;
         data.client.skipPager = true;
         if (data.client.skipSwitcher !== undefined) data.client.skipSwitcher = true;
         data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
+        keepParked(data.client, data.endX, data.endY);
       }
     }
   };

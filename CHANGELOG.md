@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
+## [1.1.1] - Unreleased
+
+### Fixed
+- **(Linux) Hidden window left a ghost on Plasma 6.8**: Hiding an app left a ghost of its window at the top of the screen until a sibling app was shown, and the next show didn't animate. When KWin moves a hidden window back on screen, janq now parks it again.
+
 ## [1.1.0] - 2026-10-12
 
 ### Added
