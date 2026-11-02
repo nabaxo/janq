@@ -136,6 +136,7 @@
       startOpacity: sib.opacity,
       endX: sibOffscreen.hiddenX,
       endY: sibOffscreen.hiddenY,
+      dir: sibCfg.dir,
       dist: sDist,
       easing: sibCfg.easing,
       animOp: sibCfg.animOp,
@@ -171,7 +172,24 @@
   // Plasma 6.8+ pulls a parked window back on screen when it commits after a
   // configure (e.g. after losing focus). Park it again while it stays hidden.
   // Moves that leave it outside the desktop (re-grab after hotplug) are left alone.
-  const keepParked = (win, parkX, parkY) => {
+  const keepParked = (win, hiddenX, hiddenY, dir) => {
+    const size = win.frameGeometry;
+    let parkX = hiddenX;
+    let parkY = hiddenY;
+    // A hidden spot on another monitor (stacked layouts) still shows the app's blur,
+    // so park past the edge of the whole desktop. A later show repositions it.
+    for (const s of workspace.screens) {
+      const a = s.geometry;
+      if (hiddenX < a.x + a.width && hiddenX + size.width > a.x && hiddenY < a.y + a.height && hiddenY + size.height > a.y) {
+        const edge = workspace.virtualScreenGeometry;
+        if (dir === "top") parkY = edge.y - size.height - 10;
+        else if (dir === "bottom") parkY = edge.y + edge.height + 10;
+        else if (dir === "left") parkX = edge.x - size.width - 10;
+        else parkX = edge.x + edge.width + 10;
+        win.frameGeometry = { x: parkX, y: parkY, width: size.width, height: size.height };
+        break;
+      }
+    }
     win.frameGeometryChanged.connect(() => {
       if (win.opacity > 0.01) return;
       const g = win.frameGeometry;
@@ -317,7 +335,7 @@
                 }
               }
             }
-            keepParked(target, finalX, finalY);
+            keepParked(target, finalX, finalY, config.slideFrom);
           }
           if (targetBlurActive) setForceBlur(target, false);
           for (const data of siblingDatas) {
@@ -326,7 +344,7 @@
             data.client.skipPager = true;
             if (data.client.skipSwitcher !== undefined) data.client.skipSwitcher = true;
             data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-            keepParked(data.client, data.endX, data.endY);
+            keepParked(data.client, data.endX, data.endY, data.dir);
           }
           // Removed: KWin.reconfigure() was resetting skipSwitcher on all windows
         }
@@ -359,14 +377,14 @@
             }
           }
         }
-        keepParked(target, finalX, finalY);
+        keepParked(target, finalX, finalY, config.slideFrom);
       }
       for (const data of siblingDatas) {
         data.client.opacity = 0.0;
         data.client.skipPager = true;
         if (data.client.skipSwitcher !== undefined) data.client.skipSwitcher = true;
         data.client.frameGeometry = { x: data.endX, y: data.endY, width: data.client.frameGeometry.width, height: data.client.frameGeometry.height };
-        keepParked(data.client, data.endX, data.endY);
+        keepParked(data.client, data.endX, data.endY, data.dir);
       }
     }
   };
@@ -380,6 +398,16 @@
     if (!config.waitForAck || config.duration <= 0 || !isXdg) {
       startAnimation();
       return;
+    }
+    // Undoes a pull-back that landed during the reposition delay.
+    target.frameGeometry = { x: startX, y: startY, width: finalWidth, height: finalHeight };
+    // KWin only moves a window that's off every monitor. Anywhere else no signal would come.
+    for (const s of workspace.screens) {
+      const a = s.geometry;
+      if (startX < a.x + a.width && startX + finalWidth > a.x && startY < a.y + a.height && startY + finalHeight > a.y) {
+        startAnimation();
+        return;
+      }
     }
     const onAck = () => {
       target.frameGeometryChanged.disconnect(onAck);
@@ -402,7 +430,19 @@
       const delayTimer = new QTimer();
       delayTimer.interval = 200;
       delayTimer.singleShot = true;
-      delayTimer.timeout.connect(focusThenAnimate);
+      // An ack during the delay makes Plasma 6.8+ pull the window on screen. Keep the
+      // committed size here: requesting another one would send a new configure.
+      const holdParked = () => {
+        const g = target.frameGeometry;
+        if (Math.abs(g.x - startX) > 2 || Math.abs(g.y - startY) > 2) {
+          target.frameGeometry = { x: startX, y: startY, width: g.width, height: g.height };
+        }
+      };
+      if (config.waitForAck) target.frameGeometryChanged.connect(holdParked);
+      delayTimer.timeout.connect(() => {
+        if (config.waitForAck) target.frameGeometryChanged.disconnect(holdParked);
+        focusThenAnimate();
+      });
       delayTimer.start();
     } else {
       focusThenAnimate();

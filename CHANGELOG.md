@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
-## [1.1.1] - Unreleased
+## [1.1.2] - 2026-11-02
+
+### Fixed
+- **(Linux) App didn't appear on another monitor on Plasma 6.8**: Showing an app on a different monitor than the one it was hidden on left it invisible, or as a blurred box for apps with blur. It now slides in, without the box before the slide.
+- **(Linux) Hidden window left a ghost on a stacked monitor**: Hiding an app on a monitor with another monitor directly past its slide edge left a ghost of the window on that other monitor. The window now parks past the edge of the whole desktop.
+
+## [1.1.1] - 2026-10-22
 
 ### Fixed
 - **(Linux) Hidden window left a ghost on Plasma 6.8**: Hiding an app left a ghost of its window at the top of the screen until a sibling app was shown, and the next show didn't animate. When KWin moves a hidden window back on screen, janq now parks it again.
