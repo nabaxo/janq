@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
+## [1.1.3] - 2026-11-03
+
+### Fixed
+- **(Linux) Ghost reappeared after screen wake on Plasma 6.8**: Waking the display left a ghost of hidden windows on screen. Hidden windows are now guarded against being pulled back on screen after a re-grab.
+
 ## [1.1.2] - 2026-11-02
 
 ### Fixed

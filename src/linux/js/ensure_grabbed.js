@@ -48,6 +48,17 @@
         }
         target.opacity = 0.0;
         target.frameGeometry = { x: parkX, y: parkY, width: dims.width, height: dims.height };
+        // Plasma 6.8+ pulls parked windows back on screen after a configure ack.
+        // Re-park while hidden. This script stays loaded; toggle unloads it first.
+        target.frameGeometryChanged.connect(() => {
+          if (target.opacity > 0.01) return;
+          const g = target.frameGeometry;
+          if (Math.abs(g.x - parkX) <= 2 && Math.abs(g.y - parkY) <= 2) return;
+          const vsg = workspace.virtualScreenGeometry;
+          const onDesktop = g.x < vsg.x + vsg.width && g.x + g.width > vsg.x && g.y < vsg.y + vsg.height && g.y + g.height > vsg.y;
+          if (!onDesktop) return;
+          target.frameGeometry = { x: parkX, y: parkY, width: g.width, height: g.height };
+        });
       } else {
         console.log(`janq_grab: Restoring ${app.windowClass} to shown position.`);
         target.opacity = 1.0;

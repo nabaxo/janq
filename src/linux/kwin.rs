@@ -726,6 +726,18 @@ async fn run_toggle_script(
     params.wait_for_ack, params.siblings_json, refresh_rate
   );
 
+  // Unload the grab script's re-park listeners so they don't fight the slide.
+  // The toggle script re-attaches listeners to any hidden windows it touches.
+  let _ = conn
+    .call_method(
+      Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
+      "/Scripting",
+      Some(InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name")),
+      "unloadScript",
+      &("janq_init_script"),
+    )
+    .await;
+
   run_kwin_script(conn, "janq_toggle_engine", &script_content, None)
     .await
     .map_err(|e| format_error_boxed!("{}", e))
@@ -810,14 +822,9 @@ pub async fn grab_apps(apps: &[(&AppConfig, &Config)], conn: &Connection) -> Res
   use std::fmt::Write;
   let _ = write!(script_content, "([\n  {}\n]);", apps_json.join(",\n  "));
 
-  run_kwin_script(
-    conn,
-    "janq_init_script",
-    &script_content,
-    Some(Duration::ZERO),
-  )
-  .await
-  .map_err(|e| format_error_boxed!("{}", e))
+  run_kwin_script(conn, "janq_init_script", &script_content, None)
+    .await
+    .map_err(|e| format_error_boxed!("{}", e))
 }
 
 pub async fn restore_app(app_name: &str, window_class: &str, conn: &Connection) -> Result<()> {

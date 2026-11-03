@@ -201,6 +201,18 @@
     });
   };
 
+  // Re-park other hidden managed windows whose listeners were removed when
+  // janq_init_script was unloaded before this toggle.
+  for (const c of clients) {
+    if (c === target) continue;
+    if (c.opacity > 0.01) continue;
+    const cId = normalizeId(c.internalId);
+    if (cId === "") continue;
+    const mgd = incomingSiblings.find(s => normalizeId(s.id) === cId);
+    if (!mgd) continue;
+    keepParked(c, c.frameGeometry.x, c.frameGeometry.y, mgd.dir);
+  }
+
   const startAnimation = () => {
     if (config.duration > 0) {
       const startTime = Date.now();
