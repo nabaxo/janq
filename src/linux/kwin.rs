@@ -228,14 +228,22 @@ static STATE: Mutex<KWinState> = Mutex::const_new(KWinState {
 
 async fn get_max_refresh_rate() -> f64 {
   println!("janq: Detecting display refresh rate...");
-  let result = TokioCommand::new("kscreen-doctor").arg("-o").output().await;
+  // kscreenctl replaces kscreen-doctor; `list-outputs` prints the same mode lines as `-o`.
+  let result = match TokioCommand::new("kscreenctl")
+    .arg("list-outputs")
+    .output()
+    .await
+  {
+    Ok(o) => Ok(o),
+    Err(_) => TokioCommand::new("kscreen-doctor").arg("-o").output().await,
+  };
 
   let output = match result {
     Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
     Err(_) => {
       println!(
-        "janq: kscreen-doctor not found, defaulting to 60Hz. \
-         Install kscreen-doctor for automatic refresh rate detection, \
+        "janq: kscreenctl and kscreen-doctor not found, defaulting to 60Hz. \
+         Install kscreenctl for automatic refresh rate detection, \
          or set desired framerate in janq.toml"
       );
       return 60.0;
@@ -265,7 +273,7 @@ async fn get_max_refresh_rate() -> f64 {
 
 pub async fn detect_refresh_rate(config: &Config) {
   if matches!(config.animation.framerate, Framerate::Auto) {
-    // Run kscreen-doctor before locking so toggles aren't blocked meanwhile.
+    // Run kscreenctl/kscreen-doctor before locking so toggles aren't blocked meanwhile.
     let hz = get_max_refresh_rate().await;
     STATE.lock().await.max_refresh_rate = hz;
   } else {

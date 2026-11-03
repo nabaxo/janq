@@ -15,6 +15,7 @@ No changes yet.
 - **(Linux) Ghost reappeared after screen wake on Plasma 6.8**: Waking the display left a ghost of hidden windows on screen. Hidden windows are now guarded against being pulled back on screen after a re-grab.
 
 ### Changed
+- **(Linux) Refresh rate detection uses `kscreenctl`**: janq reads the display refresh rate with `kscreenctl`, which replaces `kscreen-doctor`, and falls back to `kscreen-doctor` when `kscreenctl` isn't installed.
 - **(Linux) Shared window-parking code**: The KWin scripts now share one copy of the code that parks hidden windows and keeps them parked, and the daemon unloads KWin scripts through one helper. No change in behavior.
 
 ## [1.1.2] - 2026-11-02
