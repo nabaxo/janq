@@ -13,6 +13,7 @@
   let target = null;
   let pidMatch = null;
   const siblingsToHide = [];
+  const hiddenSiblings = [];
 
   for (const c of clients) {
     const cId = normalizeId(c.internalId);
@@ -23,12 +24,14 @@
     if (cleanTargetId !== "" && cId === cleanTargetId) target = c;
     else if (!pidMatch && safeTargetPid > 0 && cPid === safeTargetPid) pidMatch = c;
 
-    // 2. Identify Siblings (only if they aren't the target and are visible/alive)
-    if (c !== target && c.opacity > 0.01) {
+    // 2. Identify Siblings: visible ones get hidden, hidden ones kept parked.
+    if (c !== target) {
       let managedData = null;
       if (cId !== "") managedData = incomingSiblings.find(s => normalizeId(s.id) === cId);
 
-      if (managedData) {
+      if (managedData && c.opacity <= 0.01) {
+        hiddenSiblings.push({ client: c, dir: managedData.dir });
+      } else if (managedData) {
         // Use pre-calculated data from Rust
         const sibCfg = managedData;
         const cArea = workspace.clientArea(KWin.PlacementArea, c);
@@ -169,48 +172,21 @@
     workspace.windowActivated.connect(focusWatcher);
   };
 
-  // Plasma 6.8+ pulls a parked window back on screen when it commits after a
-  // configure (e.g. after losing focus). Park it again while it stays hidden.
-  // Moves that leave it outside the desktop (re-grab after hotplug) are left alone.
   const keepParked = (win, hiddenX, hiddenY, dir) => {
     const size = win.frameGeometry;
-    let parkX = hiddenX;
-    let parkY = hiddenY;
+    let park = { x: hiddenX, y: hiddenY };
     // A hidden spot on another monitor (stacked layouts) still shows the app's blur,
     // so park past the edge of the whole desktop. A later show repositions it.
-    for (const s of workspace.screens) {
-      const a = s.geometry;
-      if (hiddenX < a.x + a.width && hiddenX + size.width > a.x && hiddenY < a.y + a.height && hiddenY + size.height > a.y) {
-        const edge = workspace.virtualScreenGeometry;
-        if (dir === "top") parkY = edge.y - size.height - 10;
-        else if (dir === "bottom") parkY = edge.y + edge.height + 10;
-        else if (dir === "left") parkX = edge.x - size.width - 10;
-        else parkX = edge.x + edge.width + 10;
-        win.frameGeometry = { x: parkX, y: parkY, width: size.width, height: size.height };
-        break;
-      }
+    if (overlapsScreen(hiddenX, hiddenY, size.width, size.height)) {
+      park = desktopEdgeSpot(dir, hiddenX, hiddenY, size.width, size.height);
+      win.frameGeometry = { x: park.x, y: park.y, width: size.width, height: size.height };
     }
-    win.frameGeometryChanged.connect(() => {
-      if (win.opacity > 0.01) return;
-      const g = win.frameGeometry;
-      if (Math.abs(g.x - parkX) <= 2 && Math.abs(g.y - parkY) <= 2) return;
-      const vs = workspace.virtualScreenGeometry;
-      const onDesktop = g.x < vs.x + vs.width && g.x + g.width > vs.x && g.y < vs.y + vs.height && g.y + g.height > vs.y;
-      if (!onDesktop) return;
-      win.frameGeometry = { x: parkX, y: parkY, width: g.width, height: g.height };
-    });
+    keepParkedAt(win, park.x, park.y);
   };
 
-  // Re-park other hidden managed windows whose listeners were removed when
-  // janq_init_script was unloaded before this toggle.
-  for (const c of clients) {
-    if (c === target) continue;
-    if (c.opacity > 0.01) continue;
-    const cId = normalizeId(c.internalId);
-    if (cId === "") continue;
-    const mgd = incomingSiblings.find(s => normalizeId(s.id) === cId);
-    if (!mgd) continue;
-    keepParked(c, c.frameGeometry.x, c.frameGeometry.y, mgd.dir);
+  // Their listeners went away when janq_init_script was unloaded before this toggle.
+  for (const h of hiddenSiblings) {
+    if (h.client !== target) keepParked(h.client, h.client.frameGeometry.x, h.client.frameGeometry.y, h.dir);
   }
 
   const startAnimation = () => {
@@ -414,12 +390,9 @@
     // Undoes a pull-back that landed during the reposition delay.
     target.frameGeometry = { x: startX, y: startY, width: finalWidth, height: finalHeight };
     // KWin only moves a window that's off every monitor. Anywhere else no signal would come.
-    for (const s of workspace.screens) {
-      const a = s.geometry;
-      if (startX < a.x + a.width && startX + finalWidth > a.x && startY < a.y + a.height && startY + finalHeight > a.y) {
-        startAnimation();
-        return;
-      }
+    if (overlapsScreen(startX, startY, finalWidth, finalHeight)) {
+      startAnimation();
+      return;
     }
     const onAck = () => {
       target.frameGeometryChanged.disconnect(onAck);

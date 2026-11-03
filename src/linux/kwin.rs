@@ -124,6 +124,18 @@ fn get_animation_parts(app_cfg: &AppConfig, global_window: &Config) -> ResolvedA
 // KWin Script Runner
 // =============================================================================
 
+async fn unload_script(conn: &Connection, script_name: &str) {
+  let _ = conn
+    .call_method(
+      Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
+      "/Scripting",
+      Some(InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name")),
+      "unloadScript",
+      &(script_name),
+    )
+    .await;
+}
+
 /// Runs a KWin script with common boilerplate:
 /// 1. Unload any existing script with the same name
 /// 2. Write script content to temp file
@@ -136,15 +148,7 @@ async fn run_kwin_script(
   delay_before_unload: Option<Duration>,
 ) -> Result<()> {
   // 1. Unload existing script if any
-  let _ = conn
-    .call_method(
-      Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
-      "/Scripting",
-      Some(InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name")),
-      "unloadScript",
-      &(script_name),
-    )
-    .await;
+  unload_script(conn, script_name).await;
 
   // 2. Write content to RAM to avoid SSD churn. Prefer $XDG_RUNTIME_DIR: unlike
   // /dev/shm, other users can't pre-create or swap the file KWin loads.
@@ -190,17 +194,7 @@ async fn run_kwin_script(
 
     if let Some(delay) = delay_before_unload {
       sleep(delay).await;
-      let _ = conn
-        .call_method(
-          Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
-          "/Scripting",
-          Some(
-            InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name"),
-          ),
-          "unloadScript",
-          &(script_name),
-        )
-        .await;
+      unload_script(conn, script_name).await;
     }
     let _ = fs::remove_file(tmp_path);
   }
@@ -728,15 +722,7 @@ async fn run_toggle_script(
 
   // Unload the grab script's re-park listeners so they don't fight the slide.
   // The toggle script re-attaches listeners to any hidden windows it touches.
-  let _ = conn
-    .call_method(
-      Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
-      "/Scripting",
-      Some(InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name")),
-      "unloadScript",
-      &("janq_init_script"),
-    )
-    .await;
+  unload_script(conn, "janq_init_script").await;
 
   run_kwin_script(conn, "janq_toggle_engine", &script_content, None)
     .await
@@ -879,17 +865,7 @@ pub async fn purge_stale_scripts(conn: &Connection) {
     "janq_restore_script",
   ];
   for name in STALE_NAMES {
-    let _ = conn
-      .call_method(
-        Some(BusName::try_from("org.kde.KWin").expect("valid D-Bus bus name")),
-        "/Scripting",
-        Some(
-          InterfaceName::try_from("org.kde.kwin.Scripting").expect("valid D-Bus interface name"),
-        ),
-        "unloadScript",
-        &(*name),
-      )
-      .await;
+    unload_script(conn, name).await;
   }
 }
 

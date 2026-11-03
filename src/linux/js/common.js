@@ -202,6 +202,42 @@ const resetQuakeProperties = (target) => {
   target.opacity = 1.0;
 };
 
+const overlapsScreen = (x, y, w, h) => {
+  for (const s of workspace.screens) {
+    const a = s.geometry;
+    if (x < a.x + a.width && x + w > a.x && y < a.y + a.height && y + h > a.y) return true;
+  }
+  return false;
+};
+
+// Past the edge of the whole virtual desktop on the slide axis, not just the window's
+// screen: "above screen X" can land on another monitor stacked above it.
+const desktopEdgeSpot = (dir, x, y, w, h) => {
+  const vs = workspace.virtualScreenGeometry;
+  switch (dir) {
+    case "top": return { x: x, y: vs.y - h - 10 };
+    case "bottom": return { x: x, y: vs.y + vs.height + 10 };
+    case "left": return { x: vs.x - w - 10, y: y };
+    case "right": return { x: vs.x + vs.width + 10, y: y };
+  }
+  return { x: x, y: y };
+};
+
+// Plasma 6.8+ pulls a parked window back on screen when it commits after a
+// configure (e.g. after losing focus). Park it again while it stays hidden.
+// Moves that leave it outside the desktop (re-grab after hotplug) are left alone.
+const keepParkedAt = (win, parkX, parkY) => {
+  win.frameGeometryChanged.connect(() => {
+    if (win.opacity > 0.01) return;
+    const g = win.frameGeometry;
+    if (Math.abs(g.x - parkX) <= 2 && Math.abs(g.y - parkY) <= 2) return;
+    const vs = workspace.virtualScreenGeometry;
+    const onDesktop = g.x < vs.x + vs.width && g.x + g.width > vs.x && g.y < vs.y + vs.height && g.y + g.height > vs.y;
+    if (!onDesktop) return;
+    win.frameGeometry = { x: parkX, y: parkY, width: g.width, height: g.height };
+  });
+};
+
 const focusKick = (target, restoreOriginal) => {
   const activeWin = workspace.activeWindow !== undefined ? workspace.activeWindow : workspace.activeClient;
 

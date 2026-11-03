@@ -34,31 +34,12 @@
 
       if (!app.isVisible) {
         console.log(`janq_grab: Parking ${app.windowClass} offscreen (${app.slideFrom || "top"}).`);
-        // Park past the edge of the whole virtual desktop, not the resolved screen:
-        // "above screen X" can land on another monitor stacked above it.
         // toggle_quake.js repositions to the per-screen hidden spot before showing.
-        const vs = workspace.virtualScreenGeometry;
-        let parkX = slidePos.hiddenX;
-        let parkY = slidePos.hiddenY;
-        switch (app.slideFrom || "top") {
-          case "top": parkY = vs.y - dims.height - 10; break;
-          case "bottom": parkY = vs.y + vs.height + 10; break;
-          case "left": parkX = vs.x - dims.width - 10; break;
-          case "right": parkX = vs.x + vs.width + 10; break;
-        }
+        const park = desktopEdgeSpot(app.slideFrom || "top", slidePos.hiddenX, slidePos.hiddenY, dims.width, dims.height);
         target.opacity = 0.0;
-        target.frameGeometry = { x: parkX, y: parkY, width: dims.width, height: dims.height };
-        // Plasma 6.8+ pulls parked windows back on screen after a configure ack.
-        // Re-park while hidden. This script stays loaded; toggle unloads it first.
-        target.frameGeometryChanged.connect(() => {
-          if (target.opacity > 0.01) return;
-          const g = target.frameGeometry;
-          if (Math.abs(g.x - parkX) <= 2 && Math.abs(g.y - parkY) <= 2) return;
-          const vsg = workspace.virtualScreenGeometry;
-          const onDesktop = g.x < vsg.x + vsg.width && g.x + g.width > vsg.x && g.y < vsg.y + vsg.height && g.y + g.height > vsg.y;
-          if (!onDesktop) return;
-          target.frameGeometry = { x: parkX, y: parkY, width: g.width, height: g.height };
-        });
+        target.frameGeometry = { x: park.x, y: park.y, width: dims.width, height: dims.height };
+        // This script stays loaded so the listener lives on; a toggle unloads it first.
+        keepParkedAt(target, park.x, park.y);
       } else {
         console.log(`janq_grab: Restoring ${app.windowClass} to shown position.`);
         target.opacity = 1.0;
