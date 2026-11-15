@@ -189,6 +189,8 @@
     if (h.client !== target) keepParked(h.client, h.client.frameGeometry.x, h.client.frameGeometry.y, h.dir);
   }
 
+  // Set by focusThenAnimate when it has already focused the window before the slide.
+  let preFocused = false;
   const startAnimation = () => {
     if (config.duration > 0) {
       const startTime = Date.now();
@@ -380,7 +382,6 @@
   // Plasma 6.8+ moves a window back to where it was when a configure (focus change)
   // went out, once the app acks it. Focus while parked; the ack makes KWin pull the
   // parked window on screen, and that geometry change starts the slide.
-  let preFocused = false;
   const focusThenAnimate = () => {
     const isXdg = String(target).indexOf("XdgToplevelWindow") !== -1;
     if (!config.waitForAck || config.duration <= 0 || !isXdg) {

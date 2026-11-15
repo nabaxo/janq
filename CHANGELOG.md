@@ -13,6 +13,7 @@ No changes yet.
 
 ### Fixed
 - **(Linux) User KWin window rules deleted on Plasma 6.8**: Starting the daemon (with `kde_window_rules` on) removed every window rule the user had made, leaving only janq's own icon rules. janq now keeps the user's rules and writes the rule list in the format Plasma 6.8 uses.
+- **(Linux) KWin log warning on every toggle**: Each toggle logged `Variable "preFocused" is used before its declaration` in the KWin journal. The warning is gone; toggling behaves the same.
 
 ## [1.1.3] - 2026-11-03
 
