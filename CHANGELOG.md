@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
+## [1.1.4] - 2026-11-15
+
+### Fixed
+- **(Linux) User KWin window rules deleted on Plasma 6.8**: Starting the daemon (with `kde_window_rules` on) removed every window rule the user had made, leaving only janq's own icon rules. janq now keeps the user's rules and writes the rule list in the format Plasma 6.8 uses.
+
 ## [1.1.3] - 2026-11-03
 
 ### Fixed

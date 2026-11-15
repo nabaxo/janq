@@ -981,19 +981,30 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
     }
   }
 
-  // Read the current rules list to maintain order/cleanup
-  let current_rules_str = Command::new("kreadconfig6")
-    .args([
-      "--file",
-      "kwinrulesrc",
-      "--group",
-      "General",
-      "--key",
-      "rules",
-    ])
-    .output()
-    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+  // Read the current rules list to maintain order/cleanup. Plasma 6.8+ stores it as
+  // `Order` with no `count`; writing `rules` there makes KWin drop every unlisted rule.
+  let order_str = group_values
+    .get("General")
+    .and_then(|general| general.get("Order"))
+    .cloned()
     .unwrap_or_default();
+  let (list_key, current_rules_str) = if !order_str.is_empty() {
+    ("Order", order_str)
+  } else {
+    let rules_str = Command::new("kreadconfig6")
+      .args([
+        "--file",
+        "kwinrulesrc",
+        "--group",
+        "General",
+        "--key",
+        "rules",
+      ])
+      .output()
+      .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+      .unwrap_or_default();
+    ("rules", rules_str)
+  };
 
   let mut rule_ids: Vec<String> = if current_rules_str.is_empty() {
     Vec::new()
@@ -1074,12 +1085,14 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
   }
 
   // Previously the count was rewritten on every sync; keep self-healing a wrong count.
-  let count_matches = group_values
-    .get("General")
-    .and_then(|general| general.get("count"))
-    .is_some_and(|count| *count == rule_ids.len().to_string());
-  if !kept_ids.is_empty() && !count_matches {
-    list_changed = true;
+  if list_key == "rules" {
+    let count_matches = group_values
+      .get("General")
+      .and_then(|general| general.get("count"))
+      .is_some_and(|count| *count == rule_ids.len().to_string());
+    if !kept_ids.is_empty() && !count_matches {
+      list_changed = true;
+    }
   }
 
   // If we have stale rules, we perform a manual "sledgehammer" deletion
@@ -1111,7 +1124,7 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
   }
 
   if list_changed {
-    // Sync the master list of rules and the count
+    // Sync the master list of rules (and the count, legacy format only)
     let _ = Command::new("kwriteconfig6")
       .args([
         "--file",
@@ -1119,21 +1132,23 @@ fn sync_kwin_rules_impl(config: Option<&Config>) -> Result<()> {
         "--group",
         "General",
         "--key",
-        "rules",
+        list_key,
         &rule_ids.join(","),
       ])
       .status();
-    let _ = Command::new("kwriteconfig6")
-      .args([
-        "--file",
-        "kwinrulesrc",
-        "--group",
-        "General",
-        "--key",
-        "count",
-        &rule_ids.len().to_string(),
-      ])
-      .status();
+    if list_key == "rules" {
+      let _ = Command::new("kwriteconfig6")
+        .args([
+          "--file",
+          "kwinrulesrc",
+          "--group",
+          "General",
+          "--key",
+          "count",
+          &rule_ids.len().to_string(),
+        ])
+        .status();
+    }
   }
 
   if wrote_any || list_changed {
